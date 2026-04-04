@@ -309,6 +309,120 @@ Open `debug.html` in a browser for collapsible proof branches.
 
 ---
 
+## EYE vs HermiT: How They Complement Each Other
+
+### What's the difference?
+
+**EYE** (and pyeye) is an **N3 rule-based reasoner**. It uses forward and backward chaining over custom rules written in Notation3 logic. Think of it as a *programmable inference engine* — you write the rules, it applies them.
+
+**HermiT** is an **OWL DL reasoner**. It uses hypertableau calculus to classify ontologies, check consistency, and compute subsumption hierarchies. Think of it as a *schema validator* — you define the ontology, it checks whether everything makes sense.
+
+| Feature | EYE / pyeye | HermiT |
+| :--- | :--- | :--- |
+| **Logic** | First-order logic via N3 rules | Description Logic (OWL 2 DL) |
+| **Reasoning style** | Forward + backward chaining | Hypertableau calculus |
+| **Input** | N3 rules + data triples | OWL ontologies (RDF/XML, Turtle, Manchester) |
+| **Strengths** | Custom business rules, data integration, agent communication | Ontology classification, consistency checking, subsumption |
+| **Open world** | Yes (with explicit negation via BLOGIC) | Yes (full OWL open-world semantics) |
+| **Expressivity** | Arbitrary Horn + non-Horn rules, meta-reasoning | OWL 2 DL (SROIQ(D)) — decidable but restricted |
+| **Proof traces** | Yes — step-by-step derivation trees | Yes — explanation of entailments |
+| **Typical use** | "If order > $1000, flag for review" | "Is Manager a subclass of Employee?" |
+
+### When to use EYE / pyeye
+
+- **Business rules**: "If temperature > 30°C AND room is occupied, turn on AC"
+- **Data integration**: Merging facts from multiple sources with custom mapping rules
+- **Agent communication**: Agents exchange N3 rules and derive shared conclusions
+- **Dynamic reasoning**: Rules that modify other rules (`e:becomes`, `e:transaction`)
+- **Explainable decisions**: Every derived fact comes with a proof tree
+- **Anything that needs custom logic** beyond what OWL profiles can express
+
+### When to use HermiT
+
+- **Ontology development**: Checking that your class hierarchy is consistent
+- **Classification**: Computing all implicit subsumption relationships
+- **Consistency checking**: Finding contradictions in your ontology
+- **Realization**: Determining the most specific classes for each individual
+- **OWL 2 DL compliance**: Verifying that your ontology conforms to the spec
+- **Anything that needs deep schema-level reasoning**
+
+### How they complement each other
+
+In a complete Semantic Web system, you'd typically use **both**:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    Application Layer                  │
+├─────────────────────────────────────────────────────┤
+│  HermiT (OWL DL)         │  EYE / pyeye (N3 rules)  │
+│  ─────────────────       │  ──────────────────      │
+│  • Classify ontology       │  • Apply business rules  │
+│  • Check consistency       │  • Integrate data        │
+│  • Compute subsumption     │  • Agent reasoning       │
+│  • Validate schema         │  • Derive new facts      │
+├─────────────────────────────────────────────────────┤
+│              Shared RDF Knowledge Graph               │
+│  (Triples + Named Graphs + OWL Axioms + N3 Rules)    │
+└─────────────────────────────────────────────────────┘
+```
+
+**Workflow:**
+
+1. **Design phase**: Use HermiT to develop and validate your ontology. Ensure class hierarchies are consistent, properties have correct domains/ranges, and there are no contradictions.
+
+2. **Runtime phase**: Use EYE / pyeye to apply custom rules over the data that conforms to your ontology. Derive new facts, make decisions, trigger actions.
+
+3. **Feedback loop**: If EYE derives facts that violate your ontology constraints, HermiT will catch the inconsistency. Fix the rules or the data, then repeat.
+
+### Example: Combined workflow
+
+```python
+# Step 1: Validate ontology with HermiT (external tool)
+# hermit --check-consistency ontology.owl  ← passes
+
+# Step 2: Apply business rules with pyeye
+from pyeye import execute
+
+result = execute(
+    data_paths=["ontology-data.ttl", "sensor-readings.ttl"],
+    rule_strings=[
+        # Custom rules that go beyond OWL expressivity
+        """
+        @prefix : <http://smart-building.org/> .
+        @prefix math: <http://www.w3.org/2000/10/swap/math#> .
+        
+        # Rule: if room temperature > 30 AND room is occupied, turn on AC
+        { ?Room :temperature ?T . ?T math:greaterThan "30" .
+          ?Room :occupied true }
+            => { ?Room :acOn true } .
+        """,
+    ],
+    entail=True,  # RDFS entailment bridges ontology and data
+)
+```
+
+### Can pyeye replace HermiT?
+
+**No.** pyeye (and EYE) cannot perform OWL DL classification, compute subsumption hierarchies, or check ontology consistency in the DL sense. These require description logic algorithms that are fundamentally different from rule chaining.
+
+### Can HermiT replace pyeye?
+
+**No.** HermiT cannot execute custom business rules, integrate data from heterogeneous sources using mapping rules, or support agent-to-agent rule exchange. These require the flexibility of N3 logic that goes far beyond OWL's decidable fragment.
+
+### Bottom line
+
+| You need... | Use... |
+| :--- | :--- |
+| Custom if-then rules | **EYE / pyeye** |
+| Ontology classification | **HermiT** |
+| Data integration with rules | **EYE / pyeye** |
+| Consistency checking | **HermiT** |
+| Agent communication | **EYE / pyeye** |
+| Schema validation | **HermiT** |
+| Both | **Both** — they complement each other |
+
+---
+
 ## Development
 
 ### How do I run the tests?
