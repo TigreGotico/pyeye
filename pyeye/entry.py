@@ -44,6 +44,7 @@ def execute(
     query: Triple | None = None,
     forward: bool = True,
     entail: bool = False,
+    not_entail: Triple | None = None,
 ) -> Result:
     """Run N3 reasoning and return derived triples as N3 text.
 
@@ -85,6 +86,10 @@ def execute(
         If True, apply RDFS entailment rules before running user rules.
         Derives implicit triples from subClassOf, subPropertyOf,
         domain, and range declarations.
+    not_entail :
+        If set, check that this triple is NOT entailed by the data + rules.
+        Returns empty triples if not entailed, or the triple if it IS entailed
+        (i.e., the check fails).
     """
     start = time.monotonic()
 
@@ -188,12 +193,22 @@ def execute(
 
     triples_text = writer.write_triples(output_triples)
 
+    # Check not_entail: verify the triple is NOT in the store
+    not_entail_failed = False
+    if not_entail is not None:
+        from pyeye.unify import unify
+        for store_triple in engine.store:
+            if unify(not_entail, store_triple) is not None:
+                not_entail_failed = True
+                break
+
     return Result(
         triples=triples_text,
         stats={
             "steps": engine.step_count,
             "derived": len(output_triples),
             "time_ms": elapsed * 1000,
+            "not_entail_failed": not_entail_failed,
         },
         explains=engine._proof_trees if explain else [],
         query_answers=query_answers,

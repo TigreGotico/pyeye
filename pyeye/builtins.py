@@ -18,6 +18,8 @@ import hashlib as _hashlib
 import re as _re
 import math as _math
 import time as _time
+import subprocess as _subprocess
+import urllib.request as _urllib
 from typing import Protocol
 
 from pyeye.term import NamedNode, Literal, Variable, Existential, Triple, Term, Formula
@@ -569,6 +571,69 @@ def e_transaction(args: list[Term], engine: EngineProto) -> list[Triple] | None:
     return results if results else None
 
 
+def e_exec(args: list[Term], engine: EngineProto) -> Term | None:
+    """Execute a shell command and return the exit code.
+
+    e:exec("ls -l /tmp") → "0" (exit code as string).
+    """
+    if _unground(args):
+        return None
+    cmd = _str_val(args[0])
+    try:
+        result = _subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=30
+        )
+        return Literal(str(result.returncode))
+    except Exception:
+        return Literal("-1")
+
+
+def e_shell(args: list[Term], engine: EngineProto) -> Term | None:
+    """Execute a shell command and return stdout.
+
+    e:shell("echo hello") → "hello".
+    """
+    if _unground(args):
+        return None
+    cmd = _str_val(args[0])
+    try:
+        result = _subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=30
+        )
+        return Literal(result.stdout)
+    except Exception:
+        return Literal("")
+
+
+def log_ask(args: list[Term], engine: EngineProto) -> Term | None:
+    """Perform an HTTP GET request and return the response body.
+
+    log:ask("http://example.org/data") → response content.
+    """
+    if _unground(args):
+        return None
+    url = _str_val(args[0])
+    try:
+        with _urllib.urlopen(url, timeout=30) as response:
+            content = response.read().decode("utf-8", errors="replace")
+            return Literal(content[:10000])  # Limit to 10KB
+    except Exception:
+        return None
+
+
+def log_shell(args: list[Term], engine: EngineProto) -> Term | None:
+    """Execute shell command and return stdout (alias for e:shell)."""
+    return e_shell(args, engine)
+
+
+def log_collectAllIn(args: list[Term], engine: EngineProto) -> list[Triple] | None:
+    """Collect all triples matching a pattern from the store.
+
+    Simplified: returns all store triples.
+    """
+    return list(engine.store)
+
+
 # ---------------------------------------------------------------------------
 # Extended Time builtins
 # ---------------------------------------------------------------------------
@@ -790,4 +855,10 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_E + "closure": e_closure,
     NS_E + "becomes": e_becomes,
     NS_E + "transaction": e_transaction,
+    NS_E + "exec": e_exec,
+    NS_E + "shell": e_shell,
+    # Log extended
+    NS_LOG + "ask": log_ask,
+    NS_LOG + "shell": log_shell,
+    NS_LOG + "collectAllIn": log_collectAllIn,
 }

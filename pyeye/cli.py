@@ -7,6 +7,7 @@ import argparse
 
 from pyeye.entry import execute
 from pyeye.parser import ParseError
+from pyeye.term import Triple
 
 
 def main() -> None:
@@ -42,7 +43,10 @@ def main() -> None:
     parser.add_argument("--entail", action="store_true",
                         help="Apply RDFS entailment before user rules")
     parser.add_argument("--not-entail", dest="not_entail", action="store_true",
-                        help="Check non-entailment (Phase 2)")
+                        help="Check that no entailment occurred (Phase 2)")
+    parser.add_argument("--not-entail-triple", dest="not_entail_triple", default=None,
+                        metavar="S,P,O",
+                        help="Check that this triple is NOT entailed (S,P,O comma-separated)")
     parser.add_argument("--query-goal", dest="query_goal", default=None,
                         metavar="TRIPLE",
                         help="Backward chain from this triple pattern (Phase 2)")
@@ -65,6 +69,18 @@ def main() -> None:
         if name == "limited-answer":
             limit_answers = int(value)
 
+    # Parse not_entail triple (S,P,O comma-separated)
+    not_entail_triple = None
+    if args.not_entail_triple:
+        from pyeye.term import NamedNode
+        parts = args.not_entail_triple.split(",", 2)
+        if len(parts) == 3:
+            not_entail_triple = Triple(
+                NamedNode(parts[0].strip()),
+                NamedNode(parts[1].strip()),
+                NamedNode(parts[2].strip()),
+            )
+
     try:
         result = execute(
             data_paths=args.n3 or None,
@@ -78,6 +94,7 @@ def main() -> None:
             pass_all=args.pass_all,
             entail=args.entail,
             forward=not args.no_forward,
+            not_entail=not_entail_triple,
         )
     except Exception as exc:
         # Catch parse errors, rdflib errors, and anything else
