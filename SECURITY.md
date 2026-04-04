@@ -46,11 +46,16 @@ If you need to process untrusted N3 files:
 4. **Set resource limits**: Use `max_steps` and `limit_answers` to prevent runaway reasoning.
 
 ```python
-from pyeye import execute
+from pyeye import execute, BUILTIN_REGISTRY
 
-# Safe mode: only basic builtins
-SAFE_BUILTINS = {k: v for k, v in pyeye.BUILTIN_REGISTRY.items()
-                 if not k.startswith(("http://eulersharp", "http://www.w3.org/2000/10/swap/log#ask"))}
+# Safe mode: exclude command execution and HTTP
+UNSAFE_PREFIXES = (
+    "http://eulersharp.sourceforge.net/2003/03swap/log-rules#exec",
+    "http://eulersharp.sourceforge.net/2003/03swap/log-rules#shell",
+    "http://www.w3.org/2000/10/swap/log#ask",
+)
+SAFE_BUILTINS = {k: v for k, v in BUILTIN_REGISTRY.items()
+                 if not any(k.startswith(p) for p in UNSAFE_PREFIXES)}
 
 result = execute(
     data_strings=[...],

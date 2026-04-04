@@ -2,7 +2,7 @@
 
 ## What are builtins?
 
-**Builtins** are built-in functions that the reasoner can call inside rule bodies. They let you do things like compare numbers, manipulate strings, check dates, and generate unique IDs — without writing any rules for them yourself.
+**Builtins** are built-in functions that the reasoner can call inside rule bodies. They let you do things like compare numbers, manipulate strings, check dates, generate unique IDs, execute safe commands, and make HTTP requests — without writing any rules for them yourself.
 
 Think of them like functions in a programming language that are always available. You don't need to define them; you just use them.
 
@@ -52,19 +52,13 @@ Here's what happens step by step:
 
 Here `?Total` is a variable that **receives** the result of `?P math:times ?Q`. The derived fact is `?Item :totalCost 150` (if price=50 and quantity=3).
 
-### Example: String Operations
-
-```n3
-@prefix str: <http://www.w3.org/2000/10/swap/string#> .
-
-{ ?Name str:startsWith "Dr." } => { ?Name :hasTitle true } .
-```
-
-If any name starts with "Dr.", mark it as having a title.
-
 ---
 
 ## All Builtins
+
+**Source:** `BUILTIN_REGISTRY` — `pyeye/builtins.py:1267`
+
+There are **93 builtins** across 11 namespaces.
 
 ### Math: Numbers
 
@@ -80,6 +74,19 @@ If any name starts with "Dr.", mark it as having a title.
 | `math:minus` | Subtract | `?A math:minus ?B ?Diff` → Diff = A-B |
 | `math:times` | Multiply | `?A math:times ?B ?Product` → Product = A×B |
 | `math:divide` | Divide (skips if dividing by 0) | `?A math:divide ?B ?Quotient` → Quotient = A/B |
+| `math:floor` | Round down to integer | `3.7 math:floor ?F` → F=3 |
+| `math:ceiling` | Round up to integer | `3.2 math:ceiling ?C` → C=4 |
+| `math:exponentiation` | Power | `2 math:exponentiation 3 ?R` → R=8 |
+| `math:logarithm` | Natural logarithm | `?X math:logarithm ?L` → L=ln(X) |
+| `math:sin` | Sine (radians) | `?X math:sin ?S` → S=sin(X) |
+| `math:cos` | Cosine (radians) | `?X math:cos ?C` → C=cos(X) |
+| `math:tan` | Tangent (radians) | `?X math:tan ?T` → T=tan(X) |
+| `math:avg` | Average of numbers | `(2 4 6) math:avg ?A` → A=4 |
+| `math:std` | Standard deviation | `(2 4 4 4 5 5 7 9) math:std ?S` → S≈2.14 |
+| `math:pcc` | Pearson correlation | interleaved pairs → correlation coefficient |
+| `math:rms` | Root mean square | `(3 4) math:rms ?R` → R≈3.54 |
+
+Source range: `builtins.py:95-528`
 
 #### Full math example: Discount calculator
 
@@ -100,7 +107,7 @@ Result: `:widget :finalPrice 45 .`
 
 ---
 
-### String: Text
+### String: Text Operations
 
 **Namespace:** `http://www.w3.org/2000/10/swap/string#`
 
@@ -112,6 +119,11 @@ Result: `:widget :finalPrice 45 .`
 | `string:startsWith` | Does text start with a prefix? | `?Text string:startsWith "Dr."` → `true` or `false` |
 | `string:endsWith` | Does text end with a suffix? | `?Email string:endsWith "@example.org"` → `true` or `false` |
 | `string:equal` | Are two strings identical? | `?A string:equal ?B` → `true` if same text |
+| `string:matches` | Regex match | `?Text string:matches "^[A-Z].*"` → `true` if starts with uppercase |
+| `string:replace` | Regex replace | `?Text string:replace("old", "new") ?R` → R with substitutions |
+| `string:substring` | Extract substring | `"hello" string:substring(1, 3) ?R` → R="ell" |
+
+Source range: `builtins.py:150-186`
 
 #### Full string example: Email validation
 
@@ -149,6 +161,12 @@ Results:
 | `time:month` | Extract month | `"2025-03-15" time:month ?M` → M=3 |
 | `time:day` | Extract day | `"2025-03-15" time:day ?D` → D=15 |
 | `time:in-seconds` | Current Unix timestamp | `time:in-seconds ?T` → T=1712242200.0 |
+| `time:hours` | Extract hours | `"2025-03-15T15:30:00" time:hours ?H` → H=15 |
+| `time:minutes` | Extract minutes | `"2025-03-15T15:30:00" time:minutes ?M` → M=30 |
+| `time:seconds` | Extract seconds | `"2025-03-15T15:30:45" time:seconds ?S` → S=45 |
+| `time:localTime` | Current local time as ISO | `time:localTime ?T` → T="2025-04-04T15:30:00+01:00" |
+
+Source range: `builtins.py:190-228,1081-1117`
 
 #### Full time example: Late-night alerts
 
@@ -172,6 +190,12 @@ Results:
 | :--- | :--- | :--- |
 | `list:in` | Is an item in a list? | `:apple list:in (:apple :banana) ` → `true` |
 | `list:length` | How many items in a list? | `(:a :b :c) list:length ?N` → N=3 |
+| `list:car` | Return the first element | `_:list1 list:car ?First` → First = first item |
+| `list:cdr` | Return the rest of a list | `_:list1 list:cdr ?Rest` → Rest = tail of list |
+| `list:select` | Select nth element (1-indexed) | `_:list1 list:select "2" ?Item` → Item = 2nd element |
+| `list:remove` | Remove element by index | Returns store triples without removed element |
+
+Source range: `builtins.py:232-300,531-637`
 
 #### Full list example: Shopping cart
 
@@ -204,8 +228,17 @@ Results:
 | :--- | :--- | :--- |
 | `log:outputString` | Mark text for output | `?Msg log:outputString ?Out` → passes ?Msg through |
 | `log:skolem` | Generate a unique ID | `?Entity log:skolem ?ID` → ID="_:sk-1" |
-| `log:content` | Get all facts in the store | `log:content ?All` → all current triples |
+| `log:content` | Get all triples in the store | `log:content ?All` → all current triples |
 | `log:equalTo` | Are two terms identical? | `?A log:equalTo ?B` → `true` if same |
+| `log:uuid` | Generate a UUID | `log:uuid ?U` → U="550e8400-e29b-..." |
+| `log:n3String` | Convert a term to N3 string | `:foo log:n3String ?S` → S=":foo" |
+| `log:implies` | Check if premise implies conclusion | `?A log:implies ?B` → `true` if equal |
+| `log:forAllIn` | Collect all bindings for a variable | Returns all store triples |
+| `log:ask` | HTTP GET request (SSRF-protected) | `"http://example.org/data" log:ask ?Body` |
+| `log:shell` | Execute safe command, return stdout | Alias for `e:shell` |
+| `log:collectAllIn` | Collect all matching triples | Returns all store triples |
+
+Source range: `builtins.py:303-327,814-840,1030-1072`
 
 #### Full log example: Unique ticket generator
 
@@ -239,6 +272,110 @@ Each issue gets a different unique ID.
 | `type:isNumeric` | Is this a number? | `42 type:isNumeric ?R` → `true` |
 | `type:str` | Convert to plain text | `:foo type:str ?R` → R=":foo" |
 | `type:iri` | Convert text to a name/IRI | `"http://x.org/a" type:iri ?R` → R=<http://x.org/a> |
+
+Source range: `builtins.py:331-361`
+
+---
+
+### Crypto: Hash Functions
+
+**Namespace:** `http://www.w3.org/2000/10/swap/crypto#`
+
+| Builtin | What it does | Example |
+| :--- | :--- | :--- |
+| `crypto:md5` | MD5 hash | `"hello" crypto:md5 ?H` → H="5d41402abc4b2a76b9719d911017c592" |
+| `crypto:sha` | SHA-1 hash | `"hello" crypto:sha ?H` → SHA-1 hex string |
+| `crypto:sha256` | SHA-256 hash | `"hello" crypto:sha256 ?H` → H="2cf24dba5fb0a3..." |
+| `crypto:sha512` | SHA-512 hash | `"hello" crypto:sha512 ?H` → SHA-512 hex string |
+
+Source range: `builtins.py:366-399`
+
+---
+
+### Graph: Named Graph Operations
+
+**Namespace:** `http://www.w3.org/2000/10/swap/graph#`
+
+| Builtin | What it does | Example |
+| :--- | :--- | :--- |
+| `graph:member` | Is a triple in a graph? | `:a :p :b graph:member ?R` → `true` if exists |
+| `graph:length` | Number of triples in a graph | `:graph1 graph:length ?N` → N=triple count |
+| `graph:difference` | Triples in A but not B | `:g1 :g2 graph:difference ?D` → D = A-B |
+| `graph:intersection` | Triples common to both | `:g1 :g2 graph:intersection ?I` → I = A∩B |
+| `graph:union` | All triples from both | `:g1 :g2 graph:union ?U` → U = A∪B |
+| `graph:statement` | Construct a triple | `:a :p :b graph:statement ?T` → T=[Triple] |
+
+Source range: `builtins.py:1124-1219`
+
+---
+
+### E: Dynamic Rules and Execution
+
+**Namespace:** `http://eulersharp.sourceforge.net/2003/03swap/log-rules#`
+
+| Builtin | What it does | Example |
+| :--- | :--- | :--- |
+| `e:calculate` | Evaluate safe expression (literals only) | `e:calculate("42") ?R` → R="42" |
+| `e:findall` | Collect all store triples | `e:findall ?All` → all triples |
+| `e:closure` | Check if formula is deductively closed | Returns `true` (simplified) |
+| `e:becomes` | Retract old triple, assert new | `e:becomes(old, new)` → removes old, adds new |
+| `e:transaction` | Atomic multi-triple assertion | `e:transaction(triple1, triple2)` |
+| `e:exec` | Execute safe command, return exit code | `e:exec("ls -l /tmp") ?R` → R="0" |
+| `e:shell` | Execute safe command, return stdout | `e:shell("echo hello") ?R` → R="hello\n" |
+| `e:derive` | Call registered Python function | `e:derive("my_fn", arg1, arg2) ?R` |
+
+Source range: `builtins.py:849-1025`
+
+#### Safe command allowlist
+
+`e:exec` and `e:shell` only permit these commands:
+
+```
+echo, date, uname, whoami, hostname, id, uptime,
+cat, head, tail, wc, ls, find, stat, file, md5sum, sha256sum,
+curl, wget, ping, dig, nslookup,
+grep, awk, sed, sort, uniq, tr, cut,
+bc, expr, df, free, ps
+```
+
+Commands not in this list are silently rejected. Shell injection is prevented by using `subprocess.run(..., shell=False)`.
+
+---
+
+### RIF/XPath Functions
+
+**Namespace:** `http://www.w3.org/2007/XPath-functions#`
+
+| Builtin | What it does | Example |
+| :--- | :--- | :--- |
+| `func:concat` | Concatenate strings | `func:concat("Hello", " ", "World") ?R` → R="Hello World" |
+| `func:substring` | Extract substring (1-indexed) | `func:substring("hello world", 7, 5) ?R` → R="world" |
+| `func:string-length` | String length | `func:string-length("hello") ?R` → R=5 |
+| `func:upper-case` | Convert to uppercase | `func:upper-case("hello") ?R` → R="HELLO" |
+| `func:lower-case` | Convert to lowercase | `func:lower-case("HELLO") ?R` → R="hello" |
+| `func:contains` | String contains substring | `func:contains("hello world", "world") ?R` → R=`true` |
+| `func:starts-with` | Starts with prefix | `func:starts-with("hello world", "hello") ?R` → R=`true` |
+| `func:ends-with` | Ends with suffix | `func:ends-with("hello world", "world") ?R` → R=`true` |
+| `func:substring-before` | Substring before delimiter | `func:substring-before("a:b", ":") ?R` → R="a" |
+| `func:substring-after` | Substring after delimiter | `func:substring-after("a:b", ":") ?R` → R="b" |
+| `func:translate` | Character translation | `func:translate("abc", "abc", "xyz") ?R` → R="xyz" |
+| `func:normalize-space` | Normalize whitespace | `func:normalize-space("  hello   world  ") ?R` → R="hello world" |
+| `func:tokenize` | Split string into list | `func:tokenize("a b c", " ") ?R` → R=list head |
+
+Source range: `builtins.py:645-774`
+
+### XPath Predicates
+
+**Namespace:** `http://www.w3.org/2007/XPath-functions/pred#`
+
+| Builtin | What it does | Example |
+| :--- | :--- | :--- |
+| `pred:equalTo` | Are two values equal? | `?X pred:equalTo ?Y` → `true` if X=Y |
+| `pred:less-than` | Is first less than second? | `?X pred:less-than ?Y` → `true` if X<Y |
+| `pred:greater-than` | Is first greater than second? | `?X pred:greater-than ?Y` → `true` if X>Y |
+| `pred:matches` | Regex match | `?Text pred:matches "pattern" ?R` → `true` or `false` |
+
+Source range: `builtins.py:777-807`
 
 ---
 
@@ -295,25 +432,23 @@ result = execute(
 )
 ```
 
-Your custom function receives:
-- `args` — a list of `Term` objects (the arguments from the rule body)
-- `engine` — the reasoning engine (gives you access to the triple store)
+### Custom Functions for e:derive
 
-Return a `Term` to bind the result to a variable, or `None` to skip.
+For `e:derive`, register functions that can be called by name from N3 rules:
 
----
+```python
+from pyeye.builtins import register_derive_function
+from pyeye.term import Literal
 
-## Source Code References
+def my_double(args, engine):
+    """Double a number."""
+    return Literal(str(float(args[0].value) * 2))
 
-All builtins are defined in `pyeye/builtins.py`:
+register_derive_function("double", my_double)
+```
 
-| Category | Namespace | Functions | Source |
-| :--- | :--- | :--- | :--- |
-| Math | `http://www.w3.org/2000/10/swap/math#` | 8 functions | `builtins.py:86-135` |
-| String | `http://www.w3.org/2000/10/swap/string#` | 6 functions | `builtins.py:139-168` |
-| Time | `http://www.w3.org/2000/10/swap/time#` | 5 functions | `builtins.py:171-200` |
-| List | `http://www.w3.org/2000/10/swap/list#` | 2 functions | `builtins.py:205-271` |
-| Log | `http://www.w3.org/2000/10/swap/log#` | 4 functions | `builtins.py:293-312` |
-| Type | `http://www.w3.org/2000/10/swap/type#` | 4 functions | `builtins.py:316-339` |
+Then use in N3:
 
-The builtin protocol is defined at `pyeye/builtins.py:28`.
+```n3
+{ ?Item :value ?V } => { ?V e:derive("double", ?V) ?Doubled } .
+```

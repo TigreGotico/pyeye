@@ -268,6 +268,147 @@ You'll see `a` a lot in N3 examples because it's the standard way to declare typ
 
 ---
 
+## Phase 2 Extended Syntax
+
+### Triple Terms: Reifying a Triple
+
+```n3
+<< :alice :knows :bob >> :wasSaidBy :charlie .
+```
+
+The `<< S P O >>` syntax lets you treat a triple as a **value** that can be the subject or object of another triple. This is N3's way of talking about statements themselves.
+
+**Source:** `Parser._triple_term` — `pyeye/parser.py`
+
+### Formula Terms: A Formula as a Value
+
+```n3
+:alice :thinks (| :says :alice "hello" |) .
+```
+
+The `(| Functor Args |)` syntax lets you embed a formula inside another triple. The functor is the predicate name, and the args are the arguments.
+
+**Source:** `Parser._formula_term` — `pyeye/parser.py`
+
+### `has` Sugar: Skipping the Object Position
+
+```n3
+:Alice :parent has :Bob .
+```
+
+This is equivalent to `:Alice :parent :Bob .`. The `has` keyword is just syntactic sugar — it's skipped during parsing.
+
+**Source:** `Parser._verb_obj_list` — `pyeye/parser.py:270`
+
+### `is` Sugar: Same as `has`
+
+```n3
+:Alice :name is "Alice" .
+```
+
+Equivalent to `:Alice :name "Alice" .`. Like `has`, the `is` keyword is skipped.
+
+### `of` Sugar: Property Inversion
+
+```n3
+:Bob :child of :Alice .
+```
+
+This **swaps** the subject and object: it's equivalent to `:Alice :child :Bob .`. The `of` keyword means "the predicate goes the other way."
+
+With semicolons:
+```n3
+:Bob :child of :Alice ; :sibling of :Carol .
+```
+
+Expands to:
+```n3
+:Alice :child :Bob .
+:Carol :sibling :Bob .
+```
+
+**Source:** `Parser._verb_obj_list` — `pyeye/parser.py:270`
+
+### Path Expressions: Chained Predicates
+
+```n3
+:a ! :p ! :q :target .
+```
+
+The `!` operator chains predicates together. This means "follow :p, then follow :q." The reverse path operator `^` goes the other direction:
+
+```n3
+:a ^ :parent :target .
+```
+
+This means "find who is the parent of :a" — equivalent to `?X :parent :a`.
+
+Chained paths:
+```n3
+:a ! :parent ! :sibling :target .
+```
+
+Meaning: find :a's parent's sibling.
+
+**Source:** `Parser._path_expression` — `pyeye/parser.py`
+
+### BLOGIC Negative Surfaces
+
+```n3
+@prefix log: <http://www.w3.org/2000/10/swap/log#> .
+
+:S log:onNegativeSurface { :a :p :b } .
+```
+
+A negative surface says: "this rule body should only match if the enclosed formula does **NOT** match the store." If `:a :p :b` exists in the store, the negation blocks the rule. If it doesn't exist, the rule proceeds.
+
+**Example:**
+```n3
+{ ?Person :age ?A . ?A math:greaterThan "17" .
+  _:neg log:onNegativeSurface { ?Person :hasLicense true } }
+    => { ?Person :cannotDrive true } .
+```
+
+This says: if someone is over 17 and does NOT have a license, they cannot drive.
+
+**Source:** `Engine._match_triples_iter` — `pyeye/engine.py:194` (negation check in body matching)
+
+### Set Syntax
+
+```n3
+:Alice :likes ($ :pizza :sushi :tacos $) .
+```
+
+Sets are like lists but unordered. In Phase 2, sets are treated like lists (converted to `rdf:first`/`rdf:rest` chains). Full set semantics (unordered membership testing) is planned for Phase 2b.
+
+**Source:** `Parser._set_term` — `pyeye/parser.py`
+
+### TriG Named Graphs
+
+```n3
+@prefix : <http://ex.org/> .
+
+GRAPH :g1 {
+    :alice :name "Alice" .
+    :bob :name "Bob" .
+}
+
+GRAPH :g2 {
+    :carol :name "Carol" .
+}
+```
+
+The `GRAPH <id> { ... }` syntax stores triples in a named graph. You can query specific graphs:
+
+```n3
+{ ?S ?P ?O } => { ... } .  # queries default graph
+{ GRAPH ?G { ?S ?P ?O } } => { ... } .  # queries named graph
+```
+
+**Source:** `Parser._do_graph` — `pyeye/parser.py:241`, `TripleStore.match(graph=...)` — `pyeye/store.py:100`
+
+---
+
 ## Comments
 
 ```n3
@@ -281,16 +422,20 @@ Comments are ignored by the engine. Use them to explain your rules to future rea
 
 ## Complete Example
 
-Here's a complete N3 file with data and rules:
+Here's a complete N3 file with data and rules, using Phase 2 features:
 
 ```n3
 @prefix : <http://my-ontology.org/> .
+@prefix log: <http://www.w3.org/2000/10/swap/log#> .
 
 # === DATA ===
 :alice :parent :bob .
 :bob :parent :carol .
 :bob :sibling :dave .
 :alice :age 65 .
+
+# Negation: :alice does NOT have a driver's license
+_:neg log:onNegativeSurface { :alice :hasLicense true } .
 
 # === RULES ===
 
@@ -303,9 +448,10 @@ Here's a complete N3 file with data and rules:
 # Rule 3: sibling of parent → aunt/uncle
 { ?X :sibling ?Y . ?Y :parent ?Z } => { ?X :auntOrUncleOf ?Z } .
 
-# Rule 4: age-based rule
-{ ?X :age ?A . ?A <http://www.w3.org/2000/10/swap/math#greaterThan> "60"^^<http://www.w3.org/2001/XMLSchema#integer> }
-    => { ?X :senior true } .
+# Rule 4: age-based rule with negation
+{ ?X :age ?A . ?A log:greaterThan "60" .
+  _:neg log:onNegativeSurface { ?X :hasLicense true } }
+    => { ?X :needsRide true } .
 ```
 
 After running this, the engine derives:
@@ -315,24 +461,8 @@ After running this, the engine derives:
 :carol :child :bob .
 :alice :grandparent :carol .
 :dave :auntOrUncleOf :carol .
-:alice :senior true .
+:alice :needsRide true .  # Because age > 60 AND no license (negation passes)
 ```
-
----
-
-## What's NOT Supported (Yet)
-
-Phase 1 covers the essentials above. The following N3 features are planned for Phase 2:
-
-| Feature | Example | Status |
-| :--- | :--- | :--- |
-| Triple terms | `<< :a :p :b >> :wasSaidBy :alice .` | ❌ Phase 2 |
-| Formula as value | `:rule :body (:pred :a :b) .` | ❌ Phase 2 |
-| `is` sugar | `:Bob :child of :Alice .` | ❌ Phase 2 |
-| `has` sugar | `:Alice :parent has :Bob .` | ❌ Phase 2 |
-| Reverse path | `:child^ :Alice` | ❌ Phase 2 |
-| BLOGIC negation | `log:onNegativeSurface { ... }` | ❌ Phase 2 |
-| Set syntax | `($ :a :b $)` | ❌ Phase 2 |
 
 ---
 
@@ -347,7 +477,9 @@ Phase 1 covers the essentials above. The following N3 features are planned for P
 | `42` | Integer | `:alice :age 42 .` |
 | `3.14` | Decimal | `:pi :value 3.14 .` |
 | `"text"@en` | Language-tagged | `:greeting :text "Hi"@en .` |
+| `"text"^^<type>` | Datatype literal | `:date :value "2025-03-15"^^xsd:date .` |
 | `[]` | Anonymous thing | `:alice :knows [] .` |
+| `_:name` | Named blank node | `_:b1 :p :o .` |
 | `(a b c)` | Ordered list | `:favorites (:a :b :c) .` |
 | `a` | Type declaration | `:alice a :Person .` |
 | `;` | Same subject | `:alice :age 30 ; :name "A" .` |
@@ -355,25 +487,42 @@ Phase 1 covers the essentials above. The following N3 features are planned for P
 | `.` | End of statement | `:a :p :b .` |
 | `# ...` | Comment | `# this is a comment` |
 | `{ ... } => { ... }` | Rule | `{ ?X :p ?Y } => { ?Y :q ?X } .` |
+| `{ ... } <= { ... }` | Reversed rule | `{ ?Y :q ?X } <= { ?X :p ?Y } .` |
 | `@prefix p: <url>` | Prefix shortcut | `@prefix : <http://x.org/> .` |
+| `<< S P O >>` | Triple term (Phase 2) | `<< :a :p :b >> :saidBy :c .` |
+| `(| Functor Args |)` | Formula term (Phase 2) | `:a :thinks (| :says :a "hi" |) .` |
+| `! :p` | Forward path (Phase 2) | `:a ! :p :target .` |
+| `^ :p` | Reverse path (Phase 2) | `:a ^ :p :target .` |
+| `has` | Sugar (Phase 2) | `:a :p has :b .` |
+| `is` | Sugar (Phase 2) | `:a :p is :b .` |
+| `of` | Property inversion (Phase 2) | `:b :p of :a .` |
+| `($ a b $)` | Set (Phase 2) | `:a :likes ($ :x :y $) .` |
+| `log:onNegativeSurface` | BLOGIC negation (Phase 2) | `_:n log:onNegativeSurface { ... } .` |
+| `GRAPH <g> { ... }` | Named graph (Phase 2) | `GRAPH :g1 { :a :p :b . }` |
 
 ---
 
 ## Source Code References
 
-All parsing is implemented in `Parser` — `pyeye/parser.py:136`. Specific methods:
+All parsing is implemented in `Parser` — `pyeye/parser.py:168`. Specific methods:
 
 | Feature | Method | Source |
 | :--- | :--- | :--- |
-| Tokenizer | `tokenize()` | `parser.py:93` |
-| Prefix directive | `Parser._do_prefix()` | `parser.py:187` |
-| Base directive | `Parser._do_base()` | `parser.py:201` |
-| Quantifiers | `Parser._do_quantifier()` | `parser.py:206` |
-| Rules | `Parser._do_formula_top()` | `parser.py:223` |
-| Triple patterns | `Parser._verb_obj_list()` | `parser.py:244` |
-| `a` shorthand | `Parser._verb()` | `parser.py:256` |
-| Comma lists | `Parser._obj_list()` | `parser.py:262` |
-| Variables, IRIs, literals | `Parser._item()` | `parser.py:285` |
-| Blank nodes | `Parser._bnode()` | `parser.py:315` |
-| RDF lists | `Parser._rdf_list()` | `parser.py:335` |
-| Literals | `Parser._literal()` | `parser.py:358` |
+| Tokenizer | `tokenize()` | `parser.py:102` |
+| Prefix directive | `Parser._do_prefix()` | `parser.py:203` |
+| Base directive | `Parser._do_base()` | `parser.py:221` |
+| Quantifiers | `Parser._do_quantifier()` | `parser.py:226` |
+| TriG graphs | `Parser._do_graph()` | `parser.py:241` |
+| Rules | `Parser._do_formula_top()` | `parser.py:257` |
+| Triple patterns | `Parser._verb_obj_list()` | `parser.py:270` |
+| `a` shorthand | `Parser._verb()` | `parser.py:299` |
+| Comma lists | `Parser._obj_list()` | `parser.py:304` |
+| Variables, IRIs, literals | `Parser._item()` | `parser.py:311` |
+| Triple terms | `Parser._triple_term()` | `parser.py:511` |
+| Formula terms | `Parser._formula_term()` | `parser.py:521` |
+| Path expressions | `Parser._path_expression()` | `parser.py:567` |
+| Set syntax | `Parser._set_term()` | `parser.py:534` |
+| Blank nodes | `Parser._bnode()` | `parser.py:460` |
+| RDF lists | `Parser._rdf_list()` | `parser.py:478` |
+| Literals | `Parser._literal()` | `parser.py:494` |
+| Negative surfaces | Detected in engine during body matching | `engine.py:194` |

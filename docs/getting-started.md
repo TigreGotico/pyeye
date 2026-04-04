@@ -218,6 +218,113 @@ Derived 3 triples in 1.2ms
 
 ---
 
+## Phase 2 Features
+
+### RDFS Entailment: Implicit Type Inference
+
+If your data includes type hierarchies, pyeye can derive implicit types:
+
+```python
+result = execute(
+    data_strings=[
+        """
+        @prefix : <http://ex.org/> .
+        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+        :Cat rdfs:subClassOf :Animal .
+        :fluffy rdf:type :Cat .
+        """,
+    ],
+    rule_strings=[
+        """
+        @prefix : <http://ex.org/> .
+        @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+        { ?X rdf:type :Animal } => { ?X :isAlive true } .
+        """,
+    ],
+    entail=True,  # ← This enables RDFS entailment
+)
+```
+
+RDFS derives `:fluffy rdf:type :Animal` from the subClassOf declaration. Then your user rule derives `:fluffy :isAlive true`.
+
+### Backward Chaining: Start with a Question
+
+Instead of deriving everything forward, ask a specific question:
+
+```python
+from pyeye.term import NamedNode, Variable, Triple
+
+result = execute(
+    data_strings=["@prefix : <http://ex.org/> .\n:alice :parent :bob ."],
+    rule_strings=["@prefix : <http://ex.org/> .\n{?X :parent ?Y} => {?Y :child ?X} ."],
+    query=Triple(
+        NamedNode("http://ex.org/bob"),
+        NamedNode("http://ex.org/child"),
+        Variable("WhoIsChildOfBob"),
+    ),
+)
+
+print(result.query_answers)
+# [{'WhoIsChildOfBob': NamedNode('http://ex.org/alice')}]
+```
+
+### Proof Traces: Understand Why
+
+Want to know **why** a fact was derived?
+
+```python
+result = execute(
+    data_strings=["@prefix : <http://ex.org/> .\n:a :p :b ."],
+    rule_strings=["@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} ."],
+    explain=True,
+    explain_format="html",  # or "n3" or "dot"
+)
+
+print(result.explains)
+# HTML string with collapsible proof tree
+```
+
+### Loading Remote Data
+
+```python
+result = execute(
+    data_paths=["http://example.org/data.ttl"],
+    rule_paths=["http://example.org/rules.n3"],
+    cache_dir="/tmp/pyeye-cache",  # Cache remote files
+)
+```
+
+HTTP loading includes SSRF protection: it rejects URLs targeting private IP ranges and non-HTTP schemes.
+
+### Built-in Functions
+
+pyeye includes 93 built-in functions for math, strings, dates, crypto, graphs, and more:
+
+```python
+result = execute(
+    data_strings=[
+        """
+        @prefix : <http://shop.org/> .
+        @prefix math: <http://www.w3.org/2000/10/swap/math#> .
+        :widget :price 50 .
+        """,
+    ],
+    rule_strings=[
+        """
+        @prefix : <http://shop.org/> .
+        @prefix math: <http://www.w3.org/2000/10/swap/math#> .
+        { ?Item :price ?P . ?P math:greaterThan "30" } => { ?Item :expensive true } .
+        """,
+    ],
+)
+# :widget :expensive true  (because 50 > 30)
+```
+
+See the [Builtins Reference](builtins.md) for the complete list with examples.
+
+---
+
 ## What can you build with this?
 
 ### Example: Smart Home Rules
@@ -239,7 +346,8 @@ Derived 3 triples in 1.2ms
 
 # If a customer has 3+ orders, mark as VIP
 { ?C :ordered ?A . ?C :ordered ?B . ?C :ordered ?D .
-  FILTER(?A != ?B && ?A != ?D && ?B != ?D) } => { ?C :vip true } .
+  ?A log:notEqualTo ?B . ?A log:notEqualTo ?D . ?B log:notEqualTo ?D }
+    => { ?C :vip true } .
 ```
 
 ### Example: Family Trees (as above)
@@ -248,7 +356,7 @@ Parents → children → grandparents → siblings → etc. One set of rules, au
 
 ---
 
-## What's next?
+## Next Steps
 
 | If you want to... | Read this |
 | :--- | :--- |
@@ -257,6 +365,7 @@ Parents → children → grandparents → siblings → etc. One set of rules, au
 | See every function and class | [API Reference](api-reference.md) |
 | Use the command-line tool | [CLI Reference](cli-reference.md) |
 | Troubleshoot problems | [FAQ](faq.md) |
+| Run with untrusted N3 files | [Security](../SECURITY.md) |
 
 ---
 
@@ -270,10 +379,12 @@ Parents → children → grandparents → siblings → etc. One set of rules, au
 | **Variable** | A placeholder that matches any value. Written as `?X`, `?Y`, etc. |
 | **Rule** | A pattern: "when you see this, produce that." Written as `{body} => {head}` |
 | **Forward chaining** | The reasoning strategy: start with facts, apply rules, derive new facts, repeat |
+| **Backward chaining** | Start with a question, find rules whose heads match, recursively prove their bodies |
 | **Fixpoint** | The point where no more new facts can be derived — the engine stops |
 | **Builtin** | A built-in function like math operations, string manipulation, or time functions |
 | **N3** | "Notation 3" — the text format for writing facts and rules |
 | **Turtle** | A simpler format for writing facts only (no rules). N3 extends Turtle with rules |
+| **TriG** | Turtle with named graphs: `GRAPH <g> { ... }` |
 | **Blank node** | An anonymous thing with a unique ID you don't control. Written as `[]` |
 | **Existential** | Another name for a blank node or generated unique ID |
 | **Skolem constant** | An auto-generated unique ID, named after the logician Skolem |
