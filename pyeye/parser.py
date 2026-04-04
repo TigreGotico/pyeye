@@ -32,6 +32,7 @@ from pyeye.term import (
     TripleTerm,
     FormulaTerm,
     PathTerm,
+    NegativeSurface,
 )
 
 
@@ -271,17 +272,33 @@ class Parser:
         out: list[Triple] = []
         while True:
             pred = self._verb()
-            # Phase 2: skip `has` keyword between predicate and object
-            if self._peek().t == "HAS_KW":
-                self._eat("HAS_KW")
-            objs = self._obj_list()
-            for o in objs:
-                out.append(Triple(subj, pred, o))
+
+            # Phase 2: `of` sugar — swaps subject and object
+            # `:Bob :child of :Alice` → `:Alice :child :Bob`
+            of_target = None
+            if self._peek().t == "OF_KW":
+                self._eat("OF_KW")
+                of_target = self._item()
+                # `of` provides the "object" already, no need for _obj_list
+                if of_target is not None:
+                    out.append(Triple(of_target, pred, subj))
+            else:
+                # Phase 2: skip `has` / `is` keyword between predicate and object
+                if self._peek().t in ("HAS_KW", "IS_KW"):
+                    self._eat_any()
+                objs = self._obj_list()
+                for o in objs:
+                    out.append(Triple(subj, pred, o))
+
+            # If `of` was used, the effective subject for next semicolon clause is the of_target
+            if of_target is not None:
+                subj = of_target
+
             if self._peek().t == "SC":
                 self._eat("SC")
-                # After semicolon, also check for `has`
-                if self._peek().t == "HAS_KW":
-                    self._eat("HAS_KW")
+                # After semicolon, also check for `has`/`is`
+                if self._peek().t in ("HAS_KW", "IS_KW"):
+                    self._eat_any()
                 if self._peek().t in ("RBR", "DOT"):
                     break
             else:

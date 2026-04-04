@@ -14,6 +14,9 @@ Public API
 
 from __future__ import annotations
 
+import hashlib as _hashlib
+import re as _re
+import math as _math
 import time as _time
 from typing import Protocol
 
@@ -349,8 +352,122 @@ def type_iri(args: list[Term], engine: EngineProto) -> Term | None:
 
 
 # ---------------------------------------------------------------------------
+# Crypto builtins
+# ---------------------------------------------------------------------------
+
+def crypto_md5(args: list[Term], engine: EngineProto) -> Term | None:
+    if _unground(args):
+        return None
+    return Literal(_hashlib.md5(_str_val(args[0]).encode()).hexdigest())
+
+
+def crypto_sha(args: list[Term], engine: EngineProto) -> Term | None:
+    """SHA-1 (deprecated but kept for EYE compatibility)."""
+    if _unground(args):
+        return None
+    return Literal(_hashlib.sha1(_str_val(args[0]).encode()).hexdigest())
+
+
+def crypto_sha256(args: list[Term], engine: EngineProto) -> Term | None:
+    if _unground(args):
+        return None
+    return Literal(_hashlib.sha256(_str_val(args[0]).encode()).hexdigest())
+
+
+def crypto_sha512(args: list[Term], engine: EngineProto) -> Term | None:
+    if _unground(args):
+        return None
+    return Literal(_hashlib.sha512(_str_val(args[0]).encode()).hexdigest())
+
+
+# ---------------------------------------------------------------------------
+# Extended String builtins (regex)
+# ---------------------------------------------------------------------------
+
+def string_matches(args: list[Term], engine: EngineProto) -> Term | None:
+    """Regex match: string:matches(haystack, pattern) → boolean."""
+    if _unground(args):
+        return None
+    try:
+        return _bool_result(bool(_re.search(_str_val(args[1]), _str_val(args[0]))))
+    except _re.error:
+        return _bool_result(False)
+
+
+def string_replace(args: list[Term], engine: EngineProto) -> Term | None:
+    """Regex replace: string:replace(haystack, pattern, replacement) → string."""
+    if _unground(args):
+        return None
+    try:
+        return Literal(_re.sub(_str_val(args[1]), _str_val(args[2]), _str_val(args[0])))
+    except _re.error:
+        return Literal(_str_val(args[0]))
+
+
+def string_substring(args: list[Term], engine: EngineProto) -> Term | None:
+    """Substring: string:substring(str, start, length) → string."""
+    if _unground(args):
+        return None
+    s = _str_val(args[0])
+    start = int(_num_val(args[1]))
+    length = int(_num_val(args[2])) if len(args) > 2 else len(s)
+    return Literal(s[start:start + length])
+
+
+# ---------------------------------------------------------------------------
+# Extended Math builtins
+# ---------------------------------------------------------------------------
+
+def math_floor(args: list[Term], engine: EngineProto) -> Term | None:
+    if _unground(args):
+        return None
+    return _int_result(int(_math.floor(_num_val(args[0]))))
+
+
+def math_ceiling(args: list[Term], engine: EngineProto) -> Term | None:
+    if _unground(args):
+        return None
+    return _int_result(int(_math.ceil(_num_val(args[0]))))
+
+
+def math_exponentiation(args: list[Term], engine: EngineProto) -> Term | None:
+    if _unground(args):
+        return None
+    return _num_result(_math.pow(_num_val(args[0]), _num_val(args[1])))
+
+
+def math_logarithm(args: list[Term], engine: EngineProto) -> Term | None:
+    if _unground(args):
+        return None
+    val = _num_val(args[0])
+    if val <= 0:
+        return None
+    return _num_result(_math.log(val))
+
+
+def math_sin(args: list[Term], engine: EngineProto) -> Term | None:
+    if _unground(args):
+        return None
+    return _num_result(_math.sin(_num_val(args[0])))
+
+
+def math_cos(args: list[Term], engine: EngineProto) -> Term | None:
+    if _unground(args):
+        return None
+    return _num_result(_math.cos(_num_val(args[0])))
+
+
+def math_tan(args: list[Term], engine: EngineProto) -> Term | None:
+    if _unground(args):
+        return None
+    return _num_result(_math.tan(_num_val(args[0])))
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
+
+NS_CRYPTO = "http://www.w3.org/2000/10/swap/crypto#"
 
 NS_MATH = "http://www.w3.org/2000/10/swap/math#"
 NS_STRING = "http://www.w3.org/2000/10/swap/string#"
@@ -369,6 +486,13 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_MATH + "minus": math_minus,
     NS_MATH + "times": math_times,
     NS_MATH + "divide": math_divide,
+    NS_MATH + "floor": math_floor,
+    NS_MATH + "ceiling": math_ceiling,
+    NS_MATH + "exponentiation": math_exponentiation,
+    NS_MATH + "logarithm": math_logarithm,
+    NS_MATH + "sin": math_sin,
+    NS_MATH + "cos": math_cos,
+    NS_MATH + "tan": math_tan,
     # String
     NS_STRING + "concatenation": string_concatenation,
     NS_STRING + "contains": string_contains,
@@ -376,6 +500,9 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_STRING + "startsWith": string_startsWith,
     NS_STRING + "endsWith": string_endsWith,
     NS_STRING + "equal": string_equal,
+    NS_STRING + "matches": string_matches,
+    NS_STRING + "replace": string_replace,
+    NS_STRING + "substring": string_substring,
     # Time
     NS_TIME + "now": time_now,
     NS_TIME + "year": time_year,
@@ -395,4 +522,9 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_TYPE + "isNumeric": type_isNumeric,
     NS_TYPE + "str": type_str,
     NS_TYPE + "iri": type_iri,
+    # Crypto
+    NS_CRYPTO + "md5": crypto_md5,
+    NS_CRYPTO + "sha": crypto_sha,
+    NS_CRYPTO + "sha256": crypto_sha256,
+    NS_CRYPTO + "sha512": crypto_sha512,
 }

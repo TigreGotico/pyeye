@@ -23,6 +23,7 @@ from pyeye.store import TripleStore
 from pyeye.parser import Rule
 from pyeye.builtins import Builtin, BUILTIN_REGISTRY
 from pyeye.proof import ProofStep, ProofTree
+from pyeye.term import Formula, NegativeSurface
 
 
 class Engine:
@@ -190,6 +191,32 @@ class Engine:
         for pattern in patterns:
             # Resolve any bound variables in the pattern
             resolved = self._resolve_triple(pattern, binding)
+
+            # Phase 2: Check for negative surface (BLOGIC)
+            # Pattern: ?S log:onNegativeSurface { ... }
+            NEG_PRED = "http://www.w3.org/2000/10/swap/log#onNegativeSurface"
+            if isinstance(resolved.predicate, NamedNode) and resolved.predicate.value == NEG_PRED:
+                # Negation: if the formula CAN be matched, this path fails
+                if isinstance(resolved.object, Formula):
+                    # Try to match the negated formula against the store
+                    neg_results = self._match_triples_iter(list(resolved.object.triples), binding)
+                    if neg_results:
+                        # Negated formula matched → this path is blocked
+                        return []
+                    # Negated formula didn't match → continue with current results
+                    continue
+                # If object is not a Formula, treat as normal triple
+                new_results = []
+                for b in results:
+                    r = self._resolve_triple(pattern, b)
+                    for store_triple in self._store_matches(r):
+                        ub = unify(r, store_triple, dict(b))
+                        if ub is not None:
+                            new_results.append(ub)
+                results = new_results
+                if not results:
+                    break
+                continue
 
             # Check for builtins in the predicate position
             if isinstance(resolved.predicate, NamedNode):

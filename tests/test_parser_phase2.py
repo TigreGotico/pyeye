@@ -130,6 +130,41 @@ class TestHasSugar:
         assert len(doc.triples) == 2
 
 
+class TestIsSugar:
+    """FR 2a.3: Parse `is` syntactic sugar (same as `has`)."""
+
+    def test_is_sugar(self):
+        """`:Alice :name is "Alice"` → `:Alice :name "Alice"`."""
+        text = '@prefix : <http://ex.org/> .\n:Alice :name is "Alice" .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert t.subject == NN("http://ex.org/Alice")
+        assert t.predicate == NN("http://ex.org/name")
+        assert t.object == L("Alice")
+
+
+class TestOfSugar:
+    """FR 2a.5: Parse `of` syntactic sugar (property inversion)."""
+
+    def test_of_sugar(self):
+        """`:Bob :child of :Alice` → `:Alice :child :Bob`."""
+        text = '@prefix : <http://ex.org/> .\n:Bob :child of :Alice .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert t.subject == NN("http://ex.org/Alice")
+        assert t.predicate == NN("http://ex.org/child")
+        assert t.object == NN("http://ex.org/Bob")
+
+    def test_of_with_semicolon(self):
+        text = '@prefix : <http://ex.org/> .\n:Bob :child of :Alice ; :sibling of :Carol .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 2
+        assert doc.triples[0].subject == NN("http://ex.org/Alice")
+        assert doc.triples[1].subject == NN("http://ex.org/Carol")
+
+
 class TestSetSyntax:
     """FR 2a.7: Parse set syntax ``($ a b $)``."""
 

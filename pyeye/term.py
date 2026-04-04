@@ -207,6 +207,29 @@ class Triple:
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
+class NegativeSurface:
+    """A BLOGIC negation: ``log:onNegativeSurface { ... }``.
+
+    When a rule body contains a negative surface, the rule fires only if
+    the enclosed formula CANNOT be matched against the store.
+    """
+    formula: Formula
+
+    def __hash__(self) -> int:
+        return hash(self.formula)
+
+    def __str__(self) -> str:
+        return f"¬{self.formula}"
+
+    def is_ground(self) -> bool:
+        return all(t.is_ground() for t in self.formula.triples)
+
+
+# ---------------------------------------------------------------------------
+# Quad (Phase 2: TriG / named graphs)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
 class Quad:
     """A named-graph triple: ``(S P O G)``."""
     subject: Term
