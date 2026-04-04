@@ -10,13 +10,16 @@ Term hierarchy::
     ├── Literal          — "value"^^<datatype> or "value"@en
     ├── Variable         — ?name
     ├── Existential      — _:name (blank node / skolem)
-    └── Formula          — { ... } (nested conjunction of triples)
+    ├── Formula          — { ... } (nested conjunction of triples)
+    ├── TripleTerm       — << S P O >> (reified triple as a term)
+    ├── FormulaTerm      — (| Functor Args |) (formula as a term)
+    └── PathTerm         — :a ! :p ! :q  (chained path)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Literal as TypingLiteral, Protocol, runtime_checkable
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +94,90 @@ class Formula:
 
 
 # ---------------------------------------------------------------------------
+# Phase 2 extended term types
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class TripleTerm:
+    """A reified triple that can appear as subject or object: ``<< S P O >>``.
+
+    Example: ``<< :alice :knows :bob >> :wasSaidBy :charlie .``
+    """
+    subject: Term
+    predicate: Term
+    object: Term
+
+    def __hash__(self) -> int:
+        return hash((self.subject, self.predicate, self.object))
+
+    def __str__(self) -> str:
+        return f"<<{self.subject} {self.predicate} {self.object}>>"
+
+    def is_ground(self) -> bool:
+        """Return True if no component contains a Variable."""
+        return not any(
+            isinstance(t, Variable)
+            for t in (self.subject, self.predicate, self.object)
+        )
+
+
+@dataclass(frozen=True)
+class FormulaTerm:
+    """A formula as a term: ``(| Functor Args |)``.
+
+    Example: ``(| :says :alice "hello" |)`` as the object of another triple.
+    """
+    functor: Term
+    args: tuple[Term, ...] = ()
+
+    def __hash__(self) -> int:
+        return hash((self.functor, self.args))
+
+    def __str__(self) -> str:
+        args_str = " ".join(str(a) for a in self.args)
+        return f"(|{self.functor} {args_str}|)"
+
+    def is_ground(self) -> bool:
+        """Return True if no component contains a Variable."""
+        if isinstance(self.functor, Variable):
+            return False
+        return not any(isinstance(a, Variable) for a in self.args)
+
+
+@dataclass(frozen=True)
+class PathTerm:
+    """A chained path expression: ``:a ! :p ! :q`` or ``:a ^ :p``.
+
+    ``directions`` contains "forward" for ``!`` and "reverse" for ``^``.
+    """
+    terms: tuple[Term, ...]
+    directions: tuple[TypingLiteral["forward", "reverse"], ...] = ()
+
+    def __post_init__(self) -> None:
+        # Auto-fill directions: one fewer than terms, all forward by default
+        expected = len(self.terms) - 1
+        if expected > 0 and len(self.directions) != expected:
+            object.__setattr__(
+                self, "directions",
+                tuple(["forward"] * expected)
+            )
+
+    def __hash__(self) -> int:
+        return hash((self.terms, self.directions))
+
+    def __str__(self) -> str:
+        parts = [str(self.terms[0])]
+        for i, t in enumerate(self.terms[1:]):
+            op = "!" if not self.directions or self.directions[i] == "forward" else "^"
+            parts.append(f" {op} {t}")
+        return "".join(parts)
+
+    def is_ground(self) -> bool:
+        """Return True if no component contains a Variable."""
+        return not any(isinstance(t, Variable) for t in self.terms)
+
+
+# ---------------------------------------------------------------------------
 # Triple
 # ---------------------------------------------------------------------------
 
@@ -106,10 +193,37 @@ class Triple:
 
     def is_ground(self) -> bool:
         """Return True if no component contains a Variable."""
-        return not any(
-            isinstance(t, Variable)
-            for t in (self.subject, self.predicate, self.object)
-        )
+        for t in (self.subject, self.predicate, self.object):
+            if isinstance(t, Variable):
+                return False
+            # Phase 2: check nested term types
+            if isinstance(t, (TripleTerm, FormulaTerm, PathTerm)):
+                if not t.is_ground():
+                    return False
+        return True
+
+
+# ---------------------------------------------------------------------------
+# Quad (Phase 2: TriG / named graphs)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Quad:
+    """A named-graph triple: ``(S P O G)``."""
+    subject: Term
+    predicate: Term
+    object: Term
+    graph: Term | None = None  # None = default graph
+
+    def __hash__(self) -> int:
+        return hash((self.subject, self.predicate, self.object, self.graph))
+
+    def __str__(self) -> str:
+        return f"({self.subject} {self.predicate} {self.object} in {self.graph or 'default'})"
+
+    def to_triple(self) -> Triple:
+        """Convert to a Triple (loses graph info)."""
+        return Triple(self.subject, self.predicate, self.object)
 
 
 # Backwards-compatible type alias used by the parser and engine.
