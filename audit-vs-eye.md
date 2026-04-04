@@ -23,7 +23,27 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 - **C7**: `e:calculate` uses `ast.literal_eval` (safe but limited) — documented limitation
 - **C9**: Unicode prefixed names not supported — `KW` pattern is ASCII-only
 - **C10**: `e:becomes` single-triple only — multi-triple retract/assert not implemented
-- **M2-M13**: Various medium findings (IRI validation, quantifier scoping, etc.)
+- **M1-M13**: Various medium findings (IRI validation, quantifier scoping, etc.)
+
+---
+
+## Medium Findings
+
+| # | Severity | Location | Description | Status |
+|---|---|---|---|---|
+| M1 | Medium | `parser.py` `_literal()` | **String escape sequences not decoded.** | ✅ Fixed |
+| M2 | Medium | `parser.py` `IRI` regex | **IRI validation missing.** | ❌ Open |
+| M3 | Medium | `parser.py` `_do_quantifier()` | **`@forSome`/`@forAll` scoping lost.** | ❌ Open |
+| M4 | Medium | `parser.py` `_formula()` | **Implication inside formulas not parsed.** | ❌ Open |
+| M5 | Medium | `parser.py` `_set_term()` | **Set syntax creates ordered lists.** | ❌ Open |
+| M6 | Medium | `engine.py` `run()` | **No brake mechanism.** | ❌ Open |
+| M7 | Medium | `engine.py` proof recording | **Proof trees are flat (one level).** | ❌ Open |
+| M8 | Medium | `unify.py` `unify()` | **No list or formula unification.** | ❌ Open |
+| M9 | Medium | `store.py` | **Only predicate-based index.** | ✅ Fixed |
+| M10 | Medium | `output.py` `write_triples()` | **No blank node property list collapsing.** | ❌ Open |
+| M11 | Medium | `output.py` `_render_literal()` | **Boolean output not normalized.** | ✅ Fixed |
+| M12 | Medium | `engine.py` `_incremental_derive()` | **Incomplete incremental reasoning.** | ❌ Open |
+| M13 | Medium | `builtins.py` (missing ~95 builtins) | **Coverage gap.** | ❌ Open |
 
 ---
 
