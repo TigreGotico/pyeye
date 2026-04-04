@@ -2,26 +2,45 @@
 
 ## Summary
 
-This audit compared the pyeye codebase against the original EYE reasoner (`eye.pl`, 14,361 lines of SWI-Prolog) and the Eyeling JavaScript port (12,800 lines). **45 findings** were identified across 8 areas. Of these, **14 are high-severity** semantic bugs that could produce incorrect reasoning results. The remaining 31 are medium-severity gaps in coverage, performance, or formatting.
+This audit compared the pyeye codebase against the original EYE reasoner (`eye.pl`, 14,361 lines of SWI-Prolog) and the Eyeling JavaScript port (12,800 lines). **45 findings** were identified across 8 areas. Of these, **10 have been fixed** (C1-C6, C8, M1, M11). The remaining **35 are unresolved** — mostly medium-severity gaps in coverage, performance, or formatting.
 
-The most critical bugs are: (1) `true`/`false` parsed as prefixed names instead of boolean literals, (2) numeric cross-datatype unification fails (`"42"^^xsd:integer` ≠ `"42.0"^^xsd:double`), (3) path expressions lose the subject, (4) `log:skolem` ignores its key argument, (5) tabling key collisions in backward chaining, and (6) shared skolem counter between `_skolemize()` and `log:skolem`.
+### Fixed Findings ✅
+
+| Finding | Status | Fix |
+|---|---|---|
+| C1: Boolean literals | ✅ Fixed | `true`/`false` now parsed as `xsd:boolean` literals |
+| C2: Numeric equivalence | ✅ Fixed | `_literals_equivalent()` handles cross-datatype numeric equality |
+| C3: PathTerm subject | ✅ Fixed | PathTerm now stores `subject` field |
+| C4: Skolem key | ✅ Fixed | `log:skolem` uses args as key for deterministic IDs |
+| C5: Tabling key | ✅ Fixed | Structural term hash instead of `str()` |
+| C6: Separate counters | ✅ Fixed | `_bn_counter` for blanks, `_skolem_counter` for skolem builtin |
+| C8: `=` sugar | ✅ Fixed | Parser emits `owl:sameAs` triple |
+| M1: String escapes | ✅ Fixed | `_decode_escapes()` handles `\n`, `\t`, `\uXXXX`, etc. |
+| M11: Boolean output | ✅ Fixed | Bare `true`/`false` for xsd:boolean literals |
+
+### Still Open
+
+- **C7**: `e:calculate` uses `ast.literal_eval` (safe but limited) — documented limitation
+- **C9**: Unicode prefixed names not supported — `KW` pattern is ASCII-only
+- **C10**: `e:becomes` single-triple only — multi-triple retract/assert not implemented
+- **M2-M13**: Various medium findings (IRI validation, quantifier scoping, etc.)
 
 ---
 
 ## Critical Findings
 
-| # | Severity | Location | Description |
-|---|---|---|---|
-| C1 | **High** | `parser.py:280-285` `_literal()` | **`true`/`false` parsed as prefixed names, not booleans.** EYE and Eyeling treat them as `"true"^^xsd:boolean` / `"false"^^xsd:boolean` literals. In pyeye, `{?X :alive true}` parses `true` as `http://prefix/true` — a completely different term. |
-| C2 | **High** | `unify.py:137` `_unify_term()` | **Numeric cross-datatype equality fails.** `"42"^^xsd:integer` and `"42.0"^^xsd:double` do NOT unify in pyeye but DO unify in EYE/Eyeling. Same for `"hello"` vs `"hello"^^xsd:string`. |
-| C3 | **High** | `parser.py:319-346` `_path_expression()` | **Path expressions lose the subject.** `:a ! :p ! :q` produces `PathTerm([:p, :q], ["fwd","fwd"])` with no reference to `:a`. The connection between subject and path is broken. |
-| C4 | **High** | `builtins.py:244` `log_skolem()` | **Skolem ignores its key argument.** `{("key1") log:skolem ?S1}` and `{("key1") log:skolem ?S2}` produce different IDs, whereas EYE/Eyeling produce the same skolem for the same key. |
-| C5 | **High** | `engine.py:283` `_tabling_key()` | **Tabling key collisions.** Uses `str(term)` which for `NamedNode("http://x/?X")` and `Variable("X")` both produce strings containing `?X` — could cause incorrect memoization. |
-| C6 | **High** | `engine.py:42` + `builtins.py:244` | **Shared skolem counter.** `_skolem_counter` is used by both `_skolemize()` (head blank nodes) and `log:skolem` builtin. Calling `log:skolem` corrupts head blank node IDs. |
-| C7 | **High** | `builtins.py:858-870` `e_calculate()` | **`ast.literal_eval` is far more restrictive than EYE's `call/1`.** Cannot invoke any functions — `ast.literal_eval("2 + 3")` works, but `ast.literal_eval("len([1,2,3])")` raises. EYE's version can call any Prolog predicate. |
-| C8 | **High** | `parser.py` (no handler) | **`=` (owl:sameAs) sugar not handled.** `:a = :b .` tokenizes but `_item()` and `_verb_obj_list()` have no handler for the `=` token. EYE/Eyeling parse it as `:a owl:sameAs :b .`. |
-| C9 | **High** | `parser.py:94` `KW` regex | **Unicode prefixed names rejected.** `KW` pattern `[A-Za-z_]\w*` is ASCII-only. `ex:chañaral` fails to parse. EYE and Eyeling handle full Unicode in local names. |
-| C10 | **High** | `builtins.py:908-935` `e_becomes()` | **Multi-triple retract/assert not supported.** EYE's `becomes/2` retracts ALL triples in the subject conjunction and asserts ALL in the object conjunction. pyeye handles single-triple only. |
+| # | Severity | Location | Description | Status |
+|---|---|---|---|---|
+| C1 | **High** | `parser.py` `_item()` | **`true`/`false` parsed as prefixed names, not booleans.** | ✅ Fixed |
+| C2 | **High** | `unify.py` `_unify_term()` | **Numeric cross-datatype equality fails.** | ✅ Fixed |
+| C3 | **High** | `term.py` `PathTerm` | **Path expressions lose the subject.** | ✅ Fixed |
+| C4 | **High** | `builtins.py` `log_skolem()` | **Skolem ignores its key argument.** | ✅ Fixed |
+| C5 | **High** | `engine.py` `_tabling_key()` | **Tabling key collisions.** | ✅ Fixed |
+| C6 | **High** | `engine.py` + `builtins.py` | **Shared skolem counter.** | ✅ Fixed |
+| C7 | **High** | `builtins.py` `e_calculate()` | **`ast.literal_eval` is far more restrictive than EYE's `call/1`.** | ⚠️ Documented |
+| C8 | **High** | `parser.py` `_verb_obj_list()` | **`=` (owl:sameAs) sugar not handled.** | ✅ Fixed |
+| C9 | **High** | `parser.py` `KW` regex | **Unicode prefixed names rejected.** | ❌ Open |
+| C10 | **High** | `builtins.py` `e_becomes()` | **Multi-triple retract/assert not supported.** | ❌ Open |
 
 ---
 
