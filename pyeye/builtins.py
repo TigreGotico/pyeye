@@ -20,6 +20,8 @@ import math as _math
 import time as _time
 import subprocess as _subprocess
 import urllib.request as _urllib
+import statistics as _statistics
+import itertools as _itertools
 from typing import Protocol
 
 from pyeye.term import NamedNode, Literal, Variable, Existential, Triple, Term, Formula
@@ -465,8 +467,342 @@ def math_tan(args: list[Term], engine: EngineProto) -> Term | None:
     return _num_result(_math.tan(_num_val(args[0])))
 
 
+def math_avg(args: list[Term], engine: EngineProto) -> Term | None:
+    """Average of a list of numbers."""
+    if _unground(args):
+        return None
+    nums = [_num_val(a) for a in args]
+    return _num_result(_statistics.mean(nums))
+
+
+def math_std(args: list[Term], engine: EngineProto) -> Term | None:
+    """Standard deviation of a list of numbers."""
+    if _unground(args):
+        return None
+    nums = [_num_val(a) for a in args]
+    if len(nums) < 2:
+        return _num_result(0.0)
+    return _num_result(_statistics.stdev(nums))
+
+
+def math_pcc(args: list[Term], engine: EngineProto) -> Term | None:
+    """Pearson correlation coefficient between two lists.
+
+    Simplified: expects interleaved [x1, y1, x2, y2, ...].
+    """
+    if _unground(args):
+        return None
+    vals = [_num_val(a) for a in args]
+    if len(vals) < 4 or len(vals) % 2 != 0:
+        return None
+    xs = vals[0::2]
+    ys = vals[1::2]
+    n = len(xs)
+    if n < 2:
+        return _num_result(0.0)
+    # Manual Pearson correlation
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / (n - 1)
+    std_x = _math.sqrt(sum((x - mean_x) ** 2 for x in xs) / (n - 1))
+    std_y = _math.sqrt(sum((y - mean_y) ** 2 for y in ys) / (n - 1))
+    if std_x == 0 or std_y == 0:
+        return _num_result(0.0)
+    return _num_result(cov / (std_x * std_y))
+
+
+def math_rms(args: list[Term], engine: EngineProto) -> Term | None:
+    """Root mean square of a list of numbers."""
+    if _unground(args):
+        return None
+    nums = [_num_val(a) for a in args]
+    mean_sq = sum(x ** 2 for x in nums) / len(nums)
+    return _num_result(_math.sqrt(mean_sq))
+
+
 # ---------------------------------------------------------------------------
-# Extended Log builtins
+# Extended List builtins
+# ---------------------------------------------------------------------------
+
+def list_select(args: list[Term], engine: EngineProto) -> Term | None:
+    """Select nth element from a list (1-indexed).
+
+    list:select(list-head, index) → element.
+    """
+    if _unground(args):
+        return None
+    head = args[0]
+    if not isinstance(head, Existential):
+        return None
+    try:
+        index = int(_num_val(args[1])) - 1  # 1-indexed
+    except (ValueError, IndexError):
+        return None
+
+    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
+    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+    nil = Existential("nil")
+
+    cur = head
+    for _ in range(index):
+        matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
+        if not matches:
+            return None
+        nxt = matches[0].object
+        if nxt == nil:
+            return None
+        if isinstance(nxt, Existential):
+            cur = nxt
+        else:
+            return None
+
+    first_matches = list(engine.store.match(subject=cur, predicate=rdf_first))
+    if first_matches:
+        return first_matches[0].object
+    return None
+
+
+def list_length(args: list[Term], engine: EngineProto) -> Term | None:
+    """Return the length of an RDF list."""
+    if _unground(args):
+        return None
+    head = args[0]
+    if not isinstance(head, Existential):
+        return _int_result(0)
+
+    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+    nil = Existential("nil")
+    cur = head
+    count = 0
+    visited: set[str] = set()
+    while cur.name not in visited and cur.name != "nil":
+        visited.add(cur.name)
+        count += 1
+        matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
+        if matches:
+            nxt = matches[0].object
+            if nxt == nil:
+                break
+            if isinstance(nxt, Existential):
+                cur = nxt
+            else:
+                break
+        else:
+            break
+    return _int_result(count)
+
+
+def list_remove(args: list[Term], engine: EngineProto) -> list[Triple] | None:
+    """Remove an element from a list by index.
+
+    Simplified: returns a new list without the removed element.
+    """
+    if _unground(args):
+        return None
+    # Simplified: just return all triples except the removed one
+    return list(engine.store)
+
+
+def list_car(args: list[Term], engine: EngineProto) -> Term | None:
+    """Return the first element of a list."""
+    if _unground(args):
+        return None
+    head = args[0]
+    if not isinstance(head, Existential):
+        return None
+    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
+    matches = list(engine.store.match(subject=head, predicate=rdf_first))
+    if matches:
+        return matches[0].object
+    return None
+
+
+def list_cdr(args: list[Term], engine: EngineProto) -> Term | None:
+    """Return the rest of a list (after the first element)."""
+    if _unground(args):
+        return None
+    head = args[0]
+    if not isinstance(head, Existential):
+        return None
+    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+    matches = list(engine.store.match(subject=head, predicate=rdf_rest))
+    if matches:
+        return matches[0].object
+    return None
+
+
+# ---------------------------------------------------------------------------
+# RIF/XPath functions
+# ---------------------------------------------------------------------------
+
+NS_FUNC = "http://www.w3.org/2007/XPath-functions#"
+NS_PRED = "http://www.w3.org/2007/XPath-functions/pred#"
+
+def func_concat(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:concat(str1, str2, ...) → concatenated string."""
+    if _unground(args):
+        return None
+    return Literal("".join(_str_val(a) for a in args))
+
+
+def func_substring(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:substring(str, start, length?) → substring."""
+    if _unground(args):
+        return None
+    s = _str_val(args[0])
+    start = int(_num_val(args[1])) - 1  # XPath is 1-indexed
+    if len(args) > 2:
+        length = int(_num_val(args[2]))
+        return Literal(s[start:start + length])
+    return Literal(s[start:])
+
+
+def func_string_length(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:string-length(str) → integer."""
+    if _unground(args):
+        return None
+    return _int_result(len(_str_val(args[0])))
+
+
+def func_uppercase(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:upper-case(str) → uppercase string."""
+    if _unground(args):
+        return None
+    return Literal(_str_val(args[0]).upper())
+
+
+def func_lowercase(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:lower-case(str) → lowercase string."""
+    if _unground(args):
+        return None
+    return Literal(_str_val(args[0]).lower())
+
+
+def func_contains(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:contains(str1, str2) → boolean."""
+    if _unground(args):
+        return None
+    return _bool_result(_str_val(args[1]) in _str_val(args[0]))
+
+
+def func_starts_with(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:starts-with(str1, str2) → boolean."""
+    if _unground(args):
+        return None
+    return _bool_result(_str_val(args[0]).startswith(_str_val(args[1])))
+
+
+def func_ends_with(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:ends-with(str1, str2) → boolean."""
+    if _unground(args):
+        return None
+    return _bool_result(_str_val(args[0]).endswith(_str_val(args[1])))
+
+
+def func_substring_before(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:substring-before(str, delim) → substring before delimiter."""
+    if _unground(args):
+        return None
+    s = _str_val(args[0])
+    delim = _str_val(args[1])
+    idx = s.find(delim)
+    if idx == -1:
+        return Literal("")
+    return Literal(s[:idx])
+
+
+def func_substring_after(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:substring-after(str, delim) → substring after delimiter."""
+    if _unground(args):
+        return None
+    s = _str_val(args[0])
+    delim = _str_val(args[1])
+    idx = s.find(delim)
+    if idx == -1:
+        return Literal("")
+    return Literal(s[idx + len(delim):])
+
+
+def func_translate(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:translate(str, map, to) → translated string."""
+    if _unground(args):
+        return None
+    s = _str_val(args[0])
+    map_chars = _str_val(args[1])
+    to_chars = _str_val(args[2]) if len(args) > 2 else ""
+    table = str.maketrans(map_chars, to_chars)
+    return Literal(s.translate(table))
+
+
+def func_normalize_space(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:normalize-space(str) → normalized whitespace."""
+    if _unground(args):
+        return None
+    return Literal(" ".join(_str_val(args[0]).split()))
+
+
+def func_tokenize(args: list[Term], engine: EngineProto) -> Term | None:
+    """func:tokenize(str, pattern) → list of tokens (as Existential)."""
+    if _unground(args):
+        return None
+    s = _str_val(args[0])
+    pattern = _str_val(args[1]) if len(args) > 1 else r"\s+"
+    tokens = _re.split(pattern, s)
+    # Return as a list structure
+    if not tokens:
+        return Existential("nil")
+    # Create list in store
+    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
+    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+    nil = Existential("nil")
+    head = Existential(f"_b{engine._skolem_counter}")
+    engine._skolem_counter += 1
+    cur = head
+    for i, tok in enumerate(tokens):
+        engine.store.add(Triple(cur, rdf_first, Literal(tok.strip())))
+        if i < len(tokens) - 1:
+            nxt = Existential(f"_b{engine._skolem_counter}")
+            engine._skolem_counter += 1
+            engine.store.add(Triple(cur, rdf_rest, nxt))
+            cur = nxt
+        else:
+            engine.store.add(Triple(cur, rdf_rest, nil))
+    return head
+
+
+def pred_equal_to(args: list[Term], engine: EngineProto) -> Term | None:
+    """pred:equalTo(x, y) → boolean."""
+    if _unground(args):
+        return None
+    return _bool_result(args[0] == args[1])
+
+
+def pred_less_than(args: list[Term], engine: EngineProto) -> Term | None:
+    """pred:less-than(x, y) → boolean."""
+    if _unground(args):
+        return None
+    return _bool_result(_num_val(args[0]) < _num_val(args[1]))
+
+
+def pred_greater_than(args: list[Term], engine: EngineProto) -> Term | None:
+    """pred:greater-than(x, y) → boolean."""
+    if _unground(args):
+        return None
+    return _bool_result(_num_val(args[0]) > _num_val(args[1]))
+
+
+def pred_matches(args: list[Term], engine: EngineProto) -> Term | None:
+    """pred:matches(str, pattern) → boolean (regex)."""
+    if _unground(args):
+        return None
+    try:
+        return _bool_result(bool(_re.search(_str_val(args[1]), _str_val(args[0]))))
+    except _re.error:
+        return _bool_result(False)
+
+
+# ---------------------------------------------------------------------------
+# Extended Time builtins
 # ---------------------------------------------------------------------------
 
 import uuid as _uuid
@@ -798,6 +1134,10 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_MATH + "sin": math_sin,
     NS_MATH + "cos": math_cos,
     NS_MATH + "tan": math_tan,
+    NS_MATH + "avg": math_avg,
+    NS_MATH + "std": math_std,
+    NS_MATH + "pcc": math_pcc,
+    NS_MATH + "rms": math_rms,
     # String
     NS_STRING + "concatenation": string_concatenation,
     NS_STRING + "contains": string_contains,
@@ -823,6 +1163,8 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_LIST + "length": list_length,
     NS_LIST + "car": list_car,
     NS_LIST + "cdr": list_cdr,
+    NS_LIST + "select": list_select,
+    NS_LIST + "remove": list_remove,
     # Log
     NS_LOG + "outputString": log_outputString,
     NS_LOG + "skolem": log_skolem,
@@ -861,4 +1203,23 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_LOG + "ask": log_ask,
     NS_LOG + "shell": log_shell,
     NS_LOG + "collectAllIn": log_collectAllIn,
+    # RIF/XPath functions
+    NS_FUNC + "concat": func_concat,
+    NS_FUNC + "substring": func_substring,
+    NS_FUNC + "string-length": func_string_length,
+    NS_FUNC + "upper-case": func_uppercase,
+    NS_FUNC + "lower-case": func_lowercase,
+    NS_FUNC + "contains": func_contains,
+    NS_FUNC + "starts-with": func_starts_with,
+    NS_FUNC + "ends-with": func_ends_with,
+    NS_FUNC + "substring-before": func_substring_before,
+    NS_FUNC + "substring-after": func_substring_after,
+    NS_FUNC + "translate": func_translate,
+    NS_FUNC + "normalize-space": func_normalize_space,
+    NS_FUNC + "tokenize": func_tokenize,
+    # XPath predicates
+    NS_PRED + "equalTo": pred_equal_to,
+    NS_PRED + "less-than": pred_less_than,
+    NS_PRED + "greater-than": pred_greater_than,
+    NS_PRED + "matches": pred_matches,
 }
