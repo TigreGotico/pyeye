@@ -64,7 +64,73 @@ class Engine:
 
     def add_triple(self, triple: Triple) -> bool:
         """Add a fact triple. Returns True if genuinely new."""
-        return self.store.add(triple)
+        new = self.store.add(triple)
+        if new and self._rules:
+            # Incremental: re-evaluate rules that might be affected
+            self._incremental_derive(triple)
+        return new
+
+    def _incremental_derive(self, new_triple: Triple) -> None:
+        """Re-evaluate rules that could derive new facts from *new_triple*.
+
+        This is a simplified incremental reasoner: for each rule, check if
+        any body pattern matches the new triple, and if so, try to derive
+        the head. Derived triples are recursively processed for cascading.
+        """
+        # Use a queue to handle cascading derivations
+        queue = [new_triple]
+        processed: set[Triple] = {new_triple}
+
+        while queue:
+            current = queue.pop(0)
+            for rule in self._rules:
+                for pattern in rule.body.triples:
+                    # Check if the pattern could match the current triple
+                    ub = unify(pattern, current, {})
+                    if ub is not None:
+                        # Pattern matches — try to derive the head
+                        other_patterns = [p for p in rule.body.triples if p is not pattern]
+                        if other_patterns:
+                            # Try to match remaining patterns
+                            bindings = self._match_triples_iter(other_patterns, ub)
+                            for binding in bindings:
+                                head_triples = self._instantiate_formula(rule.head, binding)
+                                for head_triple in head_triples:
+                                    if head_triple.is_ground() and head_triple not in processed:
+                                        if self.store.add(head_triple):
+                                            processed.add(head_triple)
+                                            queue.append(head_triple)
+                                            self._derived_count += 1
+                                            self._step_count += 1
+                                            self._derived_triples.append(head_triple)
+                                            if self._explain:
+                                                from pyeye.proof import ProofStep, ProofTree
+                                                step = ProofStep(
+                                                    conclusion=head_triple,
+                                                    premise=list(rule.body.triples),
+                                                    rule=rule,
+                                                    chaining="forward",
+                                                    source=rule.source,
+                                                )
+                                                self._proof_steps.append(step)
+                                                tree = ProofTree(
+                                                    root=head_triple,
+                                                    rule=rule,
+                                                    chaining="forward",
+                                                )
+                                                self._proof_trees.append(tree)
+                        else:
+                            # Single-pattern rule body — derive head directly
+                            head_triples = self._instantiate_formula(rule.head, ub)
+                            for head_triple in head_triples:
+                                if head_triple.is_ground() and head_triple not in processed:
+                                    if self.store.add(head_triple):
+                                        processed.add(head_triple)
+                                        queue.append(head_triple)
+                                        self._derived_count += 1
+                                        self._step_count += 1
+                                        self._derived_triples.append(head_triple)
+                        break  # Rule already processed for this triple
 
     def snapshot_initial(self) -> None:
         """Record the current store size as the baseline (input facts)."""
@@ -210,7 +276,7 @@ class Engine:
                 for b in results:
                     r = self._resolve_triple(pattern, b)
                     for store_triple in self._store_matches(r):
-                        ub = unify(r, store_triple, dict(b))
+                        ub = unify(r, store_triple, b)
                         if ub is not None:
                             new_results.append(ub)
                 results = new_results
@@ -231,7 +297,9 @@ class Engine:
                 r = self._resolve_triple(pattern, b)
                 # Pattern match: find all store triples that unify
                 for store_triple in self._store_matches(r):
-                    ub = unify(r, store_triple, dict(b))
+                    # Optimization: unify already returns a new dict when
+                    # bindings are extended, so no need to copy `b` first.
+                    ub = unify(r, store_triple, b)
                     if ub is not None:
                         new_results.append(ub)
             results = new_results
@@ -396,14 +464,14 @@ class Engine:
 
         # 1. Try direct store match (query as pattern, store as ground)
         for store_triple in self._store_matches(resolved):
-            ub = unify(resolved, store_triple, dict(binding))
+            ub = unify(resolved, store_triple, binding)
             if ub is not None:
                 results.append(ub)
 
         # 2. Try matching against rule heads (bidirectional unification)
         for rule in self._rules:
             for head_triple in rule.head.triples:
-                ub = self._unify_backward(resolved, head_triple, dict(binding))
+                ub = self._unify_backward(resolved, head_triple, binding)
                 if ub is not None:
                     # Try to prove the body
                     body_bindings = self._match_formula(rule.body, ub)
