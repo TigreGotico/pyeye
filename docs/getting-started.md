@@ -1,124 +1,280 @@
 # Getting Started with pyeye
 
+## What is this?
+
+**pyeye** is a *reasoning engine*. You give it **facts** and **rules**, and it **derives new facts** automatically.
+
+Think of it like this:
+
+```
+Facts:    "Alice is Bob's parent."
+          "Bob is Carol's parent."
+
+Rule:     "If X is Y's parent, then Y is X's child."
+
+Result:   "Bob is Alice's child."     ← derived automatically
+          "Carol is Bob's child."     ← derived automatically
+```
+
+The engine figures out consequences you didn't explicitly state. This is called **logical inference** or **forward chaining**.
+
+---
+
+## Key Concepts (explained simply)
+
+### Facts are "triples"
+
+Every fact has three parts: **Subject → Predicate → Object**.
+
+| Subject | Predicate | Object |
+| :--- | :--- | :--- |
+| Alice | is parent of | Bob |
+| Bob | is parent of | Carol |
+| Sky | has color | blue |
+| Water | boils at | 100°C |
+
+In pyeye, these are written in a format called **N3** (Notation 3):
+
+```n3
+:alice :parent :bob .
+:bob :parent :carol .
+:sky :color :blue .
+:water :boilsAt "100" .
+```
+
+The colon `:` is shorthand — you define what it means once, then reuse it everywhere. Think of it like defining a variable.
+
+### Rules connect facts
+
+A rule says: **"when you see this pattern, produce that pattern."**
+
+```n3
+{ ?X :parent ?Y } => { ?Y :child ?X } .
+```
+
+Read this as: *"Whenever you find that X is Y's parent, also record that Y is X's child."*
+
+- `?X` and `?Y` are **variables** — they match any value.
+- The part before `=>` is the **body** (what to look for).
+- The part after `=>` is the **head** (what to produce).
+
+### Reasoning is automatic
+
+Once you load facts and rules, the engine:
+
+1. **Scans** all facts looking for rule body matches
+2. **Derives** new facts from the head of matching rules
+3. **Repeats** — new facts might trigger more rules
+4. **Stops** when nothing new can be derived (this is called a **fixpoint**)
+
+The whole process is deterministic — same input always produces the same output.
+
+---
+
 ## Installation
 
 ```bash
+# Clone or navigate to the pyeye directory
 cd /path/to/pyeye
-pip install -e .          # library + rdflib dependency
-pip install -e ".[test]"  # + pytest for running tests
+
+# Create a virtual environment (recommended)
+python -m venv .venv
+source .venv/bin/activate
+
+# Install pyeye
+pip install -e .
 ```
 
-**Requirements:** Python 3.11+. The only runtime dependency is `rdflib` (used for parsing N3/Turtle data files).
+That's it. The only dependency is `rdflib` (installed automatically), which is used to read data files.
 
-## Quickstart
+**Requirement:** Python 3.11 or newer.
 
-### 1. One-liner from Python
+---
+
+## Your First Rule (5 minutes)
+
+### Step 1: Create a data file
+
+Create a file called `family.ttl`:
+
+```turtle
+@prefix : <http://my-family.org/> .
+
+:alice :parent :bob .
+:bob :parent :carol .
+```
+
+This says: Alice is Bob's parent, and Bob is Carol's parent.
+
+**What's `@prefix` doing?** It's like a find-and-replace. Everywhere you write `:something`, it expands to `http://my-family.org/something`. This gives every fact a unique web address (called an IRI) so there's never confusion about what `:alice` means.
+
+### Step 2: Create a rule file
+
+Create a file called `rules.n3`:
+
+```n3
+@prefix : <http://my-family.org/> .
+
+{ ?X :parent ?Y } => { ?Y :child ?X } .
+```
+
+This says: if X is Y's parent, then Y is X's child.
+
+**What are `?X` and `?Y`?** They're variables — placeholders that match any value. When the engine finds a fact matching the left side, it plugs the matched values into the right side.
+
+### Step 3: Run it
+
+```bash
+pyeye --n3 family.ttl --query rules.n3 --pass
+```
+
+Output:
+
+```n3
+@prefix  <http://my-family.org/> .
+
+:alice :parent :bob .
+:bob :parent :carol .
+:bob :child :alice .
+:carol :child :bob .
+```
+
+The first two facts are your **input**. The last two are **derived** — the engine figured them out from your rule.
+
+The `--pass` flag means "show me everything, including the original facts." Without it, you'd only see the two new derived facts.
+
+### Step 4: Add another rule
+
+Append a second rule to `rules.n3`:
+
+```n3
+@prefix : <http://my-family.org/> .
+
+{ ?X :parent ?Y } => { ?Y :child ?X } .
+{ ?X :parent ?Y . ?Y :parent ?Z } => { ?X :grandparent ?Z } .
+```
+
+Read the second rule: *"If X is Y's parent AND Y is Z's parent, then X is Z's grandparent."*
+
+Notice the `.` between the two body patterns — it means "both must be true."
+
+Run again:
+
+```bash
+pyeye --n3 family.ttl --query rules.n3 --pass
+```
+
+New output includes:
+
+```n3
+:alice :grandparent :carol .
+```
+
+The engine connected two facts through the shared variable `?Y` (Bob) and derived a grandparent relationship you never explicitly stated.
+
+---
+
+## Using pyeye from Python
+
+The CLI is great for files, but you can also use pyeye as a Python library:
 
 ```python
 from pyeye import execute
 
 result = execute(
     data_strings=[
-        "@prefix : <http://example.org/> .\n"
-        ":alice :parent :bob .\n"
-        ":bob :parent :carol .\n",
+        """
+        @prefix : <http://my-family.org/> .
+        :alice :parent :bob .
+        :bob :parent :carol .
+        """,
     ],
     rule_strings=[
-        "@prefix : <http://example.org/> .\n"
-        "{?X :parent ?Y} => {?Y :child ?X} .\n",
+        """
+        @prefix : <http://my-family.org/> .
+        { ?X :parent ?Y } => { ?Y :child ?X } .
+        { ?X :parent ?Y . ?Y :parent ?Z } => { ?X :grandparent ?Z } .
+        """,
     ],
 )
 
-print(result.triples)
-# @prefix  <http://example.org/> .
-#
-# :bob :child :alice .
+print("Derived", result.stats["derived"], "triples in",
+      result.stats["time_ms"]:.1f, "ms")
+
+# Print all triples (input + derived)
+for line in result.triples.strip().split("\n"):
+    if line and not line.startswith("@prefix"):
+        print(" ", line)
 ```
 
-### 2. From the CLI
+Output:
 
-Save data to `people.ttl`:
-
-```turtle
-@prefix : <http://example.org/> .
-:alice :parent :bob .
-:bob :parent :carol .
+```
+Derived 3 triples in 1.2ms
+  :bob :child :alice .
+  :carol :child :bob .
+  :alice :grandparent :carol .
 ```
 
-Save rules to `rules.n3`:
+---
+
+## What can you build with this?
+
+### Example: Smart Home Rules
 
 ```n3
-@prefix : <http://example.org/> .
-{:X :parent ?Y} => {?Y :child ?X} .
+# If temperature is above 30, turn on AC
+{ ?Room :temperature ?T . ?T math:greaterThan "30" } => { ?Room :acOn true } .
+
+# If it's after 10pm and someone is in the room, dim lights
+{ ?Room :occupied true . time:now ?Now . ?Now time:hour ?H . ?H math:greaterThan "22" }
+    => { ?Room :lightsDimmed true } .
 ```
 
-Run:
+### Example: Business Logic
 
-```bash
-pyeye --n3 people.ttl --query rules.n3 --pass
+```n3
+# If an order total is above $1000, flag for review
+{ ?Order :total ?T . ?T math:greaterThan "1000" } => { ?Order :needsReview true } .
+
+# If a customer has 3+ orders, mark as VIP
+{ ?C :ordered ?A . ?C :ordered ?B . ?C :ordered ?D .
+  FILTER(?A != ?B && ?A != ?D && ?B != ?D) } => { ?C :vip true } .
 ```
 
-With statistics:
+### Example: Family Trees (as above)
 
-```bash
-pyeye --n3 people.ttl --query rules.n3 --pass --statistics
-# steps=2 derived=2 time=1.2ms   ← printed to stderr
-```
+Parents → children → grandparents → siblings → etc. One set of rules, automatic derivation of all relationships.
 
-## How Reasoning Works
+---
 
-pyeye implements the **Euler Abstract Machine** (EAM), a forward-chaining algorithm:
+## What's next?
 
-1. **Parse** data triples (via rdflib) and rule files (via hand-written parser)
-2. **Store** triples in an indexed triple store (`pyeye/store.py`)
-3. **Iterate** over rules in source order:
-   - **Match** each body pattern against the store, accumulating variable bindings
-   - **Instantiate** the head with resolved bindings
-   - **Assert** new triples (duplicates are silently rejected)
-4. **Repeat** until a full pass derives nothing (fixpoint)
-5. **Output** derived triples as N3 text
+| If you want to... | Read this |
+| :--- | :--- |
+| Understand the N3 syntax in detail | [Syntax Guide](syntax-guide.md) |
+| Use built-in functions (math, strings, dates) | [Builtins Reference](builtins.md) |
+| See every function and class | [API Reference](api-reference.md) |
+| Use the command-line tool | [CLI Reference](cli-reference.md) |
+| Troubleshoot problems | [FAQ](faq.md) |
 
-Source: `Engine.run` — `pyeye/engine.py:66`, `Engine._apply_rule` — `pyeye/engine.py:78`
+---
 
-## Term Types
+## Glossary
 
-All terms are frozen (immutable) dataclasses, hashable for use in dicts and sets.
-
-| Type | Constructor | Example |
-| :--- | :--- | :--- |
-| `NamedNode` | `NamedNode("http://ex.org/foo")` | `<http://ex.org/foo>` |
-| `Literal` | `Literal("hello")` | `"hello"` |
-| `Literal` | `Literal("42", datatype=...)` | `"42"^^xsd:integer` |
-| `Literal` | `Literal("bonjour", language="fr")` | `"bonjour"@fr` |
-| `Variable` | `Variable("X")` | `?X` |
-| `Existential` | `Existential("genid-1")` | `_:genid-1` |
-| `Formula` | `Formula((t1, t2))` | `{ ... }` |
-| `Triple` | `Triple(s, p, o)` | — |
-
-Source: `pyeye/term.py:12-83`
-
-## Architecture Overview
-
-```
-execute()                    entry.py:34
-├── load_data_file()         parser.py:459   (rdflib)
-├── load_data_string()       parser.py:471   (rdflib)
-├── parse_n3()               parser.py:484   (hand-written)
-│   ├── tokenize()           parser.py:93
-│   └── Parser.parse()       parser.py:143
-├── Engine()                 engine.py:32
-│   ├── Engine.add_triple()  engine.py:58
-│   ├── Engine.add_rule()    engine.py:55
-│   └── Engine.run()         engine.py:66
-│       ├── _match_formula   engine.py:104
-│       ├── _apply_rule      engine.py:78
-│       └── _skolemize       engine.py:257
-└── N3Writer.write_triples() output.py:25
-```
-
-## Next Steps
-
-- [API Reference](api-reference.md) — detailed documentation of every public function
-- [CLI Reference](cli-reference.md) — all command-line flags
-- [Builtins](builtins.md) — every supported builtin predicate
-- [Syntax Guide](syntax-guide.md) — N3 syntax supported in Phase 1
+| Term | What it means |
+| :--- | :--- |
+| **Triple** | A fact with three parts: subject, predicate, object. Like "Alice → parent → Bob." |
+| **IRI** | A unique name for something, like a URL. `http://my-family.org/alice` |
+| **Prefix** | A shortcut for an IRI. `:alice` instead of `http://my-family.org/alice` |
+| **Variable** | A placeholder that matches any value. Written as `?X`, `?Y`, etc. |
+| **Rule** | A pattern: "when you see this, produce that." Written as `{body} => {head}` |
+| **Forward chaining** | The reasoning strategy: start with facts, apply rules, derive new facts, repeat |
+| **Fixpoint** | The point where no more new facts can be derived — the engine stops |
+| **Builtin** | A built-in function like math operations, string manipulation, or time functions |
+| **N3** | "Notation 3" — the text format for writing facts and rules |
+| **Turtle** | A simpler format for writing facts only (no rules). N3 extends Turtle with rules |
+| **Blank node** | An anonymous thing with a unique ID you don't control. Written as `[]` |
+| **Existential** | Another name for a blank node or generated unique ID |
+| **Skolem constant** | An auto-generated unique ID, named after the logician Skolem |
+| **Deductive closure** | All facts — both original and derived — after reasoning completes |

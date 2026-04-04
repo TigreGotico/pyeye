@@ -1,305 +1,379 @@
-# N3 Syntax Guide (Phase 1)
+# N3 Syntax Guide
 
-**Source:** `Parser` — `pyeye/parser.py:136`
-
-This document describes the N3 syntax supported in Phase 1. Anything not listed here is deferred to Phase 2.
+This document explains the **N3 (Notation 3)** text format that pyeye uses to write facts and rules. No prior knowledge of RDF, logic, or Semantic Web technologies is assumed.
 
 ---
 
-## Rules
+## The Absolute Basics
 
-### Forward Implication (`=>`)
-
-```n3
-{ ?X :parent ?Y } => { ?Y :child ?X } .
-```
-
-If the body (left of `=>`) matches, the head (right) is derived.
-
-Source: `Parser._do_formula_top` — `pyeye/parser.py:223`
-
-### Backward Implication (`<=`)
+### A single fact
 
 ```n3
-{ ?Y :child ?X } <= { ?X :parent ?Y } .
+:alice :knows :bob .
 ```
 
-Equivalent to `=>` but with body and head reversed. This is syntactic sugar — the parser swaps them internally.
+This is one **fact** (also called a **triple** because it has three parts):
 
-Source: `Parser._do_formula_top` — `pyeye/parser.py:230`
+| Part | Name | Meaning |
+| :--- | :--- | :--- |
+| `:alice` | **Subject** | Who the fact is about |
+| `:knows` | **Predicate** | What the fact says about the subject |
+| `:bob` | **Object** | The value or target of the fact |
 
-### Standalone Formula (data)
+The `.` at the end is like a period — it ends the statement.
+
+### Defining shortcuts with `@prefix`
+
+Writing full web addresses everywhere is tedious:
 
 ```n3
-{ :alice :name "Alice" } .
+<http://example.org/people/alice> <http://example.org/relations/knows> <http://example.org/people/bob> .
 ```
 
-A formula without `=>` or `<=` is treated as data triples.
-
-Source: `Parser._do_formula_top` — `pyeye/parser.py:233`
-
----
-
-## Terms
-
-### Full IRI
-
-```n3
-<http://example.org/person/alice>
-```
-
-Source: `Parser._item` — `pyeye/parser.py:285`
-
-### Prefixed Name
-
-```n3
-@prefix ex: <http://example.org/> .
-ex:alice          # expands to <http://example.org/alice>
-```
-
-Source: `Parser._item` — `pyeye/parser.py:290`
-
-### Default Prefix (empty prefix)
+Instead, define a **prefix** — a shortcut that expands to a full address:
 
 ```n3
 @prefix : <http://example.org/> .
-:alice            # expands to <http://example.org/alice>
+
+:alice :knows :bob .
+# Expands to: <http://example.org/alice> <http://example.org/knows> <http://example.org/bob> .
 ```
 
-Source: `Parser._do_prefix` — `pyeye/parser.py:191`
-
-### Variable
+You can have multiple prefixes:
 
 ```n3
-?X
-?name
-?some_variable
+@prefix person: <http://example.org/people/> .
+@prefix rel: <http://example.org/relations/> .
+
+person:alice rel:knows person:bob .
 ```
 
-Variable names start with `?` followed by `[A-Za-z_]\w*`.
+### Writing multiple facts about the same subject
 
-Source: `Parser._item` — `pyeye/parser.py:297`
-
-### Blank Node (empty)
+Instead of repeating the subject:
 
 ```n3
-[]
-```
-
-Generates a fresh existential identifier (`_b1`, `_b2`, ...).
-
-Source: `Parser._bnode` — `pyeye/parser.py:315`
-
-### Blank Node (with content)
-
-```n3
-[ :name "Alice" ; :age 30 ]
-```
-
-The blank node becomes the subject of the enclosed triples.
-
-Source: `Parser._bnode` — `pyeye/parser.py:315`
-
-### Named Blank Node
-
-```n3
-_:myNode
-```
-
-Source: `Parser._item` — `pyeye/parser.py:300`
-
-### RDF List
-
-```n3
-(:apple :banana :cherry)
-```
-
-Expands into `rdf:first`/`rdf:rest` linked list structure with anonymous blank nodes.
-
-Source: `Parser._rdf_list` — `pyeye/parser.py:335`
-
-### Empty List
-
-```n3
-()
-```
-
-Expands to the `rdf:nil` marker (`_:nil`).
-
-Source: `Parser._rdf_list` — `pyeye/parser.py:339`
-
----
-
-## Literals
-
-### Plain String
-
-```n3
-"hello"
-```
-
-Source: `Parser._literal` — `pyeye/parser.py:358`
-
-### Long String
-
-```n3
-'''multi
-line
-text'''
-```
-
-```n3
-"""also multi
-line"""
-```
-
-Source: `Parser._literal` — `pyeye/parser.py:358` (handles `LONGSTR` tokens)
-
-### Datatype Literal
-
-```n3
-"42"^^<http://www.w3.org/2001/XMLSchema#integer>
-```
-
-Source: `Parser._literal` — `pyeye/parser.py:367`
-
-### Language-Tagged Literal
-
-```n3
-"bonjour"@fr
-```
-
-Source: `Parser._literal` — `pyeye/parser.py:373`
-
-### Bare Number
-
-```n3
-42       # typed as xsd:integer
-3.14     # typed as xsd:double
-1e10     # typed as xsd:double
-```
-
-Source: `Parser._literal` — `pyeye/parser.py:379`
-
----
-
-## Punctuation
-
-### `a` shorthand for `rdf:type`
-
-```n3
-?X a :Person .
-```
-
-Equivalent to `?X <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> :Person .`
-
-Source: `Parser._verb` — `pyeye/parser.py:256`
-
-### Semicolon (`;`) — same subject, multiple predicates
-
-```n3
-:alice :name "Alice" ; :age 30 .
-```
-
-Equivalent to:
-```n3
-:alice :name "Alice" .
 :alice :age 30 .
+:alice :name "Alice" .
+:alice :city "Lisbon" .
 ```
 
-Source: `Parser._verb_obj_list` — `pyeye/parser.py:244`
-
-### Comma (`,`) — same subject+predicate, multiple objects
+Use a semicolon (`;`) to say "same subject, different predicate":
 
 ```n3
-:alice :knows :bob, :carol, :dave .
+:alice :age 30 ;
+       :name "Alice" ;
+       :city "Lisbon" .
 ```
 
-Equivalent to:
+### Writing multiple facts about the same subject and predicate
+
+Instead of repeating both:
+
 ```n3
 :alice :knows :bob .
 :alice :knows :carol .
 :alice :knows :dave .
 ```
 
-Source: `Parser._obj_list` — `pyeye/parser.py:262`
-
-### Period (`.`) — statement terminator
+Use a comma (`,`) to say "same subject and predicate, different objects":
 
 ```n3
-:a :p :b .
-:c :q :d .
+:alice :knows :bob, :carol, :dave .
 ```
 
 ---
 
-## Directives
+## Rules: Making the Engine Think
 
-### `@prefix`
-
-```n3
-@prefix ex: <http://example.org/> .
-@prefix : <http://default.org/> .
-```
-
-Source: `Parser._do_prefix` — `pyeye/parser.py:187`
-
-### `@base`
+### Your first rule
 
 ```n3
-@base <http://example.org/> .
+{ ?X :parent ?Y } => { ?Y :child ?X } .
 ```
 
-Sets the base URI for prefix expansion when no prefix matches.
+Read this aloud: *"When you find that X is Y's parent, also record that Y is X's child."*
 
-Source: `Parser._do_base` — `pyeye/parser.py:201`
+- The part in `{ }` before `=>` is the **body** — what pattern to look for.
+- The part in `{ }` after `=>` is the **head** — what new fact to create.
+- `?X` and `?Y` are **variables** — they match any value.
 
-### `@forSome`
+**How it works:** The engine scans all facts looking for a match. When it finds `:alice :parent :bob`, it sets `?X = :alice` and `?Y = :bob`, then creates the new fact `:bob :child :alice`.
+
+### Rules with multiple conditions
 
 ```n3
-@forSome ?X .
+{ ?X :parent ?Y . ?Y :parent ?Z } => { ?X :grandparent ?Z } .
 ```
 
-Existential quantification — declares `?X` as existentially quantified within the containing formula. Phase 1: parsed and consumed, no semantic effect on reasoning.
+The `.` between body patterns means **"both must be true."**
 
-Source: `Parser._do_quantifier` — `pyeye/parser.py:206`
+When the engine finds:
+- `:alice :parent :bob` (matches `?X :parent ?Y` with X=alice, Y=bob)
+- `:bob :parent :carol` (matches `?Y :parent ?Z` with Y=bob, Z=carol)
 
-### `@forAll`
+It derives: `:alice :grandparent :carol`
+
+The shared variable `?Y` acts as a **bridge** — it must match the same value in both patterns.
+
+### Reversed rules (`<=`)
 
 ```n3
-@forAll ?X .
+{ ?Y :child ?X } <= { ?X :parent ?Y } .
 ```
 
-Universal quantification — declares `?X` as universally quantified. Phase 1: parsed and consumed, no semantic effect.
+This is exactly the same as `{ ?X :parent ?Y } => { ?Y :child ?X } .` — just written in reverse. The `<=` operator swaps the body and head automatically. Most people use `=>` because it reads more naturally ("if this, then that").
 
-Source: `Parser._do_quantifier` — `pyeye/parser.py:206`
+---
+
+## Variables
+
+Variables are placeholders written as `?` followed by a name:
+
+```n3
+?X
+?Person
+?some_variable
+?camelCase
+```
+
+- Variable names are **case-sensitive**: `?X` ≠ `?x`
+- Names can contain letters, numbers, and underscores
+- The same variable name in a rule body means "must be the same value"
+- Variables in the head get their values from the body match
+
+### Example: variable scoping
+
+```n3
+{ ?Person :name ?Name . ?Person :age ?Age } => { ?Person :description ?Desc } .
+```
+
+Here `?Person` appears three times — it must be the same person in all three. `?Name`, `?Age`, and `?Desc` are different variables that each get their own value.
+
+---
+
+## Literals: Writing Values
+
+### Plain text
+
+```n3
+:alice :name "Alice" .
+```
+
+Strings are written in double quotes.
+
+### Numbers
+
+```n3
+:alice :age 30 .
+:water :boilsAt 100 .
+:pi :value 3.14 .
+:avogadro :value 6.022e23 .
+```
+
+Whole numbers are typed as integers. Decimals and scientific notation are typed as doubles.
+
+### Text with a language tag
+
+```n3
+:greeting :text "Hello"@en .
+:greeting :text "Olá"@pt .
+```
+
+The `@en` or `@pt` tells you what language the text is in. Useful for multilingual applications.
+
+### Text with a specific type
+
+```n3
+:event :date "2025-03-15"^^<http://www.w3.org/2001/XMLSchema#date> .
+```
+
+The `^^` followed by a type IRI says "this string should be interpreted as this specific type."
+
+### Multi-line text
+
+```n3
+:book :description '''This is a
+multi-line
+description.''' .
+```
+
+Use triple quotes (`'''` or `"""`) for text spanning multiple lines.
+
+---
+
+## Blank Nodes: Anonymous Things
+
+Sometimes you need to refer to something but you don't have a name for it.
+
+### Empty blank node
+
+```n3
+:alice :knows [] .
+```
+
+`[]` means "someone" — an unnamed person. The engine creates a unique internal ID for it.
+
+### Blank node with properties
+
+```n3
+:alice :livesIn [ :city "Lisbon" ; :country "Portugal" ] .
+```
+
+This says: Alice lives in some unnamed place, and that place is in Lisbon, Portugal.
+
+**Why use this?** When you know facts about a thing but the thing itself doesn't need a name. Like saying "Alice lives in a city called Lisbon in a country called Portugal" without naming the city entity separately.
+
+---
+
+## Lists
+
+```n3
+:alice :favorites (:pizza :sushi :tacos) .
+```
+
+The parentheses create an ordered list. Behind the scenes, this expands into a chain of linked facts:
+
+```
+_:list1 :first :pizza ; :rest _:list2 .
+_:list2 :first :sushi ; :rest _:list3 .
+_:list3 :first :tacos ; :rest _:nil .
+```
+
+You usually don't need to think about this — just use `(...)` and the engine handles the rest.
+
+### Empty list
+
+```n3
+:bob :favorites () .
+```
+
+An empty pair of parentheses means "nothing" — Bob has no favorites.
+
+---
+
+## The `a` Shorthand
+
+```n3
+:alice a :Person .
+```
+
+The letter `a` is shorthand for "is a type of" (technically, `rdf:type`). This is equivalent to:
+
+```n3
+:alice :type :Person .
+```
+
+You'll see `a` a lot in N3 examples because it's the standard way to declare types.
 
 ---
 
 ## Comments
 
 ```n3
-# This is a comment
-:a :p :b .  # inline comment
+# This is a full-line comment
+:alice :name "Alice" .  # This is an inline comment
 ```
 
-Source: tokenizer `HASH` pattern — `pyeye/parser.py:122`
+Comments are ignored by the engine. Use them to explain your rules to future readers (including yourself).
 
 ---
 
-## Not Supported in Phase 1
+## Complete Example
 
-The following N3 features are deferred to Phase 2:
+Here's a complete N3 file with data and rules:
 
-| Feature | Syntax | Status |
+```n3
+@prefix : <http://my-ontology.org/> .
+
+# === DATA ===
+:alice :parent :bob .
+:bob :parent :carol .
+:bob :sibling :dave .
+:alice :age 65 .
+
+# === RULES ===
+
+# Rule 1: parent → child
+{ ?X :parent ?Y } => { ?Y :child ?X } .
+
+# Rule 2: parent + parent → grandparent
+{ ?X :parent ?Y . ?Y :parent ?Z } => { ?X :grandparent ?Z } .
+
+# Rule 3: sibling of parent → aunt/uncle
+{ ?X :sibling ?Y . ?Y :parent ?Z } => { ?X :auntOrUncleOf ?Z } .
+
+# Rule 4: age-based rule
+{ ?X :age ?A . ?A <http://www.w3.org/2000/10/swap/math#greaterThan> "60"^^<http://www.w3.org/2001/XMLSchema#integer> }
+    => { ?X :senior true } .
+```
+
+After running this, the engine derives:
+
+```
+:bob :child :alice .
+:carol :child :bob .
+:alice :grandparent :carol .
+:dave :auntOrUncleOf :carol .
+:alice :senior true .
+```
+
+---
+
+## What's NOT Supported (Yet)
+
+Phase 1 covers the essentials above. The following N3 features are planned for Phase 2:
+
+| Feature | Example | Status |
 | :--- | :--- | :--- |
-| Triple terms | `<< :a :p :b >>` | ❌ Phase 2 |
-| Formula terms | `(:pred :a :b)` | ❌ Phase 2 |
-| `is` sugar | `:Bob :child of :Alice` | ❌ Phase 2 |
-| `has` sugar | `:Alice :parent has :Bob` | ❌ Phase 2 |
-| `of` (inverse) | `:parent of :Alice` | ❌ Phase 2 |
-| `^` reverse path | `:child^ :Alice` | ❌ Phase 2 |
-| BLOGIC surfaces | `log:onNegativeSurface` | ❌ Phase 2 |
+| Triple terms | `<< :a :p :b >> :wasSaidBy :alice .` | ❌ Phase 2 |
+| Formula as value | `:rule :body (:pred :a :b) .` | ❌ Phase 2 |
+| `is` sugar | `:Bob :child of :Alice .` | ❌ Phase 2 |
+| `has` sugar | `:Alice :parent has :Bob .` | ❌ Phase 2 |
+| Reverse path | `:child^ :Alice` | ❌ Phase 2 |
+| BLOGIC negation | `log:onNegativeSurface { ... }` | ❌ Phase 2 |
 | Set syntax | `($ :a :b $)` | ❌ Phase 2 |
-| `!` forward path (chained) | `:a ! :p ! :q` | Partial (single step works) |
-| `<-` predicate inversion | `:Bob <- :child :Alice` | Partial (single step works) |
+
+---
+
+## Quick Reference Card
+
+| Syntax | Meaning | Example |
+| :--- | :--- | :--- |
+| `:foo` | Prefixed name | `:alice :knows :bob .` |
+| `<http://...>` | Full IRI | `<http://x.org/a> :p <http://x.org/b> .` |
+| `?X` | Variable | `{ ?X :p ?Y } => { ... }` |
+| `"text"` | String literal | `:alice :name "Alice" .` |
+| `42` | Integer | `:alice :age 42 .` |
+| `3.14` | Decimal | `:pi :value 3.14 .` |
+| `"text"@en` | Language-tagged | `:greeting :text "Hi"@en .` |
+| `[]` | Anonymous thing | `:alice :knows [] .` |
+| `(a b c)` | Ordered list | `:favorites (:a :b :c) .` |
+| `a` | Type declaration | `:alice a :Person .` |
+| `;` | Same subject | `:alice :age 30 ; :name "A" .` |
+| `,` | Same subject+predicate | `:alice :knows :b, :c .` |
+| `.` | End of statement | `:a :p :b .` |
+| `# ...` | Comment | `# this is a comment` |
+| `{ ... } => { ... }` | Rule | `{ ?X :p ?Y } => { ?Y :q ?X } .` |
+| `@prefix p: <url>` | Prefix shortcut | `@prefix : <http://x.org/> .` |
+
+---
+
+## Source Code References
+
+All parsing is implemented in `Parser` — `pyeye/parser.py:136`. Specific methods:
+
+| Feature | Method | Source |
+| :--- | :--- | :--- |
+| Tokenizer | `tokenize()` | `parser.py:93` |
+| Prefix directive | `Parser._do_prefix()` | `parser.py:187` |
+| Base directive | `Parser._do_base()` | `parser.py:201` |
+| Quantifiers | `Parser._do_quantifier()` | `parser.py:206` |
+| Rules | `Parser._do_formula_top()` | `parser.py:223` |
+| Triple patterns | `Parser._verb_obj_list()` | `parser.py:244` |
+| `a` shorthand | `Parser._verb()` | `parser.py:256` |
+| Comma lists | `Parser._obj_list()` | `parser.py:262` |
+| Variables, IRIs, literals | `Parser._item()` | `parser.py:285` |
+| Blank nodes | `Parser._bnode()` | `parser.py:315` |
+| RDF lists | `Parser._rdf_list()` | `parser.py:335` |
+| Literals | `Parser._literal()` | `parser.py:358` |
