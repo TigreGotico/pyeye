@@ -1,0 +1,495 @@
+"""Minimal N3 rule parser.
+
+Parses N3 rule files containing ``{P} => {C}`` (forward) and
+``{C} <= {P}`` (backward) syntax, along with the term vocabulary needed
+inside rules: variables (``?name``), blank nodes (``[]``, ``_:name``),
+RDF lists (``(a b c)``), prefixed names (``:foo``, ``ex:bar``), literals,
+and quantifier directives (``@forSome``, ``@forAll``).
+
+Data triples (no rules) are delegated to **rdflib** for parsing; this
+module only handles rule-bearing N3 files and the shared vocabulary
+(prefixes, base) that both data and rules need.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from rdflib import Graph, URIRef, Literal as RDFLiteral, BNode
+from rdflib.namespace import RDF
+
+from pyeye.term import (
+    NamedNode,
+    Literal,
+    Variable,
+    Existential,
+    Formula,
+    Triple,
+    Term,
+)
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
+
+RDF_TYPE = NamedNode(str(RDF.type))
+
+@dataclass
+class Rule:
+    """A single N3 rule: body ``=>`` head (or body ``<=`` head reversed)."""
+    body: Formula
+    head: Formula
+    source: str = ""
+
+
+@dataclass
+class ParsedDocument:
+    """Result of parsing an N3 rule file."""
+    triples: list[Triple] = field(default_factory=list)
+    rules: list[Rule] = field(default_factory=list)
+    prefixes: dict[str, str] = field(default_factory=dict)
+    base: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Prefix manager
+# ---------------------------------------------------------------------------
+
+class PrefixManager:
+    def __init__(self, base: str | None = None) -> None:
+        self._prefixes: dict[str, str] = {}
+        self._base = base
+
+    def register(self, prefix: str, uri: str) -> None:
+        self._prefixes[prefix] = uri
+
+    @property
+    def prefixes(self) -> dict[str, str]:
+        return dict(self._prefixes)
+
+    def expand(self, qname: str) -> NamedNode:
+        """Expand ``ex:foo`` or ``:foo`` to a NamedNode."""
+        if ":" in qname:
+            prefix, local = qname.split(":", 1)
+        else:
+            prefix, local = "", qname
+        ns = self._prefixes.get(prefix, "")
+        if not ns and self._base:
+            ns = self._base
+        return NamedNode(ns + local)
+
+
+# ---------------------------------------------------------------------------
+# Tokenizer
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Tok:
+    t: str  # type
+    v: str  # value
+
+
+def tokenize(text: str) -> list[Tok]:
+    """Lex N3 text into tokens.  Skips comments and whitespace."""
+    specs: list[tuple[str, str]] = [
+        ("LONGSTR", r"'''[\s\S]*?'''|\"\"\"[\s\S]*?\"\"\""),
+        ("STR",     r'"(?:[^"\\]|\\.)*"'),
+        ("IRI",     r"<[^>]+>"),
+        ("PFX",     r"@prefix\b"),
+        ("BASE",    r"@base\b"),
+        ("FSOME",   r"@forSome\b"),
+        ("FALL",    r"@forAll\b"),
+        ("IMPF",    r"=>"),
+        ("IMPB",    r"<="),
+        ("HATHAT",  r"\^\^"),
+        ("PREDINV", r"<-"),
+        ("LBR",     r"\{"),
+        ("RBR",     r"\}"),
+        ("LBK",     r"\["),
+        ("RBK",     r"\]"),
+        ("LP",      r"\("),
+        ("RP",      r"\)"),
+        ("SC",      r";"),
+        ("CM",      r","),
+        ("DOT",     r"\."),
+        ("VAR",     r"\?[A-Za-z_]\w*"),
+        ("BLANK",   r"_:[A-Za-z_]\w*"),
+        ("LANG",    r"@[A-Za-z]+(-[A-Za-z0-9]+)*"),
+        ("COLON",   r":"),
+        ("NUM",     r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?"),
+        ("KW",      r"[A-Za-z_]\w*"),
+        ("HASH",    r"#[^\n]*"),
+        ("WS",      r"\s+"),
+    ]
+    combined = "|".join(f"(?P<{n}>{p})" for n, p in specs)
+    pat = re.compile(combined)
+
+    out: list[Tok] = []
+    for m in pat.finditer(text):
+        kind = m.lastgroup
+        val = m.group()
+        if kind in ("WS", "HASH", None):
+            continue
+        out.append(Tok(kind, val))
+    out.append(Tok("EOF", ""))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
+
+class ParseError(Exception):
+    pass
+
+
+class Parser:
+    def __init__(self, text: str, source: str = "") -> None:
+        self._toks = tokenize(text)
+        self._i = 0
+        self._src = source
+        self._pm = PrefixManager()
+        self._triples: list[Triple] = []
+        self._rules: list[Rule] = []
+        self._bn = 0
+
+    def parse(self) -> ParsedDocument:
+        while not self._eof():
+            self._stmt()
+        return ParsedDocument(
+            triples=self._triples,
+            rules=self._rules,
+            prefixes=self._pm.prefixes,
+            base=self._pm._base,
+        )
+
+    # -- statement dispatch --------------------------------------------------
+
+    def _stmt(self) -> None:
+        t = self._peek()
+        if t.t == "PFX":
+            self._do_prefix()
+        elif t.t == "BASE":
+            self._do_base()
+        elif t.t in ("FSOME", "FALL"):
+            self._do_quantifier()
+        elif t.t == "LBR":
+            self._do_formula_top()
+        else:
+            self._do_data()
+
+    # -- directives ----------------------------------------------------------
+
+    def _do_prefix(self) -> None:
+        self._eat("PFX")
+        t = self._peek()
+        if t.t == "COLON":
+            # @prefix : <...>
+            self._eat("COLON")
+            prefix = ""
+        elif t.t == "KW" and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t == "COLON":
+            # @prefix ex: <...>
+            prefix = self._eat("KW").v
+            self._eat("COLON")
+        else:
+            # @prefix ex <...> (no colon — non-standard but accept it)
+            prefix = self._eat_any().v.rstrip(":")
+        uri = self._eat("IRI").v[1:-1]
+        self._pm.register(prefix, uri)
+        self._eat("DOT")
+
+    def _do_base(self) -> None:
+        self._eat("BASE")
+        self._pm._base = self._eat("IRI").v[1:-1]
+        self._eat("DOT")
+
+    def _do_quantifier(self) -> None:
+        """Consume @forSome/@forAll <var>, <var> ."""
+        self._eat_any()
+        while self._peek().t not in ("DOT", "EOF"):
+            if self._peek().t == "CM":
+                self._eat("CM")
+            else:
+                self._eat_any()
+        if self._peek().t == "DOT":
+            self._eat("DOT")
+
+    # -- rules / formulas ----------------------------------------------------
+
+    def _do_formula_top(self) -> None:
+        body = self._formula()
+        t = self._peek()
+        if t.t == "IMPF":
+            self._eat("IMPF")
+            head = self._formula()
+            self._eat("DOT")
+            self._rules.append(Rule(body, head, self._src))
+        elif t.t == "IMPB":
+            self._eat("IMPB")
+            head = self._formula()
+            self._eat("DOT")
+            self._rules.append(Rule(head, body, self._src))  # reverse
+        elif t.t == "DOT":
+            self._eat("DOT")
+            self._triples.extend(body.triples)
+        else:
+            raise ParseError(f"Expected => or <= or . got {t.t}")
+
+    def _formula(self) -> Formula:
+        self._eat("LBR")
+        tris: list[Triple] = []
+        while self._peek().t != "RBR":
+            tris.extend(self._triple_pattern())
+        self._eat("RBR")
+        return Formula(tris)
+
+    # -- triple patterns -----------------------------------------------------
+
+    def _triple_pattern(self) -> list[Triple]:
+        subj = self._item()
+        return self._verb_obj_list(subj)
+
+    def _verb_obj_list(self, subj: Term) -> list[Triple]:
+        out: list[Triple] = []
+        while True:
+            pred = self._verb()
+            objs = self._obj_list()
+            for o in objs:
+                out.append(Triple(subj, pred, o))
+            if self._peek().t == "SC":
+                self._eat("SC")
+                if self._peek().t in ("RBR", "DOT"):
+                    break
+            else:
+                break
+        if self._peek().t == "DOT":
+            self._eat("DOT")
+        return out
+
+    def _verb(self) -> Term:
+        t = self._peek()
+        if t.t == "KW" and t.v == "a":
+            self._eat("KW")
+            return RDF_TYPE
+        return self._item()
+
+    def _obj_list(self) -> list[Term]:
+        objs = [self._item()]
+        while self._peek().t == "CM":
+            self._eat("CM")
+            objs.append(self._item())
+        return objs
+
+    # -- items (IRI, var, blank, literal, list, formula) ---------------------
+
+    def _item(self) -> Term:
+        t = self._peek()
+
+        # Prefixed name: :foo → COLON + KW
+        if t.t == "COLON":
+            self._eat("COLON")
+            lt = self._peek()
+            local = self._eat("KW").v if lt.t == "KW" else ""
+            return self._pm.expand(":" + local)
+
+        # Prefixed name: ex:foo → KW + COLON + KW
+        if t.t == "KW" and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t == "COLON":
+            prefix = self._eat("KW").v
+            self._eat("COLON")
+            lt = self._peek()
+            local = self._eat("KW").v if lt.t == "KW" else ""
+            return self._pm.expand(prefix + ":" + local)
+
+        if t.t == "IRI":
+            self._eat("IRI")
+            return NamedNode(t.v[1:-1])
+        if t.t == "VAR":
+            self._eat("VAR")
+            return Variable(t.v[1:])       # strip ?
+        if t.t == "BLANK":
+            self._eat("BLANK")
+            return Existential(t.v[2:])     # strip _:
+        if t.t == "LBK":
+            return self._bnode()
+        if t.t == "LP":
+            return self._rdf_list()
+        if t.t == "LBR":
+            return self._formula()
+        if t.t in ("STR", "LONGSTR", "NUM"):
+            return self._literal()
+        if t.t == "KW" and t.v == "a":
+            self._eat("KW")
+            return RDF_TYPE
+        # Bare keyword → expand as local name
+        if t.t == "KW":
+            self._eat("KW")
+            return self._pm.expand(t.v)
+        raise ParseError(f"Unexpected {t.t} '{t.v}' at {self._src}:{self._i}")
+
+    # -- blank nodes ---------------------------------------------------------
+
+    def _bnode(self) -> Term:
+        self._eat("LBK")
+        name = f"_b{self._bn}"
+        self._bn += 1
+        node = Existential(name)
+        if self._peek().t == "RBK":
+            self._eat("RBK")
+            return node
+        while self._peek().t != "RBK":
+            pred = self._verb()
+            objs = self._obj_list()
+            for o in objs:
+                self._triples.append(Triple(node, pred, o))
+            if self._peek().t == "SC":
+                self._eat("SC")
+        self._eat("RBK")
+        return node
+
+    # -- RDF lists -----------------------------------------------------------
+
+    def _rdf_list(self) -> Term:
+        self._eat("LP")
+        items: list[Term] = []
+        while self._peek().t != "RP":
+            items.append(self._item())
+        self._eat("RP")
+        if not items:
+            return Existential("nil")
+        rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        first_p = NamedNode(rdf + "first")
+        rest_p = NamedNode(rdf + "rest")
+        nil = Existential("nil")
+        head = Existential(f"_b{self._bn}")
+        self._bn += 1
+        cur = head
+        for i, item in enumerate(items):
+            self._triples.append(Triple(cur, first_p, item))
+            if i < len(items) - 1:
+                nxt = Existential(f"_b{self._bn}")
+                self._bn += 1
+                self._triples.append(Triple(cur, rest_p, nxt))
+                cur = nxt
+            else:
+                self._triples.append(Triple(cur, rest_p, nil))
+        return head
+
+    # -- literals ------------------------------------------------------------
+
+    def _literal(self) -> Term:
+        t = self._eat_any()
+        # Strip quotes
+        v = t.v
+        if v.startswith('"""') and v.endswith('"""'):
+            v = v[3:-3]
+        elif v.startswith("'''") and v.endswith("'''"):
+            v = v[3:-3]
+        elif v.startswith('"') and v.endswith('"'):
+            v = v[1:-1]
+
+        # Datatype
+        if self._peek().t == "HATHAT":
+            self._eat("HATHAT")
+            dt = NamedNode(self._eat("IRI").v[1:-1])
+            return Literal(v, datatype=dt)
+
+        # Language tag
+        if self._peek().t == "LANG":
+            lang = self._eat("LANG").v[1:]
+            return Literal(v, language=lang)
+
+        # Numeric
+        if t.t == "NUM":
+            if "." in v or "e" in v.lower():
+                dt = NamedNode("http://www.w3.org/2001/XMLSchema#double")
+            else:
+                dt = NamedNode("http://www.w3.org/2001/XMLSchema#integer")
+            return Literal(v, datatype=dt)
+
+        return Literal(v)
+
+    # -- data triples (no rules) ---------------------------------------------
+
+    def _do_data(self) -> None:
+        subj = self._item()
+        new = self._verb_obj_list(subj)
+        self._triples.extend(new)
+
+    # -- tokenizer helpers ---------------------------------------------------
+
+    def _peek(self) -> Tok:
+        if self._i >= len(self._toks):
+            return Tok("EOF", "")
+        return self._toks[self._i]
+
+    def _eat_any(self) -> Tok:
+        t = self._toks[self._i]
+        self._i += 1
+        return t
+
+    def _eat(self, kind: str) -> Tok:
+        t = self._peek()
+        if t.t != kind:
+            raise ParseError(f"Expected {kind}, got {t.t} '{t.v}' at {self._src}:{self._i}")
+        self._i += 1
+        return t
+
+    def _eof(self) -> bool:
+        return self._peek().t == "EOF"
+
+
+# ---------------------------------------------------------------------------
+# Data loading helpers (rdflib)
+# ---------------------------------------------------------------------------
+
+def _to_term(obj) -> Term:
+    if isinstance(obj, URIRef):
+        return NamedNode(str(obj))
+    if isinstance(obj, RDFLiteral):
+        return Literal(
+            str(obj),
+            datatype=NamedNode(str(obj.datatype)) if obj.datatype else None,
+            language=str(obj.language) if obj.language else None,
+        )
+    if isinstance(obj, BNode):
+        return Existential(str(obj))
+    raise ValueError(f"Unknown rdflib term: {type(obj)}")
+
+
+def load_data_file(path: str | Path) -> ParsedDocument:
+    """Load pure data N3/Turtle via rdflib."""
+    g = Graph()
+    g.parse(str(path), format="turtle")
+    pm = PrefixManager()
+    return ParsedDocument(
+        triples=[Triple(_to_term(s), _to_term(p), _to_term(o)) for s, p, o in g],
+        prefixes=pm.prefixes,
+    )
+
+
+def load_data_string(text: str) -> ParsedDocument:
+    """Load N3/Turtle data from a string via rdflib."""
+    g = Graph()
+    g.parse(data=text, format="n3")
+    pm = PrefixManager()
+    return ParsedDocument(
+        triples=[Triple(_to_term(s), _to_term(p), _to_term(o)) for s, p, o in g],
+        prefixes=pm.prefixes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def parse_n3(text: str, source: str = "") -> ParsedDocument:
+    """Parse an N3 file that may contain both data triples and rules."""
+    return Parser(text, source=source).parse()
+
+
+def parse_rules(text: str, source: str = "") -> list[Rule]:
+    """Parse only the rules from an N3 text."""
+    return Parser(text, source=source).parse().rules
