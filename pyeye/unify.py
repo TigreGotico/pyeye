@@ -173,7 +173,7 @@ def _unify_term(
 
     # Pattern is a ground term — check equality
     if not isinstance(pattern, Variable):
-        if pattern == candidate:
+        if _terms_equivalent(pattern, candidate):
             return binding
         return None
 
@@ -182,3 +182,47 @@ def _unify_term(
     if term_contains_var(candidate, var_name):
         return None  # occurs check failure
     return {**binding, var_name: candidate}
+
+
+def _terms_equivalent(a: Term, b: Term) -> bool:
+    """Check term equivalence with cross-datatype numeric handling.
+
+    C2 fix: "42"^^xsd:integer == "42.0"^^xsd:double
+    Also: "hello" == "hello"^^xsd:string (plain string equivalence)
+    """
+    # Exact match
+    if a == b:
+        return True
+
+    # Numeric cross-datatype equivalence
+    if isinstance(a, Literal) and isinstance(b, Literal):
+        return _literals_equivalent(a, b)
+
+    return False
+
+
+def _literals_equivalent(a: Literal, b: Literal) -> bool:
+    """Check if two literals are equivalent, handling numeric and string rules."""
+    XSD_INT = "http://www.w3.org/2001/XMLSchema#integer"
+    XSD_DEC = "http://www.w3.org/2001/XMLSchema#decimal"
+    XSD_DBL = "http://www.w3.org/2001/XMLSchema#double"
+    XSD_STR = "http://www.w3.org/2001/XMLSchema#string"
+    NUM_TYPES = {XSD_INT, XSD_DEC, XSD_DBL}
+
+    dt_a = a.datatype.value if a.datatype else None
+    dt_b = b.datatype.value if b.datatype else None
+
+    # Plain string equivalence: "hello" == "hello"^^xsd:string
+    if dt_a is None and dt_b == XSD_STR and a.value == b.value and not a.language and not b.language:
+        return True
+    if dt_b is None and dt_a == XSD_STR and a.value == b.value and not a.language and not b.language:
+        return True
+
+    # Numeric cross-datatype: "42"^^integer == "42.0"^^double
+    if dt_a in NUM_TYPES and dt_b in NUM_TYPES:
+        try:
+            return float(a.value) == float(b.value)
+        except (ValueError, TypeError):
+            pass
+
+    return False

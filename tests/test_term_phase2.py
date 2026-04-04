@@ -97,37 +97,39 @@ class TestFormulaTerm:
 
 class TestPathTerm:
     def test_create_forward(self):
-        pt = PathTerm((NN("a"), NN("b"), NN("c")), ("forward", "forward", "forward"))
+        pt = PathTerm(NN("start"), (NN("a"), NN("b"), NN("c")), ("forward", "forward", "forward"))
+        assert pt.subject == NN("start")
         assert pt.terms == (NN("a"), NN("b"), NN("c"))
         assert pt.directions == ("forward", "forward", "forward")
 
     def test_create_reverse(self):
-        pt = PathTerm((NN("a"), NN("b")), ("reverse", "reverse"))
+        pt = PathTerm(NN("start"), (NN("a"), NN("b")), ("reverse", "reverse"))
         assert pt.directions == ("reverse", "reverse")
 
     def test_auto_fill_directions(self):
         """If directions are missing, they default to forward."""
-        pt = PathTerm((NN("a"), NN("b"), NN("c")))
+        pt = PathTerm(NN("start"), (NN("a"), NN("b"), NN("c")))
         assert pt.directions == ("forward", "forward", "forward")
 
     def test_str_forward(self):
-        pt = PathTerm((NN("a"), NN("b"), NN("c")), ("forward", "forward", "forward"))
-        assert str(pt) == "a ! b ! c"
+        pt = PathTerm(NN("start"), (NN("a"), NN("b"), NN("c")), ("forward", "forward", "forward"))
+        assert str(pt) == "start ! a ! b ! c"
 
     def test_str_reverse(self):
-        pt = PathTerm((NN("a"), NN("b")), ("reverse", "reverse"))
-        assert str(pt) == "a ^ b"
+        pt = PathTerm(NN("start"), (NN("a"), NN("b")), ("reverse", "reverse"))
+        assert str(pt) == "start ^ a ^ b"
 
     def test_hashable(self):
         s = {
-            PathTerm((NN("a"), NN("b")), ("forward",)),
-            PathTerm((NN("a"), NN("b")), ("forward",)),
+            PathTerm(NN("s"), (NN("a"), NN("b")), ("forward",)),
+            PathTerm(NN("s"), (NN("a"), NN("b")), ("forward",)),
         }
         assert len(s) == 1
 
     def test_is_ground(self):
-        assert PathTerm((NN("a"), NN("b"))).is_ground()
-        assert not PathTerm((V("X"), NN("b"))).is_ground()
+        assert PathTerm(NN("s"), (NN("a"), NN("b"))).is_ground()
+        assert not PathTerm(NN("s"), (V("X"), NN("b"))).is_ground()
+        assert not PathTerm(V("X"), (NN("a"), NN("b"))).is_ground()
 
 
 # ---------------------------------------------------------------------------
@@ -148,11 +150,11 @@ class TestTripleIsGroundNested:
         assert t.is_ground()
 
     def test_path_term_in_subject(self):
-        t = T(PathTerm((NN("a"), NN("b"))), NN("leadsTo"), NN("c"))
+        t = T(PathTerm(NN("start"), (NN("a"), NN("b"))), NN("leadsTo"), NN("c"))
         assert t.is_ground()
 
     def test_path_term_with_variable(self):
-        t = T(PathTerm((V("X"), NN("b"))), NN("leadsTo"), NN("c"))
+        t = T(PathTerm(NN("start"), (V("X"), NN("b"))), NN("leadsTo"), NN("c"))
         assert not t.is_ground()
 
 

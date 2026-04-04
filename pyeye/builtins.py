@@ -307,10 +307,22 @@ def log_outputString(args: list[Term], engine: EngineProto) -> Term | None:
     return args[0]
 
 
-def log_skolem(args: list[Term], engine: EngineProto) -> Term:
-    """Generate a fresh existential (skolem constant)."""
-    engine._skolem_counter += 1
-    return Existential(f"sk-{engine._skolem_counter}")
+def log_skolem(args: list[Term], engine: EngineProto) -> Term | None:
+    """Generate a skolem constant. If args are provided, use them as a key
+    for deterministic skolem generation within a run."""
+    if args:
+        # C4 fix: Use args as key for deterministic skolem
+        key = tuple(_str_val(a) if isinstance(a, (Literal, NamedNode)) else str(a) for a in args)
+        if not hasattr(engine, "_skolem_cache"):
+            engine._skolem_cache: dict[tuple, str] = {}
+        if key not in engine._skolem_cache:
+            engine._skolem_counter += 1
+            engine._skolem_cache[key] = f"sk-{engine._skolem_counter}"
+        return Existential(engine._skolem_cache[key])
+    else:
+        # No key — generate fresh skolem
+        engine._skolem_counter += 1
+        return Existential(f"sk-{engine._skolem_counter}")
 
 
 def log_content(args: list[Term], engine: EngineProto) -> list[Triple]:

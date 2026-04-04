@@ -134,6 +134,8 @@ def tokenize(text: str) -> list[Tok]:
         ("HAS_KW",  r"\bhas\b"),    # Phase 2: "has" keyword
         ("IS_KW",   r"\bis\b"),     # Phase 2: "is" keyword
         ("GRAPH_KW", r"\bGRAPH\b"), # Phase 2: TriG graph keyword
+        ("TRUE",    r"\btrue\b"),   # Boolean literal
+        ("FALSE",   r"\bfalse\b"),  # Boolean literal
         ("VAR",     r"\?[A-Za-z_]\w*"),
         ("BLANK",   r"_:[A-Za-z_]\w*"),
         ("LANG",    r"@[A-Za-z]+(-[A-Za-z0-9]+)*"),
@@ -299,6 +301,20 @@ class Parser:
         while True:
             pred = self._verb()
 
+            # C8 fix: `=` sugar — owl:sameAs
+            if self._peek().t == "EQ":
+                self._eat("EQ")
+                obj = self._item()
+                out.append(Triple(subj, pred, obj))
+                # Emit owl:sameAs triple
+                same_as = NamedNode("http://www.w3.org/2002/07/owl#sameAs")
+                out.append(Triple(subj, same_as, obj))
+                if self._peek().t == "SC":
+                    self._eat("SC")
+                    if self._peek().t in ("RBR", "DOT"):
+                        break
+                continue
+
             # Phase 2: `of` sugar — swaps subject and object
             # `:Bob :child of :Alice` → `:Alice :child :Bob`
             of_target = None
@@ -396,6 +412,13 @@ class Parser:
         if t.t == "BLANK":
             self._eat("BLANK")
             return Existential(t.v[2:])     # strip _:
+        # C1 fix: Boolean literals
+        if t.t == "TRUE":
+            self._eat("TRUE")
+            return Literal("true", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#boolean"))
+        if t.t == "FALSE":
+            self._eat("FALSE")
+            return Literal("false", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#boolean"))
         if t.t == "LBK":
             return self._bnode()
         if t.t == "LP":
@@ -474,6 +497,9 @@ class Parser:
         elif v.startswith('"') and v.endswith('"'):
             v = v[1:-1]
 
+        # M1 fix: Decode escape sequences
+        v = self._decode_escapes(v)
+
         # Datatype
         if self._peek().t == "HATHAT":
             self._eat("HATHAT")
@@ -494,6 +520,34 @@ class Parser:
             return Literal(v, datatype=dt)
 
         return Literal(v)
+
+    @staticmethod
+    def _decode_escapes(s: str) -> str:
+        """M1 fix: Decode common escape sequences in string literals."""
+        escape_map = {
+            'n': '\n', 't': '\t', 'r': '\r', '\\': '\\',
+            '"': '"', "'": "'", '/': '/',
+        }
+        result = []
+        i = 0
+        while i < len(s):
+            if s[i] == '\\' and i + 1 < len(s):
+                next_char = s[i + 1]
+                if next_char in escape_map:
+                    result.append(escape_map[next_char])
+                    i += 2
+                    continue
+                # Unicode escape: \uXXXX
+                if next_char == 'u' and i + 5 < len(s):
+                    try:
+                        result.append(chr(int(s[i+2:i+6], 16)))
+                        i += 6
+                        continue
+                    except ValueError:
+                        pass
+            result.append(s[i])
+            i += 1
+        return ''.join(result)
 
     # -- Phase 2: triple terms << S P O >> -----------------------------------
 
@@ -559,29 +613,21 @@ class Parser:
         """Parse ``! :p ! :q`` or ``^ :p`` into a PathTerm.
 
         The caller has already consumed the initial ``!`` or ``^`` token.
+        C3 fix: Store a dummy subject; the real subject comes from the triple context.
         """
         terms: list[Term] = []
         directions: list[str] = []
 
-        # Collect the chain of operators + terms
-        # We're already past the initial operator, so the next is the first term
-        # Actually: we haven't eaten the operator yet. Let me reconsider.
-        # _item is called when the current token is OP_FWD or OP_REV.
-        # The structure is: ! :p ! :q (starts with !)
-        # So we need to parse: [op term]+
         while self._peek().t in ("OP_FWD", "OP_REV"):
             op = self._eat_any().t
             directions.append("forward" if op == "OP_FWD" else "reverse")
             terms.append(self._item())
 
-        # We should have at least one term after the operators
         if not terms:
             raise ParseError(f"Expected term after path operator at {self._src}:{self._i}")
 
-        # The result is a PathTerm connecting through the terms
-        # Actually, path expressions are typically: subject ! pred1 ! pred2
-        # where the subject is separate. Let me return the PathTerm for the path part.
-        return PathTerm(tuple(terms), tuple(directions))
+        # C3 fix: Use None-like placeholder; actual subject comes from triple context
+        return PathTerm(Existential("_path_placeholder"), tuple(terms), tuple(directions))
 
     # -- data triples (no rules) ---------------------------------------------
 

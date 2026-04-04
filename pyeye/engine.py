@@ -48,7 +48,8 @@ class Engine:
         self._derived_count = 0
         self._derived_triples: list[Triple] = []  # only rule-derived triples
         self._initial_triples: int = 0  # snapshot after loading data
-        self._skolem_counter = 0
+        self._bn_counter = 0  # C6 fix: blank node counter (head skolemization)
+        self._skolem_counter = 0  # log:skolem builtin counter
         self._output_strings: list[Term] = []
         self._djiti_debug = djiti_debug
         self._djiti_log: list[dict] = []  # debug log of pattern orderings
@@ -422,8 +423,9 @@ class Engine:
         """Replace any remaining Existential terms with fresh skolem constants."""
         def sk(t: Term) -> Term:
             if isinstance(t, Existential) and t.name.startswith("_b"):
-                self._skolem_counter += 1
-                return Existential(f"sk-{self._skolem_counter}")
+                # C6 fix: Use separate blank node counter
+                self._bn_counter += 1
+                return Existential(f"bn-{self._bn_counter}")
             return t
         return Triple(
             sk(triple.subject),
@@ -542,11 +544,24 @@ class Engine:
         return None  # unreachable but satisfies type checker
 
     def _tabling_key(self, triple: Triple) -> str:
-        """Create a cache key for tabling from a triple."""
+        """Create a cache key for tabling from a triple.
+
+        C5 fix: Use structural term hash instead of str() to avoid
+        collisions between different term types that happen to have
+        the same string representation.
+        """
         def key_term(t: Term) -> str:
             if isinstance(t, Variable):
-                return f"?{t.name}"
-            return str(t)
+                return f"V:{t.name}"
+            if isinstance(t, NamedNode):
+                return f"N:{t.value}"
+            if isinstance(t, Literal):
+                dt = t.datatype.value if t.datatype else ""
+                lang = t.language or ""
+                return f"L:{t.value}|{dt}|{lang}"
+            if isinstance(t, Existential):
+                return f"E:{t.name}"
+            return f"O:{type(t).__name__}:{str(t)}"
         return f"{key_term(triple.subject)} {key_term(triple.predicate)} {key_term(triple.object)}"
 
     # -- properties ----------------------------------------------------------

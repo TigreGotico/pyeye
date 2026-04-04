@@ -69,11 +69,11 @@ class TestFormulaTerm:
         assert t.object.args == (NN("http://ex.org/alice"), L("hello"))
 
     def test_formula_term_no_args(self):
-        text = '@prefix : <http://ex.org/> .\n:a :status (| :true |) .'
+        text = '@prefix : <http://ex.org/> .\n:a :status (| :ok |) .'
         doc = parse_n3(text)
         t = doc.triples[0]
         assert isinstance(t.object, FormulaTerm)
-        assert t.object.functor == NN("http://ex.org/true")
+        assert t.object.functor == NN("http://ex.org/ok")
         assert t.object.args == ()
 
 
@@ -216,3 +216,29 @@ class TestBackwardCompatibility:
         doc = parse_n3(text)
         assert any(t.predicate == NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
                    for t in doc.triples)
+
+
+class TestBooleanLiterals:
+    """C1 fix: true/false parsed as xsd:boolean, not prefixed names."""
+
+    def test_true_literal(self):
+        text = '@prefix : <http://ex.org/> .\n:a :alive true .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert t.object == L("true", datatype=NN("http://www.w3.org/2001/XMLSchema#boolean"))
+
+    def test_false_literal(self):
+        text = '@prefix : <http://ex.org/> .\n:a :alive false .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert t.object == L("false", datatype=NN("http://www.w3.org/2001/XMLSchema#boolean"))
+
+    def test_boolean_in_rule_body(self):
+        text = '@prefix : <http://ex.org/> .\n{?X :alive true} => {?X :active true} .'
+        doc = parse_n3(text)
+        assert len(doc.rules) == 1
+        rule = doc.rules[0]
+        body_obj = rule.body.triples[0].object
+        assert body_obj == L("true", datatype=NN("http://www.w3.org/2001/XMLSchema#boolean"))

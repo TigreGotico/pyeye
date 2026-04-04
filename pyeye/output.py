@@ -113,6 +113,12 @@ class N3Writer:
         v = lit.value
         # Escape quotes
         v = v.replace('"', '\\"')
+
+        # M11 fix: Normalize boolean output to bare true/false
+        XSD_BOOL = "http://www.w3.org/2001/XMLSchema#boolean"
+        if lit.datatype and lit.datatype.value == XSD_BOOL:
+            return v  # bare true or false
+
         if lit.language:
             return f'"{v}"@{lit.language}'
         if lit.datatype:

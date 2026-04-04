@@ -148,13 +148,15 @@ class FormulaTerm:
 class PathTerm:
     """A chained path expression: ``:a ! :p ! :q`` or ``:a ^ :p``.
 
+    C3 fix: Store the subject so the path can be resolved.
     ``directions`` contains "forward" for ``!`` and "reverse" for ``^``.
     """
+    subject: Term
     terms: tuple[Term, ...]
     directions: tuple[TypingLiteral["forward", "reverse"], ...] = ()
 
     def __post_init__(self) -> None:
-        # Auto-fill directions: one per term (each term has a direction)
+        # Auto-fill directions: one per term
         if len(self.directions) != len(self.terms):
             object.__setattr__(
                 self, "directions",
@@ -162,17 +164,19 @@ class PathTerm:
             )
 
     def __hash__(self) -> int:
-        return hash((self.terms, self.directions))
+        return hash((self.subject, self.terms, self.directions))
 
     def __str__(self) -> str:
-        parts = [str(self.terms[0])]
-        for i, t in enumerate(self.terms[1:]):
+        parts = [str(self.subject)]
+        for i, t in enumerate(self.terms):
             op = "!" if not self.directions or self.directions[i] == "forward" else "^"
             parts.append(f" {op} {t}")
         return "".join(parts)
 
     def is_ground(self) -> bool:
         """Return True if no component contains a Variable."""
+        if isinstance(self.subject, Variable):
+            return False
         return not any(isinstance(t, Variable) for t in self.terms)
 
 
