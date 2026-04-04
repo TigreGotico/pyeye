@@ -45,6 +45,7 @@ def execute(
     forward: bool = True,
     entail: bool = False,
     not_entail: Triple | None = None,
+    cache_dir: str | None = None,
 ) -> Result:
     """Run N3 reasoning and return derived triples as N3 text.
 
@@ -90,6 +91,9 @@ def execute(
         If set, check that this triple is NOT entailed by the data + rules.
         Returns empty triples if not entailed, or the triple if it IS entailed
         (i.e., the check fails).
+    cache_dir :
+        Directory for caching remote N3 files. When set, HTTP/HTTPS URIs
+        in data_paths and rule_paths are fetched and cached locally.
     """
     start = time.monotonic()
 
@@ -98,10 +102,45 @@ def execute(
     all_rules: list[Rule] = []
     all_prefixes: dict[str, str] = dict(prefixes or {})
 
+    # -- helper: resolve path (HTTP with optional caching) -------------------
+    def _resolve_path(path: str) -> str:
+        """Resolve a path, fetching HTTP URIs with optional caching."""
+        if path.startswith(("http://", "https://")):
+            import urllib.request as _urllib_req
+            import hashlib as _hash
+            import os as _os
+
+            if cache_dir:
+                # Cache key: hash of URL
+                cache_key = _hash.sha256(path.encode()).hexdigest()[:16]
+                cached = _os.path.join(cache_dir, cache_key)
+                if _os.path.exists(cached):
+                    return cached
+                # Fetch and cache
+                _os.makedirs(cache_dir, exist_ok=True)
+                with _urllib_req.urlopen(path, timeout=60) as resp:
+                    content = resp.read()
+                with open(cached, "wb") as f:
+                    f.write(content)
+                return cached
+            else:
+                # Fetch to temp file
+                import tempfile as _tempfile
+                with _urllib_req.urlopen(path, timeout=60) as resp:
+                    content = resp.read()
+                tmp = _tempfile.NamedTemporaryFile(
+                    suffix=".n3", delete=False, mode="wb"
+                )
+                tmp.write(content)
+                tmp.close()
+                return tmp.name
+        return path
+
     # -- load data -----------------------------------------------------------
     if data_paths:
         for p in data_paths:
-            doc = load_data_file(p)
+            resolved = _resolve_path(p)
+            doc = load_data_file(resolved)
             all_triples.extend(doc.triples)
             all_quads.extend(doc.quads)
             all_prefixes.update(doc.prefixes)
@@ -116,7 +155,8 @@ def execute(
     # -- load rules (may also contain TriG data) -----------------------------
     if rule_paths:
         for p in rule_paths:
-            text = Path(p).read_text(encoding="utf-8")
+            resolved = _resolve_path(p)
+            text = Path(resolved).read_text(encoding="utf-8")
             doc = parse_n3(text, source=p)
             all_rules.extend(doc.rules)
             all_triples.extend(doc.triples)

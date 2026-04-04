@@ -52,6 +52,9 @@ def main() -> None:
                         help="Backward chain from this triple pattern (Phase 2)")
     parser.add_argument("--no-forward", dest="no_forward", action="store_true",
                         help="Skip forward chaining (backward only)")
+    parser.add_argument("--cache-dir", dest="cache_dir", default=None,
+                        metavar="DIR",
+                        help="Cache directory for remote N3 files")
 
     args = parser.parse_args()
 
@@ -95,6 +98,7 @@ def main() -> None:
             entail=args.entail,
             forward=not args.no_forward,
             not_entail=not_entail_triple,
+            cache_dir=args.cache_dir,
         )
     except Exception as exc:
         # Catch parse errors, rdflib errors, and anything else
