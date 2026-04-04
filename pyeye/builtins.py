@@ -464,9 +464,211 @@ def math_tan(args: list[Term], engine: EngineProto) -> Term | None:
 
 
 # ---------------------------------------------------------------------------
+# Extended Log builtins
+# ---------------------------------------------------------------------------
+
+import uuid as _uuid
+
+def log_uuid(args: list[Term], engine: EngineProto) -> Term | None:
+    """Generate a UUID."""
+    return Literal(str(_uuid.uuid4()))
+
+
+def log_n3String(args: list[Term], engine: EngineProto) -> Term | None:
+    """Convert a term to its N3 string representation."""
+    if _unground(args):
+        return None
+    return Literal(str(args[0]))
+
+
+def log_implies(args: list[Term], engine: EngineProto) -> Term | None:
+    """Check if premise implies conclusion (both are ground terms)."""
+    if _unground(args):
+        return None
+    # Simple equality check for Phase 2
+    return _bool_result(args[0] == args[1])
+
+
+def log_forAllIn(args: list[Term], engine: EngineProto) -> list[Triple] | None:
+    """Collect all bindings for a variable across matching triples.
+
+    forAllIn(variable, pattern) → list of bindings.
+    Simplified: returns all store triples that match the pattern.
+    """
+    # This is a simplified version that returns the store contents
+    # Full implementation would need access to the rule's formula context
+    return list(engine.store)
+
+
+# ---------------------------------------------------------------------------
+# E: builtins (log-rules namespace)
+# ---------------------------------------------------------------------------
+
+def e_calculate(args: list[Term], engine: EngineProto) -> Term | None:
+    """Evaluate a Python expression: e:calculate("2 + 3") → "5"."""
+    if _unground(args):
+        return None
+    try:
+        result = eval(_str_val(args[0]), {"__builtins__": {}}, {})
+        return Literal(str(result))
+    except Exception:
+        return None
+
+
+def e_findall(args: list[Term], engine: EngineProto) -> list[Triple] | None:
+    """Collect all store triples matching a pattern.
+
+    Simplified: returns all triples in the store.
+    """
+    return list(engine.store)
+
+
+def e_closure(args: list[Term], engine: EngineProto) -> Term | None:
+    """Check if a formula is deductively closed (all its consequences exist).
+
+    Simplified: always returns true for Phase 2.
+    """
+    return _bool_result(True)
+
+
+# ---------------------------------------------------------------------------
+# Extended Time builtins
+# ---------------------------------------------------------------------------
+
+def time_hours(args: list[Term], engine: EngineProto) -> Term | None:
+    """Extract hours from a datetime string."""
+    if _unground(args):
+        return None
+    dt = _str_val(args[0])
+    try:
+        return _int_result(int(dt[11:13]))
+    except (ValueError, IndexError):
+        return None
+
+
+def time_minutes(args: list[Term], engine: EngineProto) -> Term | None:
+    """Extract minutes from a datetime string."""
+    if _unground(args):
+        return None
+    dt = _str_val(args[0])
+    try:
+        return _int_result(int(dt[14:16]))
+    except (ValueError, IndexError):
+        return None
+
+
+def time_seconds(args: list[Term], engine: EngineProto) -> Term | None:
+    """Extract seconds from a datetime string."""
+    if _unground(args):
+        return None
+    dt = _str_val(args[0])
+    try:
+        return _int_result(int(dt[17:19]))
+    except (ValueError, IndexError):
+        return None
+
+
+def time_localTime(args: list[Term], engine: EngineProto) -> Term | None:
+    """Get current local time as ISO string."""
+    import datetime as _dt
+    return Literal(_dt.datetime.now().astimezone().isoformat())
+
+
+# ---------------------------------------------------------------------------
+# Graph builtins
+# ---------------------------------------------------------------------------
+
+def graph_member(args: list[Term], engine: EngineProto) -> Term | None:
+    """Check if a triple is a member of a graph."""
+    if _unground(args):
+        return None
+    # Simplified: check if triple exists in store
+    # Full implementation would check graph membership
+    from pyeye.term import Triple as T_cls
+    for t in engine.store:
+        if (t.subject == args[0] and t.predicate == args[1] and
+            (len(args) < 3 or t.object == args[2])):
+            return _bool_result(True)
+    return _bool_result(False)
+
+
+def graph_length(args: list[Term], engine: EngineProto) -> Term | None:
+    """Return the number of triples in the store (or graph)."""
+    return _int_result(len(engine.store))
+
+
+def graph_difference(args: list[Term], engine: EngineProto) -> list[Triple] | None:
+    """Return triples in first graph but not in second.
+
+    Simplified: returns all triples (single graph in Phase 2).
+    """
+    return list(engine.store)
+
+
+def graph_intersection(args: list[Term], engine: EngineProto) -> list[Triple] | None:
+    """Return triples common to both graphs.
+
+    Simplified: returns all triples (single graph in Phase 2).
+    """
+    return list(engine.store)
+
+
+def graph_union(args: list[Term], engine: EngineProto) -> list[Triple] | None:
+    """Return all triples from both graphs.
+
+    Simplified: returns all triples (single graph in Phase 2).
+    """
+    return list(engine.store)
+
+
+def graph_statement(args: list[Term], engine: EngineProto) -> list[Triple] | None:
+    """Construct a triple from components.
+
+    graph_statement(s, p, o) → [Triple(s, p, o)].
+    """
+    if _unground(args):
+        return None
+    return [Triple(args[0], args[1], args[2])]
+
+
+# ---------------------------------------------------------------------------
+# List builtins (extended)
+# ---------------------------------------------------------------------------
+
+def list_car(args: list[Term], engine: EngineProto) -> Term | None:
+    """Return the first element of a list."""
+    if _unground(args):
+        return None
+    head = args[0]
+    if not isinstance(head, Existential):
+        return None
+    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
+    matches = list(engine.store.match(subject=head, predicate=rdf_first))
+    if matches:
+        return matches[0].object
+    return None
+
+
+def list_cdr(args: list[Term], engine: EngineProto) -> Term | None:
+    """Return the rest of a list (after the first element)."""
+    if _unground(args):
+        return None
+    head = args[0]
+    if not isinstance(head, Existential):
+        return None
+    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+    matches = list(engine.store.match(subject=head, predicate=rdf_rest))
+    if matches:
+        return matches[0].object
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
+NS_GRAPH = "http://www.w3.org/2000/10/swap/graph#"
+NS_E = "http://eulersharp.sourceforge.net/2003/03swap/log-rules#"
 NS_CRYPTO = "http://www.w3.org/2000/10/swap/crypto#"
 
 NS_MATH = "http://www.w3.org/2000/10/swap/math#"
@@ -509,14 +711,24 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_TIME + "month": time_month,
     NS_TIME + "day": time_day,
     NS_TIME + "in-seconds": time_in_seconds,
+    NS_TIME + "hours": time_hours,
+    NS_TIME + "minutes": time_minutes,
+    NS_TIME + "seconds": time_seconds,
+    NS_TIME + "localTime": time_localTime,
     # List
     NS_LIST + "in": list_in,
     NS_LIST + "length": list_length,
+    NS_LIST + "car": list_car,
+    NS_LIST + "cdr": list_cdr,
     # Log
     NS_LOG + "outputString": log_outputString,
     NS_LOG + "skolem": log_skolem,
     NS_LOG + "content": log_content,
     NS_LOG + "equalTo": log_equalTo,
+    NS_LOG + "uuid": log_uuid,
+    NS_LOG + "n3String": log_n3String,
+    NS_LOG + "implies": log_implies,
+    NS_LOG + "forAllIn": log_forAllIn,
     # Type
     NS_TYPE + "isLiteral": type_isLiteral,
     NS_TYPE + "isNumeric": type_isNumeric,
@@ -527,4 +739,15 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_CRYPTO + "sha": crypto_sha,
     NS_CRYPTO + "sha256": crypto_sha256,
     NS_CRYPTO + "sha512": crypto_sha512,
+    # Graph
+    NS_GRAPH + "member": graph_member,
+    NS_GRAPH + "length": graph_length,
+    NS_GRAPH + "difference": graph_difference,
+    NS_GRAPH + "intersection": graph_intersection,
+    NS_GRAPH + "union": graph_union,
+    NS_GRAPH + "statement": graph_statement,
+    # E: (log-rules)
+    NS_E + "calculate": e_calculate,
+    NS_E + "findall": e_findall,
+    NS_E + "closure": e_closure,
 }
