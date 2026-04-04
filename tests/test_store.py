@@ -92,13 +92,45 @@ class TestMatch:
         results = list(store.match(predicate=NN("label"), object=lit))
         assert len(results) == 1
 
-    def test_match_variable_predicate_not_indexed(self):
-        """Variable predicate triggers full scan (not indexed)."""
+    def test_match_variable_predicate_full_scan(self):
+        """Variable predicate is treated as wildcard (engine converts to None)."""
         store = TripleStore()
         store.add(T(NN("a"), NN("p"), NN("b")))
         store.add(T(NN("c"), NN("q"), NN("d")))
-        results = list(store.match(predicate=Variable("P")))
+        # Engine converts Variable to None, so we test with None
+        results = list(store.match(predicate=None))
         assert len(results) == 2
+
+    def test_match_by_subject_index(self):
+        """Subject index is used for fast lookup."""
+        store = TripleStore()
+        store.add(T(NN("a"), NN("p"), NN("b")))
+        store.add(T(NN("a"), NN("q"), NN("d")))
+        store.add(T(NN("c"), NN("p"), NN("b")))
+        results = list(store.match(subject=NN("a")))
+        assert len(results) == 2
+        assert all(t.subject == NN("a") for t in results)
+
+    def test_match_by_object_index(self):
+        """Object index is used for fast lookup."""
+        store = TripleStore()
+        store.add(T(NN("a"), NN("p"), NN("b")))
+        store.add(T(NN("c"), NN("q"), NN("b")))
+        store.add(T(NN("a"), NN("q"), NN("d")))
+        results = list(store.match(object=NN("b")))
+        assert len(results) == 2
+        assert all(t.object == NN("b") for t in results)
+
+    def test_retract_updates_all_indexes(self):
+        """Retract cleans up subject, predicate, and object indexes."""
+        store = TripleStore()
+        t = T(NN("a"), NN("p"), NN("b"))
+        store.add(t)
+        store.retract(t)
+        assert store._by_pred == {}
+        assert store._by_subj == {}
+        assert store._by_obj == {}
+        assert len(store) == 0
 
 
 class TestIteration:
