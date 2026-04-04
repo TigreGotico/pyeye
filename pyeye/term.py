@@ -16,13 +16,14 @@ Term hierarchy::
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 # ---------------------------------------------------------------------------
 # Term types
 # ---------------------------------------------------------------------------
 
+@runtime_checkable
 class Term(Protocol):
     """Marker protocol — all N3 terms satisfy this."""
     ...
@@ -79,11 +80,7 @@ class Existential:
 @dataclass(frozen=True)
 class Formula:
     """A nested formula (conjunction of triples), e.g. ``{ :a :p :b }``."""
-    triples: tuple[Triple, ...]
-
-    def __init__(self, triples: list[Triple] | tuple[Triple, ...] = ()):
-        # Override __init__ to coerce list → tuple for hashability
-        object.__setattr__(self, "triples", tuple(triples))
+    triples: tuple[Triple, ...] = ()
 
     def __hash__(self) -> int:
         return hash(self.triples)

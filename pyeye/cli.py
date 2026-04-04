@@ -6,6 +6,7 @@ import sys
 import argparse
 
 from pyeye.entry import execute
+from pyeye.parser import ParseError
 
 
 def main() -> None:
@@ -54,17 +55,22 @@ def main() -> None:
         if name == "limited-answer":
             limit_answers = int(value)
 
-    result = execute(
-        data_paths=args.n3 or None,
-        rule_paths=args.query or None,
-        explain=args.explain,
-        max_steps=max_steps,
-        limit_answers=limit_answers,
-        prefixes=prefixes or None,
-        nope=args.nope,
-        pass_mode=args.pass_mode,
-        pass_all=args.pass_all,
-    )
+    try:
+        result = execute(
+            data_paths=args.n3 or None,
+            rule_paths=args.query or None,
+            explain=args.explain,
+            max_steps=max_steps,
+            limit_answers=limit_answers,
+            prefixes=prefixes or None,
+            nope=args.nope,
+            pass_mode=args.pass_mode,
+            pass_all=args.pass_all,
+        )
+    except Exception as exc:
+        # Catch parse errors, rdflib errors, and anything else
+        print(f"pyeye: error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     sys.stdout.write(result.triples)
     sys.stdout.flush()

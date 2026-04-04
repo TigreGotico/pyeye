@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import time
+from pathlib import Path
 
 from pyeye.term import Triple
 from pyeye.parser import (
@@ -90,7 +91,7 @@ def execute(
     # -- load rules ----------------------------------------------------------
     if rule_paths:
         for p in rule_paths:
-            text = open(p).read()
+            text = Path(p).read_text(encoding="utf-8")
             doc = parse_n3(text, source=p)
             all_rules.extend(doc.rules)
             all_prefixes.update(doc.prefixes)

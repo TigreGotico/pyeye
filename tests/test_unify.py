@@ -141,11 +141,11 @@ class TestTermContainsVar:
         assert not term_contains_var(T(NN("a"), NN("p"), NN("b")), "X")
 
     def test_formula_yes(self):
-        f = Formula([T(V("X"), NN("p"), NN("b"))])
+        f = Formula((T(V("X"), NN("p"), NN("b")),))
         assert term_contains_var(f, "X")
 
     def test_formula_no(self):
-        f = Formula([T(NN("a"), NN("p"), NN("b"))])
+        f = Formula((T(NN("a"), NN("p"), NN("b")),))
         assert not term_contains_var(f, "X")
 
 
@@ -177,9 +177,9 @@ class TestApplyBinding:
 
     def test_apply_to_formula(self):
         binding: Binding = {"X": NN("a"), "Y": NN("b")}
-        f = Formula([T(V("X"), NN("p"), V("Y"))])
+        f = Formula((T(V("X"), NN("p"), V("Y")),))
         result = apply_binding(f, binding)
-        assert result == Formula([T(NN("a"), NN("p"), NN("b"))])
+        assert result == Formula((T(NN("a"), NN("p"), NN("b")),))
 
 
 # ---------------------------------------------------------------------------

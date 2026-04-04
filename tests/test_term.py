@@ -88,13 +88,13 @@ class TestFormula:
 
     def test_from_list(self):
         t = Triple(NamedNode("a"), NamedNode("b"), NamedNode("c"))
-        f = Formula([t])
+        f = Formula((t,))
         assert len(f.triples) == 1
         assert f.triples[0] == t
 
     def test_hashable(self):
         t = Triple(NamedNode("a"), NamedNode("b"), NamedNode("c"))
-        s = {Formula([t]), Formula([t])}
+        s = {Formula((t,)), Formula((t,))}
         assert len(s) == 1
 
 

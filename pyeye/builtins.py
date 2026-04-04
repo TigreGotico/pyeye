@@ -14,7 +14,6 @@ Public API
 
 from __future__ import annotations
 
-import hashlib
 import time as _time
 from typing import Protocol
 
@@ -300,7 +299,7 @@ def log_outputString(args: list[Term], engine: EngineProto) -> Term | None:
 def log_skolem(args: list[Term], engine: EngineProto) -> Term:
     """Generate a fresh existential (skolem constant)."""
     engine._skolem_counter += 1
-    return Existential(f"sk-{engine._Skolem_counter}")
+    return Existential(f"sk-{engine._skolem_counter}")
 
 
 def log_content(args: list[Term], engine: EngineProto) -> list[Triple]:

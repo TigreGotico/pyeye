@@ -77,10 +77,6 @@ class TripleStore:
         for t in candidates:
             if subject is not None and t.subject != subject:
                 continue
-            # Only filter on predicate if it's a NamedNode (exact match).
-            # Variables and other term types are wildcards here.
-            if predicate is not None and isinstance(predicate, NamedNode) and t.predicate != predicate:
-                continue
             if object is not None and t.object != object:
                 continue
             yield t

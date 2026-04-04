@@ -181,30 +181,24 @@ class TestSpecAcceptance:
         """AC14: Two skolem calls produce distinct identifiers."""
         from pyeye.engine import Engine
         from pyeye.parser import Rule
-        from pyeye.term import Formula, Variable
-
-        engine = Engine()
-        # Two rules that each call log:skolem
+        from pyeye.term import Formula, Variable, Triple, NamedNode
         from pyeye.builtins import NS_LOG
+
+        engine = Engine(max_steps=2)
+        # Data triple to bind ?S, then skolem generates fresh ID
+        engine.add_triple(Triple(NN("http://x/a"), NN("http://x/exists"), NN("http://x/true")))
         engine.add_rule(Rule(
-            body=Formula([]),
-            head=Formula([Triple(
-                Variable("X"),
-                NN(NS_LOG + "skolem"),
-                Variable("S1"),
-            )]),
-        ))
-        engine.add_rule(Rule(
-            body=Formula([]),
-            head=Formula([Triple(
-                Variable("Y"),
-                NN(NS_LOG + "skolem"),
-                Variable("S2"),
-            )]),
+            body=Formula((
+                Triple(Variable("S"), NN("http://x/exists"), NN("http://x/true")),
+                Triple(Variable("S"), NN(NS_LOG + "skolem"), Variable("SID")),
+            )),
+            head=Formula((Triple(Variable("S"), NN("http://x/hasId"), Variable("SID")),)),
         ))
         engine.run()
-        # Skolem counters should have incremented
-        assert engine._skolem_counter >= 0
+        # Each step generates a distinct skolem ID
+        assert len(engine.derived_triples) == 2
+        ids = {t.object.name for t in engine.derived_triples}
+        assert len(ids) == 2  # two distinct skolem IDs
 
     def test_package_import(self):
         """AC15: pip install -e . and from pyeye import execute works."""

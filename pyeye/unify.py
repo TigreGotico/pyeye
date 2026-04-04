@@ -94,10 +94,10 @@ def apply_binding(term: Term, binding: Binding) -> Term:
     if isinstance(term, Variable):
         return binding.get(term.name, term)
     if isinstance(term, Formula):
-        return Formula([
+        return Formula(tuple([
             apply_binding_to_triple(t, binding)
             for t in term.triples
-        ])
+        ]))
     # NamedNode, Literal, Existential — ground, no substitution needed
     return term
 

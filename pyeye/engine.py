@@ -15,8 +15,6 @@ Public API
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from pyeye.term import (
     NamedNode, Literal, Variable, Existential, Formula, Triple, Term, Binding
 )
@@ -271,10 +269,6 @@ class Engine:
             sk(triple.predicate),
             sk(triple.object),
         )
-
-    def _check_output_strings(self, triple: Triple) -> None:
-        """Check if the triple's object is marked with log:outputString."""
-        pass  # Phase 1: not implemented
 
     # -- properties ----------------------------------------------------------
 
