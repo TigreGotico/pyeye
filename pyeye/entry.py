@@ -43,6 +43,7 @@ def execute(
     djiti_debug: bool = False,
     query: Triple | None = None,
     forward: bool = True,
+    entail: bool = False,
 ) -> Result:
     """Run N3 reasoning and return derived triples as N3 text.
 
@@ -80,6 +81,10 @@ def execute(
     forward :
         If True (default), run forward chaining before backward chaining.
         Set to False for pure backward chaining.
+    entail :
+        If True, apply RDFS entailment rules before running user rules.
+        Derives implicit triples from subClassOf, subPropertyOf,
+        domain, and range declarations.
     """
     start = time.monotonic()
 
@@ -135,6 +140,13 @@ def execute(
     # Add data triples
     for t in all_triples:
         engine.add_triple(t)
+
+    # Apply RDFS entailment (if enabled)
+    if entail and not nope:
+        from pyeye.rdfs import apply_rdfs_entailment
+        rdfs_count = apply_rdfs_entailment(engine.store)
+    else:
+        rdfs_count = 0
 
     # Snapshot baseline (input facts should not count as derived)
     engine.snapshot_initial()

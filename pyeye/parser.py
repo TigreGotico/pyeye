@@ -33,6 +33,7 @@ from pyeye.term import (
     FormulaTerm,
     PathTerm,
     NegativeSurface,
+    Quad,
 )
 
 
@@ -52,8 +53,9 @@ class Rule:
 
 @dataclass
 class ParsedDocument:
-    """Result of parsing an N3 rule file."""
+    """Result of parsing an N3/TriG file."""
     triples: list[Triple] = field(default_factory=list)
+    quads: list[Quad] = field(default_factory=list)
     rules: list[Rule] = field(default_factory=list)
     prefixes: dict[str, str] = field(default_factory=dict)
     base: str | None = None
@@ -131,6 +133,7 @@ def tokenize(text: str) -> list[Tok]:
         ("OF_KW",   r"\bof\b"),     # Phase 2: "of" keyword
         ("HAS_KW",  r"\bhas\b"),    # Phase 2: "has" keyword
         ("IS_KW",   r"\bis\b"),     # Phase 2: "is" keyword
+        ("GRAPH_KW", r"\bGRAPH\b"), # Phase 2: TriG graph keyword
         ("VAR",     r"\?[A-Za-z_]\w*"),
         ("BLANK",   r"_:[A-Za-z_]\w*"),
         ("LANG",    r"@[A-Za-z]+(-[A-Za-z0-9]+)*"),
@@ -177,6 +180,7 @@ class Parser:
             self._stmt()
         return ParsedDocument(
             triples=self._triples,
+            quads=list(self._quads),
             rules=self._rules,
             prefixes=self._pm.prefixes,
             base=self._pm._base,
@@ -192,6 +196,8 @@ class Parser:
             self._do_base()
         elif t.t in ("FSOME", "FALL"):
             self._do_quantifier()
+        elif t.t == "GRAPH_KW":
+            self._do_graph()
         elif t.t == "LBR":
             self._do_formula_top()
         else:
@@ -232,6 +238,26 @@ class Parser:
                 self._eat_any()
         if self._peek().t == "DOT":
             self._eat("DOT")
+
+    # -- TriG: GRAPH <g> { ... } --------------------------------------------
+
+    def _do_graph(self) -> None:
+        """Parse ``GRAPH <graph_id> { ... triples ... }`` into quads."""
+        self._eat("GRAPH_KW")
+        # Parse graph identifier
+        graph_id = self._item()
+        # Parse the graph body (formula)
+        body = self._formula()
+        # Convert triples to quads
+        for t in body.triples:
+            self._quads.append(Quad(t.subject, t.predicate, t.object, graph_id))
+
+    @property
+    def _quads(self) -> list[Quad]:
+        """Access the parser's quad list (stored on the instance)."""
+        if not hasattr(self, "_quads_list"):
+            self._quads_list: list[Quad] = []
+        return self._quads_list
 
     # -- rules / formulas ----------------------------------------------------
 
