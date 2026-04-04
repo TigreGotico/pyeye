@@ -9,7 +9,7 @@
 ## Phase 2 Progress
 
 ### 2a/2b. Extended Term Types + Full N3 Parser
-- [ ] Add `TripleTerm`, `FormulaTerm`, `PathTerm` dataclasses
+- [x] Add `TripleTerm`, `FormulaTerm`, `PathTerm` dataclasses
 - [ ] Update unification for new term types
 - [ ] Update N3 writer for new term types
 - [ ] Parser: triple terms `<< S P O >>`

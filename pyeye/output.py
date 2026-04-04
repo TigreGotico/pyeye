@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pyeye.term import NamedNode, Literal, Variable, Existential, Formula, Triple, Term
+from pyeye.term import TripleTerm, FormulaTerm, PathTerm, Quad
 
 
 class N3Writer:
@@ -33,6 +34,35 @@ class N3Writer:
 
         return "\n".join(lines) + ("\n" if lines else "")
 
+    def write_quads(self, quads: list[Quad]) -> str:
+        """Serialize a list of quads to TriG text (named graphs)."""
+        # Group by graph
+        by_graph: dict[str | None, list[Triple]] = {}
+        for q in quads:
+            g = str(q.graph) if q.graph else None
+            by_graph.setdefault(g, []).append(q.to_triple())
+
+        lines: list[str] = []
+        for pfx, uri in self._prefixes.items():
+            colon = ":" if pfx else ""
+            lines.append(f"@prefix {pfx}{colon} <{uri}> .")
+        if self._prefixes:
+            lines.append("")
+
+        # Default graph first
+        default = by_graph.pop(None, [])
+        for t in sorted(default, key=lambda x: (str(x.subject), str(x.predicate), str(x.object))):
+            lines.append(f"{self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)} .")
+
+        # Named graphs
+        for gname in sorted(by_graph.keys()):
+            lines.append(f"\nGRAPH {gname} {{")
+            for t in sorted(by_graph[gname], key=lambda x: (str(x.subject), str(x.predicate), str(x.object))):
+                lines.append(f"  {self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)} .")
+            lines.append("}")
+
+        return "\n".join(lines) + ("\n" if lines else "")
+
     # -- term rendering ------------------------------------------------------
 
     def _term(self, t: Term) -> str:
@@ -50,6 +80,18 @@ class N3Writer:
                 for tr in t.triples
             )
             return f"{{{inner}}}"
+        # Phase 2 extended types
+        if isinstance(t, TripleTerm):
+            return f"<<{self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)}>>"
+        if isinstance(t, FormulaTerm):
+            args_str = " ".join(self._term(a) for a in t.args)
+            return f"(|{self._term(t.functor)} {args_str}|)"
+        if isinstance(t, PathTerm):
+            parts = [self._term(t.terms[0])]
+            for i, term in enumerate(t.terms[1:]):
+                op = "!" if not t.directions or t.directions[i] == "forward" else "^"
+                parts.append(f" {op} {self._term(term)}")
+            return "".join(parts)
         return str(t)
 
     def _abbreviate(self, uri: str) -> str:

@@ -10,6 +10,11 @@ from pyeye.term import (
     Triple,
     Term,
     Binding,
+    # Phase 2 extended types
+    TripleTerm,
+    FormulaTerm,
+    PathTerm,
+    Quad,
 )
 from pyeye.parser import Rule, parse_n3, parse_rules, ParseError
 from pyeye.builtins import BUILTIN_REGISTRY
@@ -25,6 +30,10 @@ __all__ = [
     "Triple",
     "Term",
     "Binding",
+    "TripleTerm",
+    "FormulaTerm",
+    "PathTerm",
+    "Quad",
     "Rule",
     "parse_n3",
     "parse_rules",

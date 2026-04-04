@@ -34,6 +34,9 @@ from pyeye.term import (
     Triple,
     Binding,
     Term,
+    TripleTerm,
+    FormulaTerm,
+    PathTerm,
 )
 
 
@@ -86,6 +89,19 @@ def term_contains_var(term: Term, var_name: str) -> bool:
             or term_contains_var(term.predicate, var_name)
             or term_contains_var(term.object, var_name)
         )
+    # Phase 2 extended types
+    if isinstance(term, TripleTerm):
+        return (
+            term_contains_var(term.subject, var_name)
+            or term_contains_var(term.predicate, var_name)
+            or term_contains_var(term.object, var_name)
+        )
+    if isinstance(term, FormulaTerm):
+        if term_contains_var(term.functor, var_name):
+            return True
+        return any(term_contains_var(a, var_name) for a in term.args)
+    if isinstance(term, PathTerm):
+        return any(term_contains_var(t, var_name) for t in term.terms)
     return False
 
 
@@ -98,6 +114,23 @@ def apply_binding(term: Term, binding: Binding) -> Term:
             apply_binding_to_triple(t, binding)
             for t in term.triples
         ]))
+    # Phase 2 extended types
+    if isinstance(term, TripleTerm):
+        return TripleTerm(
+            apply_binding(term.subject, binding),
+            apply_binding(term.predicate, binding),
+            apply_binding(term.object, binding),
+        )
+    if isinstance(term, FormulaTerm):
+        return FormulaTerm(
+            apply_binding(term.functor, binding),
+            tuple(apply_binding(a, binding) for a in term.args),
+        )
+    if isinstance(term, PathTerm):
+        return PathTerm(
+            tuple(apply_binding(t, binding) for t in term.terms),
+            term.directions,
+        )
     # NamedNode, Literal, Existential — ground, no substitution needed
     return term
 
