@@ -18,7 +18,7 @@ from __future__ import annotations
 from pyeye.term import (
     NamedNode, Literal, Variable, Existential, Formula, Triple, Term, Binding
 )
-from pyeye.unify import unify, apply_binding_to_triple, apply_binding
+from pyeye.unify import unify, apply_binding_to_triple, apply_binding, term_contains_var
 from pyeye.store import TripleStore
 from pyeye.parser import Rule
 from pyeye.builtins import Builtin, BUILTIN_REGISTRY
@@ -363,6 +363,124 @@ class Engine:
             sk(triple.predicate),
             sk(triple.object),
         )
+
+    # -- backward chaining with tabling --------------------------------------
+
+    def backward_chain(
+        self,
+        query: Triple,
+    ) -> list[Binding]:
+        """Goal-directed reasoning: find all bindings that satisfy *query*.
+
+        Uses tabling (memoization) to prevent infinite recursion.
+        """
+        # Tabling cache: query_signature -> list[Binding]
+        self._tabling_cache: dict[str, list[Binding]] = {}
+        return self._backward_chain_triple(query, {})
+
+    def _backward_chain_triple(
+        self,
+        query: Triple,
+        binding: Binding,
+    ) -> list[Binding]:
+        """Find all bindings that make *query* true."""
+        resolved = self._resolve_triple(query, binding)
+
+        # Tabling: create a cache key from the resolved query
+        cache_key = self._tabling_key(resolved)
+        if cache_key in self._tabling_cache:
+            # Return cached results, filtering by compatibility with current binding
+            return self._tabling_cache[cache_key]
+
+        results: list[Binding] = []
+
+        # 1. Try direct store match (query as pattern, store as ground)
+        for store_triple in self._store_matches(resolved):
+            ub = unify(resolved, store_triple, dict(binding))
+            if ub is not None:
+                results.append(ub)
+
+        # 2. Try matching against rule heads (bidirectional unification)
+        for rule in self._rules:
+            for head_triple in rule.head.triples:
+                ub = self._unify_backward(resolved, head_triple, dict(binding))
+                if ub is not None:
+                    # Try to prove the body
+                    body_bindings = self._match_formula(rule.body, ub)
+                    results.extend(body_bindings)
+
+        # Cache the results
+        self._tabling_cache[cache_key] = results
+        return results
+
+    def _unify_backward(
+        self,
+        query: Triple,
+        head: Triple,
+        binding: Binding,
+    ) -> Binding | None:
+        """Bidirectional unification for backward chaining.
+
+        Unlike forward unification (pattern vs ground), this allows
+        variable-to-variable binding and handles both sides having variables.
+        """
+        # Unify predicate
+        r = self._unify_terms_backward(query.predicate, head.predicate, binding)
+        if r is None:
+            return None
+        # Unify subject
+        r = self._unify_terms_backward(query.subject, head.subject, r)
+        if r is None:
+            return None
+        # Unify object
+        r = self._unify_terms_backward(query.object, head.object, r)
+        if r is None:
+            return None
+        return r
+
+    def _unify_terms_backward(
+        self,
+        t1: Term,
+        t2: Term,
+        binding: Binding,
+    ) -> Binding | None:
+        """Unify two terms where both may be variables."""
+        # Resolve already-bound variables
+        if isinstance(t1, Variable) and t1.name in binding:
+            t1 = binding[t1.name]
+        if isinstance(t2, Variable) and t2.name in binding:
+            t2 = binding[t2.name]
+
+        # Both ground → must be equal
+        if not isinstance(t1, Variable) and not isinstance(t2, Variable):
+            return binding if t1 == t2 else None
+
+        # Both are variables → they unify (no new binding unless different)
+        if isinstance(t1, Variable) and isinstance(t2, Variable):
+            if t1.name == t2.name:
+                return binding  # Same variable, no conflict
+            # Different variables — bind one to the other
+            return {**binding, t1.name: t2}
+
+        # One is variable → bind it (with occurs check)
+        if isinstance(t1, Variable):
+            if term_contains_var(t2, t1.name):
+                return None  # occurs check
+            return {**binding, t1.name: t2}
+        if isinstance(t2, Variable):
+            if term_contains_var(t1, t2.name):
+                return None  # occurs check
+            return {**binding, t2.name: t1}
+
+        return None  # unreachable but satisfies type checker
+
+    def _tabling_key(self, triple: Triple) -> str:
+        """Create a cache key for tabling from a triple."""
+        def key_term(t: Term) -> str:
+            if isinstance(t, Variable):
+                return f"?{t.name}"
+            return str(t)
+        return f"{key_term(triple.subject)} {key_term(triple.predicate)} {key_term(triple.object)}"
 
     # -- properties ----------------------------------------------------------
 

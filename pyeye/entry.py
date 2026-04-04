@@ -24,6 +24,7 @@ class Result:
     triples: str = ""
     stats: dict = field(default_factory=dict)
     explains: list = field(default_factory=list)
+    query_answers: list = field(default_factory=list)  # populated when query is set
 
 
 def execute(
@@ -40,6 +41,8 @@ def execute(
     pass_mode: bool = False,
     pass_all: bool = False,
     djiti_debug: bool = False,
+    query: Triple | None = None,
+    forward: bool = True,
 ) -> Result:
     """Run N3 reasoning and return derived triples as N3 text.
 
@@ -71,6 +74,12 @@ def execute(
         If True, output includes input facts, rules, and derived triples.
     djiti_debug :
         If True, log DJITI pattern ordering for each rule application.
+    query :
+        A Triple to backward-chain from. If set, the engine finds all
+        bindings that satisfy the query. Results go in Result.query_answers.
+    forward :
+        If True (default), run forward chaining before backward chaining.
+        Set to False for pure backward chaining.
     """
     start = time.monotonic()
 
@@ -134,8 +143,14 @@ def execute(
     for r in all_rules:
         engine.add_rule(r)
 
-    # Run
-    engine.run()
+    # Run forward chaining (if enabled)
+    if forward and not nope:
+        engine.run()
+
+    # Run backward chaining (if query is set)
+    query_answers: list = []
+    if query is not None and not nope:
+        query_answers = engine.backward_chain(query)
 
     # Collect output
     elapsed = time.monotonic() - start
@@ -158,4 +173,5 @@ def execute(
             "time_ms": elapsed * 1000,
         },
         explains=engine._proof_trees if explain else [],
+        query_answers=query_answers,
     )
