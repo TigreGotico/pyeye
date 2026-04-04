@@ -120,6 +120,7 @@ def execute(
         max_steps=max_steps,
         limit_answers=limit_answers,
         djiti_debug=djiti_debug,
+        explain=explain,
     )
 
     # Add data triples
@@ -156,5 +157,5 @@ def execute(
             "derived": len(output_triples),
             "time_ms": elapsed * 1000,
         },
-        explains=[],  # Phase 2
+        explains=engine._proof_trees if explain else [],
     )

@@ -98,13 +98,14 @@ class TestExecuteAPI:
         assert ":p" in r.triples
         assert ":q" in r.triples
 
-    def test_explain_returns_empty_list_phase1(self):
+    def test_explain_returns_proof_trees(self):
         r = execute(
             data_strings=["@prefix : <http://ex.org/> .\n:a :p :b ."],
             rule_strings=["@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} ."],
             explain=True,
         )
-        assert r.explains == []
+        assert len(r.explains) == 1
+        assert r.explains[0].root.predicate.value.endswith("q") or r.explains[0].root.predicate.value == "q"
 
     def test_max_steps_one_derives_exactly_one(self):
         """max_steps=1 allows exactly 1 derivation."""

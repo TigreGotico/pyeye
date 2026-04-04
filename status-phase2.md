@@ -22,9 +22,9 @@
 - [x] Backward compatibility: all 183 Phase 1 tests pass
 
 ### 2c. DJITI Indexing
-- [ ] Most-constrained-first join ordering
-- [ ] Deterministic pattern ordering
-- [ ] `djiti_debug` flag
+- [x] Most-constrained-first join ordering
+- [x] Deterministic pattern ordering
+- [x] `djiti_debug` flag
 
 ### 2d. Remaining Builtins
 - [ ] Math: trig, floor, ceiling, exponentiation, logarithm, stats

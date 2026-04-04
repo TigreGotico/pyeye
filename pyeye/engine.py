@@ -22,6 +22,7 @@ from pyeye.unify import unify, apply_binding_to_triple, apply_binding
 from pyeye.store import TripleStore
 from pyeye.parser import Rule
 from pyeye.builtins import Builtin, BUILTIN_REGISTRY
+from pyeye.proof import ProofStep, ProofTree
 
 
 class Engine:
@@ -33,6 +34,7 @@ class Engine:
         max_steps: int = -1,
         limit_answers: int = -1,
         djiti_debug: bool = False,
+        explain: bool = False,
     ) -> None:
         self.store = TripleStore()
         self._rules: list[Rule] = []
@@ -49,6 +51,10 @@ class Engine:
         self._output_strings: list[Term] = []
         self._djiti_debug = djiti_debug
         self._djiti_log: list[dict] = []  # debug log of pattern orderings
+        # Proof tracing
+        self._explain = explain
+        self._proof_steps: list[ProofStep] = []
+        self._proof_trees: list[ProofTree] = []
 
     # -- population ----------------------------------------------------------
 
@@ -99,6 +105,25 @@ class Engine:
                     self._derived_count += 1
                     self._step_count += 1
                     self._derived_triples.append(head_triple)
+
+                    # Record proof step
+                    if self._explain:
+                        premise = list(rule.body.triples) if rule.body.triples else None
+                        step = ProofStep(
+                            conclusion=head_triple,
+                            premise=premise,
+                            rule=rule,
+                            chaining="forward",
+                            source=rule.source,
+                        )
+                        self._proof_steps.append(step)
+                        # Build a simple proof tree (flat, one level)
+                        tree = ProofTree(
+                            root=head_triple,
+                            rule=rule,
+                            chaining="forward",
+                        )
+                        self._proof_trees.append(tree)
 
     def _match_formula(
         self,
