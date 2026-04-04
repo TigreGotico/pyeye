@@ -37,6 +37,7 @@ from pyeye.term import (
     TripleTerm,
     FormulaTerm,
     PathTerm,
+    NegativeSurface,
 )
 
 
@@ -102,6 +103,11 @@ def term_contains_var(term: Term, var_name: str) -> bool:
         return any(term_contains_var(a, var_name) for a in term.args)
     if isinstance(term, PathTerm):
         return any(term_contains_var(t, var_name) for t in term.terms)
+    if isinstance(term, NegativeSurface):
+        return any(
+            term_contains_var(t, var_name)
+            for t in term.formula.triples
+        )
     return False
 
 
@@ -130,6 +136,13 @@ def apply_binding(term: Term, binding: Binding) -> Term:
         return PathTerm(
             tuple(apply_binding(t, binding) for t in term.terms),
             term.directions,
+        )
+    if isinstance(term, NegativeSurface):
+        return NegativeSurface(
+            Formula(tuple(
+                apply_binding_to_triple(t, binding)
+                for t in term.formula.triples
+            ))
         )
     # NamedNode, Literal, Existential — ground, no substitution needed
     return term

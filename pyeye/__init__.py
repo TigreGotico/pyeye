@@ -15,6 +15,7 @@ from pyeye.term import (
     FormulaTerm,
     PathTerm,
     Quad,
+    NegativeSurface,
 )
 from pyeye.parser import Rule, parse_n3, parse_rules, ParseError
 from pyeye.builtins import BUILTIN_REGISTRY
@@ -34,6 +35,7 @@ __all__ = [
     "FormulaTerm",
     "PathTerm",
     "Quad",
+    "NegativeSurface",
     "Rule",
     "parse_n3",
     "parse_rules",

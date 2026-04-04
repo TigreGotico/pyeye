@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pyeye.term import NamedNode, Literal, Variable, Existential, Formula, Triple, Term
-from pyeye.term import TripleTerm, FormulaTerm, PathTerm, Quad
+from pyeye.term import TripleTerm, FormulaTerm, PathTerm, Quad, NegativeSurface
 
 
 class N3Writer:
@@ -92,6 +92,12 @@ class N3Writer:
                 op = "!" if not t.directions or t.directions[i] == "forward" else "^"
                 parts.append(f" {op} {self._term(term)}")
             return "".join(parts)
+        if isinstance(t, NegativeSurface):
+            inner = "; ".join(
+                f"{self._term(tr.subject)} {self._term(tr.predicate)} {self._term(tr.object)}"
+                for tr in t.formula.triples
+            )
+            return f"{{{{{inner}}}}}"  # double braces for negation
         return str(t)
 
     def _abbreviate(self, uri: str) -> str:
