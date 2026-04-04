@@ -32,6 +32,7 @@ class Engine:
         builtins: dict[str, Builtin] | None = None,
         max_steps: int = -1,
         limit_answers: int = -1,
+        djiti_debug: bool = False,
     ) -> None:
         self.store = TripleStore()
         self._rules: list[Rule] = []
@@ -46,6 +47,8 @@ class Engine:
         self._initial_triples: int = 0  # snapshot after loading data
         self._skolem_counter = 0
         self._output_strings: list[Term] = []
+        self._djiti_debug = djiti_debug
+        self._djiti_log: list[dict] = []  # debug log of pattern orderings
 
     # -- population ----------------------------------------------------------
 
@@ -106,11 +109,50 @@ class Engine:
 
         Returns a list of binding extensions — one per valid combination
         of store triples that satisfy all patterns simultaneously.
+
+        Uses DJITI (most-constrained-first) ordering: patterns are sorted
+        by how many store triples they match, ascending, to minimize the
+        combinatorial explosion of the nested join.
         """
         if not formula.triples:
             return [binding]
 
-        return self._match_triples_iter(list(formula.triples), binding)
+        patterns = list(formula.triples)
+
+        # DJITI: order patterns by constraint (fewest matches first)
+        patterns = self._djiti_order(patterns, binding)
+
+        return self._match_triples_iter(patterns, binding)
+
+    def _djiti_order(
+        self,
+        patterns: list[Triple],
+        binding: Binding,
+    ) -> list[Triple]:
+        """Reorder patterns by how many store triples they could match.
+
+        Patterns with fewer possible matches are placed first, reducing
+        the branching factor of the nested join. Deterministic: ties are
+        broken by original position.
+        """
+        counts: list[int] = []
+        for pattern in patterns:
+            resolved = self._resolve_triple(pattern, binding)
+            counts.append(len(self._store_matches(resolved)))
+
+        indexed = list(enumerate(patterns))
+        indexed.sort(key=lambda pair: counts[pair[0]])
+        ordered = [p for _, p in indexed]
+        ordered_counts = [counts[i] for i, _ in indexed]
+
+        if self._djiti_debug:
+            self._djiti_log.append({
+                "original": [str(p) for p in patterns],
+                "ordered": [str(p) for p in ordered],
+                "counts": ordered_counts,
+            })
+
+        return ordered
 
     def _match_triples_iter(
         self,

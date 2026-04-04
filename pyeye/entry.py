@@ -39,6 +39,7 @@ def execute(
     nope: bool = False,
     pass_mode: bool = False,
     pass_all: bool = False,
+    djiti_debug: bool = False,
 ) -> Result:
     """Run N3 reasoning and return derived triples as N3 text.
 
@@ -68,6 +69,8 @@ def execute(
         If True, output includes input facts + derived triples.
     pass_all :
         If True, output includes input facts, rules, and derived triples.
+    djiti_debug :
+        If True, log DJITI pattern ordering for each rule application.
     """
     start = time.monotonic()
 
@@ -116,6 +119,7 @@ def execute(
         builtins=builtins,
         max_steps=max_steps,
         limit_answers=limit_answers,
+        djiti_debug=djiti_debug,
     )
 
     # Add data triples
