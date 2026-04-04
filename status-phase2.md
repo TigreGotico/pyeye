@@ -55,14 +55,14 @@
 - [x] `forward=True/False` flag
 
 ### 2g. TriG / Named Graphs
-- [ ] `Quad` dataclass
-- [ ] TriG parser
-- [ ] Graph-scoped `match(graph=...)`
-- [ ] `graph:*` builtins
+- [x] `Quad` dataclass
+- [x] TriG parser (GRAPH <g> { ... })
+- [ ] Graph-scoped `match(graph=...)` in store
+- [ ] Full `graph:*` builtin implementations
 
 ### 2h. Entailment Modes
-- [ ] RDFS entailment rules
-- [ ] `--entail` flag
+- [x] RDFS entailment (subClassOf, subPropertyOf, domain, range)
+- [x] `execute(entail=True)` flag
 - [ ] `--not-entail` flag
 
 ### 2i. HTTP Data Loading
