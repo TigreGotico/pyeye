@@ -26,14 +26,17 @@
 - [x] Deterministic pattern ordering
 - [x] `djiti_debug` flag
 
-### 2d. Remaining Builtins (51 total, up from 30)
+### 2d. Remaining Builtins (82 total, up from 30)
 - [x] Math: floor, ceiling, exponentiation, logarithm, sin, cos, tan
 - [x] String: regex matches, replace, substring
 - [x] Crypto: md5, sha, sha256, sha512
-- [ ] List: select, remove, permutation, car, cdr
-- [ ] Log: implies, isImpliedBy, collectAllIn, shell, ask, uuid, n3String
+- [x] List: car, cdr
+- [x] Log: uuid, n3String, implies, forAllIn
+- [x] Graph: member, length, difference, intersection, union, statement
+- [x] Time: hours, minutes, seconds, localTime
+- [x] E: calculate, findall, closure
 - [ ] RIF/XPath: ~70 functions
-- [ ] e: derive, calculate, call, findall, exec, becomes, transaction, closure
+- [ ] e: becomes, transaction, exec, shell, ask
 
 ### 2e. Proof Trace Output
 - [x] `ProofStep` dataclass
@@ -44,10 +47,12 @@
 - [x] Zero overhead when `explain=False`
 
 ### 2f. Backward Chaining / Tabling
-- [ ] `Engine.backward_chain(query)` method
-- [ ] Tabling (memoization) cache
-- [ ] `execute(query=...)` API extension
-- [ ] Recursive rule termination via tabling
+- [x] `Engine.backward_chain(query)` method
+- [x] Bidirectional unification (variable-to-variable binding)
+- [x] Tabling (memoization) cache
+- [x] `execute(query=...)` API extension
+- [x] Recursive rule termination via tabling
+- [x] `forward=True/False` flag
 
 ### 2g. TriG / Named Graphs
 - [ ] `Quad` dataclass
