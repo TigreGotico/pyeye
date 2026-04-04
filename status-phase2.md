@@ -37,12 +37,12 @@
 - [ ] e: derive, calculate, call, findall, exec, becomes, transaction, closure
 
 ### 2e. Proof Trace Output
-- [ ] `ProofStep` dataclass
-- [ ] `ProofTree` dataclass
-- [ ] N3 serialization of proofs
-- [ ] DOT serialization of proofs
-- [ ] HTML serialization of proofs
-- [ ] Zero overhead when `explain=False`
+- [x] `ProofStep` dataclass
+- [x] `ProofTree` dataclass
+- [x] N3 serialization of proofs
+- [x] DOT serialization of proofs
+- [x] HTML serialization of proofs
+- [x] Zero overhead when `explain=False`
 
 ### 2f. Backward Chaining / Tabling
 - [ ] `Engine.backward_chain(query)` method
