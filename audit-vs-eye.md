@@ -21,9 +21,7 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 ### Still Open
 
 - **C7**: `e:calculate` uses `ast.literal_eval` (safe but limited) — documented limitation
-- **C9**: Unicode prefixed names not supported — `KW` pattern is ASCII-only
-- **C10**: `e:becomes` single-triple only — multi-triple retract/assert not implemented
-- **M1-M13**: Various medium findings (IRI validation, quantifier scoping, etc.)
+- **M2-M13**: Various medium findings (IRI validation, quantifier scoping, etc.)
 
 ---
 
@@ -59,8 +57,8 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 | C6 | **High** | `engine.py` + `builtins.py` | **Shared skolem counter.** | ✅ Fixed |
 | C7 | **High** | `builtins.py` `e_calculate()` | **`ast.literal_eval` is far more restrictive than EYE's `call/1`.** | ⚠️ Documented |
 | C8 | **High** | `parser.py` `_verb_obj_list()` | **`=` (owl:sameAs) sugar not handled.** | ✅ Fixed |
-| C9 | **High** | `parser.py` `KW` regex | **Unicode prefixed names rejected.** | ❌ Open |
-| C10 | **High** | `builtins.py` `e_becomes()` | **Multi-triple retract/assert not supported.** | ❌ Open |
+| C9 | **High** | `parser.py` `KW` regex | **Unicode prefixed names rejected.** | ✅ Fixed |
+| C10 | **High** | `builtins.py` `e_becomes()` | **Multi-triple retract/assert not supported.** | ✅ Fixed |
 
 ---
 
