@@ -15,6 +15,9 @@ test = [
 [project.scripts]
 pyeye = "pyeye.cli:main"
 
+[tool.hatch.build.targets.wheel]
+packages = ["pyeye"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
