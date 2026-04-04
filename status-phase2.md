@@ -72,8 +72,8 @@
 - [x] Local caching with `--wcache` / `cache_dir`
 
 ### 2j. Performance
-- [ ] Binding copy optimization
-- [ ] Incremental reasoning
+- [x] Binding copy optimization (removed redundant dict copies)
+- [x] Incremental reasoning (add_triple triggers re-evaluation with cascading)
 
 ## Blockers
 
