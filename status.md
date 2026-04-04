@@ -2,7 +2,7 @@
 
 ## Progress
 
-- [ ] Initialize project: git repo, `pyproject.toml`, empty `pyeye/` package
+- [x] Initialize project: git repo, `pyproject.toml`, empty `pyeye/` package
 - [ ] `term.py` — N3 Term hierarchy (NamedNode, Literal, Variable, Existential, Formula, Triple)
 - [ ] `unify.py` — Structural unification with occurs check and binding propagation
 - [ ] `store.py` — Triple store with predicate-based indexing
