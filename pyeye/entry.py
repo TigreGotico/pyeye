@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import time
 from pathlib import Path
 
-from pyeye.term import Triple
+from pyeye.term import Triple, Quad
 from pyeye.parser import (
     parse_n3, load_data_string, load_data_file, ParsedDocument, Rule
 )
@@ -89,6 +89,7 @@ def execute(
     start = time.monotonic()
 
     all_triples: list[Triple] = []
+    all_quads: list[Quad] = []
     all_rules: list[Rule] = []
     all_prefixes: dict[str, str] = dict(prefixes or {})
 
@@ -97,26 +98,32 @@ def execute(
         for p in data_paths:
             doc = load_data_file(p)
             all_triples.extend(doc.triples)
+            all_quads.extend(doc.quads)
             all_prefixes.update(doc.prefixes)
 
     if data_strings:
         for s in data_strings:
             doc = load_data_string(s)
             all_triples.extend(doc.triples)
+            all_quads.extend(doc.quads)
             all_prefixes.update(doc.prefixes)
 
-    # -- load rules ----------------------------------------------------------
+    # -- load rules (may also contain TriG data) -----------------------------
     if rule_paths:
         for p in rule_paths:
             text = Path(p).read_text(encoding="utf-8")
             doc = parse_n3(text, source=p)
             all_rules.extend(doc.rules)
+            all_triples.extend(doc.triples)
+            all_quads.extend(doc.quads)
             all_prefixes.update(doc.prefixes)
 
     if rule_strings:
         for s in rule_strings:
             doc = parse_n3(s, source="<string>")
             all_rules.extend(doc.rules)
+            all_triples.extend(doc.triples)
+            all_quads.extend(doc.quads)
             all_prefixes.update(doc.prefixes)
 
     # -- nope mode -----------------------------------------------------------
@@ -140,6 +147,10 @@ def execute(
     # Add data triples
     for t in all_triples:
         engine.add_triple(t)
+
+    # Add named graph quads
+    for q in all_quads:
+        engine.store.add_quad(q)
 
     # Apply RDFS entailment (if enabled)
     if entail and not nope:

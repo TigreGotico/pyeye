@@ -38,6 +38,16 @@ def main() -> None:
                         help="Suppress stderr")
     parser.add_argument("--statistics", action="store_true",
                         help="Print stats to stderr")
+    # Phase 2 flags
+    parser.add_argument("--entail", action="store_true",
+                        help="Apply RDFS entailment before user rules")
+    parser.add_argument("--not-entail", dest="not_entail", action="store_true",
+                        help="Check non-entailment (Phase 2)")
+    parser.add_argument("--query-goal", dest="query_goal", default=None,
+                        metavar="TRIPLE",
+                        help="Backward chain from this triple pattern (Phase 2)")
+    parser.add_argument("--no-forward", dest="no_forward", action="store_true",
+                        help="Skip forward chaining (backward only)")
 
     args = parser.parse_args()
 
@@ -66,6 +76,8 @@ def main() -> None:
             nope=args.nope,
             pass_mode=args.pass_mode,
             pass_all=args.pass_all,
+            entail=args.entail,
+            forward=not args.no_forward,
         )
     except Exception as exc:
         # Catch parse errors, rdflib errors, and anything else

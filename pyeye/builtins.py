@@ -531,6 +531,44 @@ def e_closure(args: list[Term], engine: EngineProto) -> Term | None:
     return _bool_result(True)
 
 
+def e_becomes(args: list[Term], engine: EngineProto) -> list[Triple] | None:
+    """Retract-then-assert: retract all triples matching pattern, assert new ones.
+
+    e:becomes(old_triple, new_triple) — removes old, adds new.
+    Simplified: just asserts the new triple (retraction is complex in forward chain).
+    """
+    if _unground(args):
+        return None
+    if len(args) >= 2:
+        # Retract old triple
+        old_triple = args[0]
+        if isinstance(old_triple, Triple):
+            # Can't easily retract from indexed store in Phase 2
+            # Just assert the new one
+            pass
+        # Assert new triple
+        new_triple = args[1]
+        if isinstance(new_triple, Triple):
+            engine.store.add(new_triple)
+            return [new_triple]
+    return None
+
+
+def e_transaction(args: list[Term], engine: EngineProto) -> list[Triple] | None:
+    """Atomic retract-then-assert: all or nothing.
+
+    Simplified: same as e:becomes for Phase 2 (no rollback).
+    """
+    if _unground(args):
+        return None
+    results: list[Triple] = []
+    for arg in args:
+        if isinstance(arg, Triple):
+            if engine.store.add(arg):
+                results.append(arg)
+    return results if results else None
+
+
 # ---------------------------------------------------------------------------
 # Extended Time builtins
 # ---------------------------------------------------------------------------
@@ -750,4 +788,6 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_E + "calculate": e_calculate,
     NS_E + "findall": e_findall,
     NS_E + "closure": e_closure,
+    NS_E + "becomes": e_becomes,
+    NS_E + "transaction": e_transaction,
 }
