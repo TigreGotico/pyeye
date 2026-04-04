@@ -27,6 +27,9 @@ def main() -> None:
                         help="No derivation (pass-through)")
     parser.add_argument("--explain", action="store_true",
                         help="Include proof explanations")
+    parser.add_argument("--explain-format", dest="explain_format",
+                        choices=["n3", "dot", "html"], default="n3",
+                        help="Proof output format (default: n3)")
     parser.add_argument("--tactic", nargs=2, action="append", default=[],
                         metavar=("NAME", "VALUE"),
                         help="Reasoning tactic (e.g. limited-answer N)")
@@ -99,6 +102,7 @@ def main() -> None:
             forward=not args.no_forward,
             not_entail=not_entail_triple,
             cache_dir=args.cache_dir,
+            explain_format=args.explain_format,
         )
     except Exception as exc:
         # Catch parse errors, rdflib errors, and anything else

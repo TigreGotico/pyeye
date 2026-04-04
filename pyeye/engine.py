@@ -104,7 +104,6 @@ class Engine:
                                             self._step_count += 1
                                             self._derived_triples.append(head_triple)
                                             if self._explain:
-                                                from pyeye.proof import ProofStep, ProofTree
                                                 step = ProofStep(
                                                     conclusion=head_triple,
                                                     premise=list(rule.body.triples),

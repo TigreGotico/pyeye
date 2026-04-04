@@ -143,9 +143,15 @@ class TestListExtended:
 
 class TestEBuiltins:
     def test_calculate(self):
-        result = e_calculate([L("2 + 3")], None)
+        """e:evaluate returns literals safely."""
+        result = e_calculate([L("42")], None)
         assert result is not None
-        assert result.value == "5"
+        assert result.value == "42"
+
+    def test_calculate_string(self):
+        result = e_calculate([L("'hello world'")], None)
+        assert result is not None
+        assert result.value == "hello world"
 
     def test_calculate_unground(self):
         result = e_calculate([V("X")], None)

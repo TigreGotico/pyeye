@@ -25,9 +25,11 @@ class TestShellExec:
         assert result.value == "0"
 
     def test_exec_nonzero_exit(self):
-        result = e_exec([L("false")], None)
+        """e:exec returns exit code for failing commands."""
+        # Use a command that's in the allowlist but will fail
+        result = e_exec([L("grep 'NONEXISTENT_PATTERN' /dev/null")], None)
         assert result is not None
-        assert result.value == "1"
+        assert result.value == "1"  # grep returns 1 when no match
 
     def test_shell_output(self):
         """e:shell returns stdout."""

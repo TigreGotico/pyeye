@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import time
 from pathlib import Path
+from typing import Literal
 
 from pyeye.term import Triple, Quad
 from pyeye.parser import (
@@ -16,6 +17,9 @@ from pyeye.parser import (
 from pyeye.builtins import Builtin
 from pyeye.engine import Engine
 from pyeye.output import N3Writer
+
+import ipaddress as _ipaddress
+import urllib.parse as _urllib_parse
 
 
 @dataclass
@@ -46,6 +50,7 @@ def execute(
     entail: bool = False,
     not_entail: Triple | None = None,
     cache_dir: str | None = None,
+    explain_format: Literal["n3", "dot", "html"] = "n3",
 ) -> Result:
     """Run N3 reasoning and return derived triples as N3 text.
 
@@ -94,6 +99,9 @@ def execute(
     cache_dir :
         Directory for caching remote N3 files. When set, HTTP/HTTPS URIs
         in data_paths and rule_paths are fetched and cached locally.
+    explain_format :
+        Format for proof trace output: "n3" (default), "dot" (Graphviz),
+        or "html" (collapsible browser view). Only used when explain=True.
     """
     start = time.monotonic()
 
@@ -103,9 +111,28 @@ def execute(
     all_prefixes: dict[str, str] = dict(prefixes or {})
 
     # -- helper: resolve path (HTTP with optional caching) -------------------
+    def _validate_url(path: str) -> bool:
+        """Reject URLs targeting private IPs or non-HTTP schemes."""
+        parsed = _urllib_parse.urlparse(path)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        if parsed.hostname:
+            try:
+                ip = _ipaddress.ip_address(parsed.hostname)
+                if ip.is_private or ip.is_loopback or ip.is_link_local:
+                    return False
+            except ValueError:
+                pass  # Hostname — DNS will resolve at fetch time
+        return True
+
     def _resolve_path(path: str) -> str:
-        """Resolve a path, fetching HTTP URIs with optional caching."""
+        """Resolve a path, fetching HTTP URIs with optional caching.
+
+        SSRF protection: rejects URLs targeting private IP ranges.
+        """
         if path.startswith(("http://", "https://")):
+            if not _validate_url(path):
+                raise ValueError(f"Blocked URL (private IP or invalid scheme): {path}")
             import urllib.request as _urllib_req
             import hashlib as _hash
             import os as _os
@@ -250,6 +277,29 @@ def execute(
             "time_ms": elapsed * 1000,
             "not_entail_failed": not_entail_failed,
         },
-        explains=engine._proof_trees if explain else [],
+        explains=_format_proofs(engine._proof_trees if explain else [], explain_format),
         query_answers=query_answers,
     )
+
+
+def _format_proofs(
+    trees: list,
+    fmt: Literal["n3", "dot", "html"],
+) -> list | str:
+    """Format proof trees in the requested format.
+
+    "n3" returns the raw list (default, for API compatibility).
+    "dot" and "html" return serialized strings.
+    """
+    if not trees:
+        return []
+    if fmt == "n3":
+        return trees  # Return raw list for API compatibility
+    if fmt == "dot":
+        from pyeye.proof import serialize_dot
+        return serialize_dot(trees)
+    if fmt == "html":
+        from pyeye.proof import serialize_html
+        return serialize_html(trees)
+    # Fallback
+    return trees

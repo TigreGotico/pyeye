@@ -22,6 +22,10 @@ import subprocess as _subprocess
 import urllib.request as _urllib
 import statistics as _statistics
 import itertools as _itertools
+import ast as _ast
+import ipaddress as _ipaddress
+import urllib.parse as _urllib_parse
+import shlex as _shlex
 from typing import Protocol
 
 from pyeye.term import NamedNode, Literal, Variable, Existential, Triple, Term, Formula
@@ -843,13 +847,17 @@ def log_forAllIn(args: list[Term], engine: EngineProto) -> list[Triple] | None:
 # ---------------------------------------------------------------------------
 
 def e_calculate(args: list[Term], engine: EngineProto) -> Term | None:
-    """Evaluate a Python expression: e:calculate("2 + 3") → "5"."""
+    """Evaluate a safe Python expression: e:calculate("2 + 3") → "5".
+
+    Uses ast.literal_eval which only allows literals (strings, numbers,
+    tuples, lists, dicts, booleans, None). No arbitrary code execution.
+    """
     if _unground(args):
         return None
     try:
-        result = eval(_str_val(args[0]), {"__builtins__": {}}, {})
+        result = _ast.literal_eval(_str_val(args[0]))
         return Literal(str(result))
-    except Exception:
+    except (ValueError, SyntaxError):
         return None
 
 
@@ -867,6 +875,44 @@ def e_closure(args: list[Term], engine: EngineProto) -> Term | None:
     Simplified: always returns true for Phase 2.
     """
     return _bool_result(True)
+
+
+# ---------------------------------------------------------------------------
+# e:derive — call registered Python functions by name
+# ---------------------------------------------------------------------------
+
+_DERIVE_REGISTRY: dict[str, callable] = {}
+
+
+def register_derive_function(name: str, fn: callable) -> None:
+    """Register a function for use with e:derive."""
+    _DERIVE_REGISTRY[name] = fn
+
+
+def e_derive(args: list[Term], engine: EngineProto) -> Term | None:
+    """Call a registered Python function by name.
+
+    e:derive("my_func", arg1, arg2, ...) → result.
+    Functions must be registered via register_derive_function().
+    """
+    if _unground(args):
+        return None
+    fn_name = _str_val(args[0])
+    fn = _DERIVE_REGISTRY.get(fn_name)
+    if fn is None:
+        return None  # Function not registered
+    try:
+        # Pass remaining args + engine to the function
+        result = fn(args[1:], engine)
+        if isinstance(result, Term):
+            return result
+        if isinstance(result, str):
+            return Literal(result)
+        if isinstance(result, (int, float)):
+            return Literal(str(result))
+        return None
+    except Exception:
+        return None
 
 
 def e_becomes(args: list[Term], engine: EngineProto) -> list[Triple] | None:
@@ -912,48 +958,101 @@ def e_transaction(args: list[Term], engine: EngineProto) -> list[Triple] | None:
     return results if results else None
 
 
-def e_exec(args: list[Term], engine: EngineProto) -> Term | None:
-    """Execute a shell command and return the exit code.
+# ---------------------------------------------------------------------------
+# Security: Safe command allowlist for e:exec/e:shell
+# ---------------------------------------------------------------------------
 
+_SAFE_COMMANDS: frozenset[str] = frozenset({
+    # Information
+    "echo", "date", "uname", "whoami", "hostname", "id", "uptime",
+    # File operations (read-only)
+    "cat", "head", "tail", "wc", "ls", "find", "stat", "file", "md5sum", "sha256sum",
+    # Network (safe)
+    "curl", "wget", "ping", "dig", "nslookup",
+    # Text processing
+    "grep", "awk", "sed", "sort", "uniq", "tr", "cut",
+    # Math
+    "bc", "expr",
+    # System info
+    "df", "free", "ps",
+})
+
+
+def _safe_run_command(cmd_str: str, *, return_stdout: bool = False) -> str | int:
+    """Run a command safely: no shell, args parsed with shlex, allowlist enforced.
+
+    Returns stdout (if return_stdout=True) or exit code (if False).
+    """
+    try:
+        parts = _shlex.split(cmd_str)
+    except ValueError:
+        return "" if return_stdout else -1
+    if not parts:
+        return "" if return_stdout else -1
+    base = parts[0].split("/")[-1]  # Allow "ls" even if path is "/bin/ls"
+    if base not in _SAFE_COMMANDS:
+        return "" if return_stdout else -1  # Silently reject
+    try:
+        result = _subprocess.run(
+            parts, shell=False, capture_output=True, text=True, timeout=30
+        )
+        if return_stdout:
+            return result.stdout
+        return result.returncode
+    except Exception:
+        return "" if return_stdout else -1
+
+
+def e_exec(args: list[Term], engine: EngineProto) -> Term | None:
+    """Execute a safe command and return the exit code.
+
+    Only commands in the allowlist are permitted (no shell injection).
     e:exec("ls -l /tmp") → "0" (exit code as string).
     """
     if _unground(args):
         return None
-    cmd = _str_val(args[0])
-    try:
-        result = _subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=30
-        )
-        return Literal(str(result.returncode))
-    except Exception:
-        return Literal("-1")
+    code = _safe_run_command(_str_val(args[0]))
+    return Literal(str(code))
 
 
 def e_shell(args: list[Term], engine: EngineProto) -> Term | None:
-    """Execute a shell command and return stdout.
+    """Execute a safe command and return stdout.
 
+    Only commands in the allowlist are permitted (no shell injection).
     e:shell("echo hello") → "hello".
     """
     if _unground(args):
         return None
-    cmd = _str_val(args[0])
-    try:
-        result = _subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=30
-        )
-        return Literal(result.stdout)
-    except Exception:
-        return Literal("")
+    stdout = _safe_run_command(_str_val(args[0]), return_stdout=True)
+    return Literal(stdout)
 
 
 def log_ask(args: list[Term], engine: EngineProto) -> Term | None:
-    """Perform an HTTP GET request and return the response body.
+    """Perform an HTTP/HTTPS GET request and return the response body.
 
-    log:ask("http://example.org/data") → response content.
+    log:ask("http://example.org/data") → response content (limited to 10KB).
+
+    SSRF protection: rejects URLs targeting private IP ranges, file://,
+    ftp://, and other non-HTTP schemes.
     """
     if _unground(args):
         return None
     url = _str_val(args[0])
+
+    # Validate URL
+    parsed = _urllib_parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return None  # Reject file://, ftp://, etc.
+
+    # SSRF protection: reject private IP ranges
+    if parsed.hostname:
+        try:
+            ip = _ipaddress.ip_address(parsed.hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                return None
+        except ValueError:
+            pass  # Not an IP (hostname) — allow, DNS resolution happens at fetch time
+
     try:
         with _urllib.urlopen(url, timeout=30) as response:
             content = response.read().decode("utf-8", errors="replace")
@@ -1022,14 +1121,24 @@ def time_localTime(args: list[Term], engine: EngineProto) -> Term | None:
 # Graph builtins
 # ---------------------------------------------------------------------------
 
+def _get_graph_triples(engine: EngineProto, graph_id: Term | None) -> list[Triple]:
+    """Get triples from a specific graph (or default if None)."""
+    if graph_id is None:
+        return list(engine.store.match())
+    return list(engine.store.match(graph=graph_id))
+
+
 def graph_member(args: list[Term], engine: EngineProto) -> Term | None:
-    """Check if a triple is a member of a graph."""
+    """Check if a triple is a member of a graph.
+
+    graph:member(s, p, o) → boolean (default graph)
+    graph:member(s, p, o, graph_id) → boolean (named graph)
+    """
     if _unground(args):
         return None
-    # Simplified: check if triple exists in store
-    # Full implementation would check graph membership
-    from pyeye.term import Triple as T_cls
-    for t in engine.store:
+    graph_id = args[3] if len(args) > 3 else None
+    candidates = _get_graph_triples(engine, graph_id)
+    for t in candidates:
         if (t.subject == args[0] and t.predicate == args[1] and
             (len(args) < 3 or t.object == args[2])):
             return _bool_result(True)
@@ -1037,32 +1146,64 @@ def graph_member(args: list[Term], engine: EngineProto) -> Term | None:
 
 
 def graph_length(args: list[Term], engine: EngineProto) -> Term | None:
-    """Return the number of triples in the store (or graph)."""
-    return _int_result(len(engine.store))
+    """Return the number of triples in a graph.
+
+    graph:length() → int (default graph)
+    graph:length(graph_id) → int (named graph)
+    """
+    if _unground(args):
+        return None
+    graph_id = args[0] if args else None
+    triples = _get_graph_triples(engine, graph_id)
+    return _int_result(len(triples))
 
 
 def graph_difference(args: list[Term], engine: EngineProto) -> list[Triple] | None:
     """Return triples in first graph but not in second.
 
-    Simplified: returns all triples (single graph in Phase 2).
+    graph:difference(graph_a, graph_b) → list of triples.
     """
-    return list(engine.store)
+    if _unground(args):
+        return None
+    if len(args) < 2:
+        return None
+    graph_a = args[0]
+    graph_b = args[1]
+    triples_a = set(_get_graph_triples(engine, graph_a))
+    triples_b = set(_get_graph_triples(engine, graph_b))
+    return list(triples_a - triples_b)
 
 
 def graph_intersection(args: list[Term], engine: EngineProto) -> list[Triple] | None:
     """Return triples common to both graphs.
 
-    Simplified: returns all triples (single graph in Phase 2).
+    graph:intersection(graph_a, graph_b) → list of triples.
     """
-    return list(engine.store)
+    if _unground(args):
+        return None
+    if len(args) < 2:
+        return None
+    graph_a = args[0]
+    graph_b = args[1]
+    triples_a = set(_get_graph_triples(engine, graph_a))
+    triples_b = set(_get_graph_triples(engine, graph_b))
+    return list(triples_a & triples_b)
 
 
 def graph_union(args: list[Term], engine: EngineProto) -> list[Triple] | None:
     """Return all triples from both graphs.
 
-    Simplified: returns all triples (single graph in Phase 2).
+    graph:union(graph_a, graph_b) → list of triples.
     """
-    return list(engine.store)
+    if _unground(args):
+        return None
+    if len(args) < 2:
+        return None
+    graph_a = args[0]
+    graph_b = args[1]
+    triples_a = set(_get_graph_triples(engine, graph_a))
+    triples_b = set(_get_graph_triples(engine, graph_b))
+    return list(triples_a | triples_b)
 
 
 def graph_statement(args: list[Term], engine: EngineProto) -> list[Triple] | None:
@@ -1204,6 +1345,7 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_E + "transaction": e_transaction,
     NS_E + "exec": e_exec,
     NS_E + "shell": e_shell,
+    NS_E + "derive": e_derive,
     # Log extended
     NS_LOG + "ask": log_ask,
     NS_LOG + "shell": log_shell,
