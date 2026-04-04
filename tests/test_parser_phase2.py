@@ -1,0 +1,183 @@
+"""Tests for Phase 2 parser features: triple terms, formula terms, paths, etc."""
+
+from __future__ import annotations
+
+import pytest
+
+from pyeye.parser import parse_n3, parse_rules, ParseError
+from pyeye.term import (
+    NamedNode, Literal, Variable, Existential, Triple,
+    TripleTerm, FormulaTerm, PathTerm, Formula,
+)
+
+
+NN = NamedNode
+V = Variable
+E = Existential
+L = Literal
+T = Triple
+TT = TripleTerm
+FT = FormulaTerm
+PT = PathTerm
+F = Formula
+
+
+class TestTripleTerm:
+    """FR 2a.1: Parse triple terms ``<< S P O >>``."""
+
+    def test_simple_triple_term(self):
+        text = '@prefix : <http://ex.org/> .\n:a :about << :x :p :y >> .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert t.subject == NN("http://ex.org/a")
+        assert t.predicate == NN("http://ex.org/about")
+        assert isinstance(t.object, TripleTerm)
+        assert t.object == TT(NN("http://ex.org/x"), NN("http://ex.org/p"), NN("http://ex.org/y"))
+
+    def test_triple_term_as_subject(self):
+        text = '@prefix : <http://ex.org/> .\n<< :x :p :y >> :wasStatedBy :alice .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert isinstance(t.subject, TripleTerm)
+        assert t.predicate == NN("http://ex.org/wasStatedBy")
+
+    def test_triple_term_in_rule(self):
+        text = """
+@prefix : <http://ex.org/> .
+{ ?S :claims << ?A :p ?B >> } => { ?S :assertsFact true } .
+"""
+        doc = parse_n3(text)
+        assert len(doc.rules) == 1
+        rule = doc.rules[0]
+        # Body should contain a triple with a TripleTerm in it
+        body_triple = rule.body.triples[0]
+        assert isinstance(body_triple.object, TripleTerm)
+
+
+class TestFormulaTerm:
+    """FR 2a.2: Parse formula terms ``(| Functor Args |)``."""
+
+    def test_simple_formula_term(self):
+        text = '@prefix : <http://ex.org/> .\n:a :thinks (| :says :alice "hello" |) .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert isinstance(t.object, FormulaTerm)
+        assert t.object.functor == NN("http://ex.org/says")
+        assert t.object.args == (NN("http://ex.org/alice"), L("hello"))
+
+    def test_formula_term_no_args(self):
+        text = '@prefix : <http://ex.org/> .\n:a :status (| :true |) .'
+        doc = parse_n3(text)
+        t = doc.triples[0]
+        assert isinstance(t.object, FormulaTerm)
+        assert t.object.functor == NN("http://ex.org/true")
+        assert t.object.args == ()
+
+
+class TestPathExpressions:
+    """FR 2a.8: Parse chained path expressions ``:a ! :p ! :q``."""
+
+    def test_single_forward_path(self):
+        """`:a ! :p :target` — path in predicate position."""
+        text = '@prefix : <http://ex.org/> .\n:a ! :p :target .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert isinstance(t.predicate, PathTerm)
+        assert len(t.predicate.terms) == 1
+        assert t.predicate.terms[0] == NN("http://ex.org/p")
+        assert t.predicate.directions == ("forward",)
+
+    def test_reverse_path(self):
+        """`:a ^ :parent :target` — reverse path."""
+        text = '@prefix : <http://ex.org/> .\n:a ^ :parent :target .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert isinstance(t.predicate, PathTerm)
+        assert t.predicate.directions == ("reverse",)
+
+    def test_chained_path(self):
+        """`:a ! :p ! :q :target` — multiple path segments."""
+        text = '@prefix : <http://ex.org/> .\n:a ! :p ! :q :target .'
+        doc = parse_n3(text)
+        t = doc.triples[0]
+        assert isinstance(t.predicate, PathTerm)
+        assert len(t.predicate.terms) == 2
+        assert t.predicate.terms == (NN("http://ex.org/p"), NN("http://ex.org/q"))
+        assert t.predicate.directions == ("forward", "forward")
+
+
+class TestHasSugar:
+    """FR 2a.4: Parse `has` syntactic sugar: `:Alice :parent has :Bob`."""
+
+    def test_has_sugar(self):
+        """`:Alice :parent has :Bob` → `:Alice :parent :Bob`."""
+        text = '@prefix : <http://ex.org/> .\n:Alice :parent has :Bob .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert t.subject == NN("http://ex.org/Alice")
+        assert t.predicate == NN("http://ex.org/parent")
+        assert t.object == NN("http://ex.org/Bob")
+
+    def test_has_with_semicolon(self):
+        text = '@prefix : <http://ex.org/> .\n:Alice :name has "Alice" ; :age has 30 .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 2
+
+
+class TestSetSyntax:
+    """FR 2a.7: Parse set syntax ``($ a b $)``."""
+
+    def test_set_parsed(self):
+        text = '@prefix : <http://ex.org/> .\n:Alice :likes ($ :pizza :sushi $) .'
+        doc = parse_n3(text)
+        # Set is treated like a list — creates rdf:first/rdf:rest triples
+        assert any(t.predicate == NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
+                   for t in doc.triples)
+
+    def test_empty_set(self):
+        text = '@prefix : <http://ex.org/> .\n:Alice :likes ($ $) .'
+        doc = parse_n3(text)
+        t = doc.triples[0]
+        assert t.object == E("nil")
+
+
+class TestBackwardCompatibility:
+    """FR 2a.9: All Phase 1 syntax still works."""
+
+    def test_phase1_rule(self):
+        text = '@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?Y :q ?X} .'
+        doc = parse_n3(text)
+        assert len(doc.rules) == 1
+
+    def test_phase1_data(self):
+        text = '@prefix : <http://ex.org/> .\n:a :p :b .\n:c :q :d .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 2
+
+    def test_phase1_semicolon(self):
+        text = '@prefix : <http://ex.org/> .\n:a :p :b ; :q :c .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 2
+
+    def test_phase1_comma(self):
+        text = '@prefix : <http://ex.org/> .\n:a :p :b, :c, :d .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 3
+
+    def test_phase1_blank_node(self):
+        text = '@prefix : <http://ex.org/> .\n:a :p [ :q :r ] .'
+        doc = parse_n3(text)
+        # Creates a blank node with :q :r
+        assert any(t.predicate == NN("http://ex.org/q") for t in doc.triples)
+
+    def test_phase1_list(self):
+        text = '@prefix : <http://ex.org/> .\n:a :p (:x :y :z) .'
+        doc = parse_n3(text)
+        assert any(t.predicate == NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
+                   for t in doc.triples)

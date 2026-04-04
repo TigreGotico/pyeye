@@ -154,12 +154,11 @@ class PathTerm:
     directions: tuple[TypingLiteral["forward", "reverse"], ...] = ()
 
     def __post_init__(self) -> None:
-        # Auto-fill directions: one fewer than terms, all forward by default
-        expected = len(self.terms) - 1
-        if expected > 0 and len(self.directions) != expected:
+        # Auto-fill directions: one per term (each term has a direction)
+        if len(self.directions) != len(self.terms):
             object.__setattr__(
                 self, "directions",
-                tuple(["forward"] * expected)
+                tuple(["forward"] * len(self.terms))
             )
 
     def __hash__(self) -> int:

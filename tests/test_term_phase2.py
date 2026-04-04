@@ -97,25 +97,25 @@ class TestFormulaTerm:
 
 class TestPathTerm:
     def test_create_forward(self):
-        pt = PathTerm((NN("a"), NN("b"), NN("c")), ("forward", "forward"))
+        pt = PathTerm((NN("a"), NN("b"), NN("c")), ("forward", "forward", "forward"))
         assert pt.terms == (NN("a"), NN("b"), NN("c"))
-        assert pt.directions == ("forward", "forward")
+        assert pt.directions == ("forward", "forward", "forward")
 
     def test_create_reverse(self):
-        pt = PathTerm((NN("a"), NN("b")), ("reverse",))
-        assert pt.directions == ("reverse",)
+        pt = PathTerm((NN("a"), NN("b")), ("reverse", "reverse"))
+        assert pt.directions == ("reverse", "reverse")
 
     def test_auto_fill_directions(self):
         """If directions are missing, they default to forward."""
         pt = PathTerm((NN("a"), NN("b"), NN("c")))
-        assert pt.directions == ("forward", "forward")
+        assert pt.directions == ("forward", "forward", "forward")
 
     def test_str_forward(self):
-        pt = PathTerm((NN("a"), NN("b"), NN("c")), ("forward", "forward"))
+        pt = PathTerm((NN("a"), NN("b"), NN("c")), ("forward", "forward", "forward"))
         assert str(pt) == "a ! b ! c"
 
     def test_str_reverse(self):
-        pt = PathTerm((NN("a"), NN("b")), ("reverse",))
+        pt = PathTerm((NN("a"), NN("b")), ("reverse", "reverse"))
         assert str(pt) == "a ^ b"
 
     def test_hashable(self):

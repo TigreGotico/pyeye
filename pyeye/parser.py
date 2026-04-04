@@ -28,6 +28,10 @@ from pyeye.term import (
     Formula,
     Triple,
     Term,
+    # Phase 2 extended types
+    TripleTerm,
+    FormulaTerm,
+    PathTerm,
 )
 
 
@@ -97,6 +101,8 @@ def tokenize(text: str) -> list[Tok]:
     specs: list[tuple[str, str]] = [
         ("LONGSTR", r"'''[\s\S]*?'''|\"\"\"[\s\S]*?\"\"\""),
         ("STR",     r'"(?:[^"\\]|\\.)*"'),
+        ("TTOPEN",  r"<<"),         # Phase 2: triple term open — before IRI!
+        ("TTCLOSE", r">>"),         # Phase 2: triple term close — before IRI!
         ("IRI",     r"<[^>]+>"),
         ("PFX",     r"@prefix\b"),
         ("BASE",    r"@base\b"),
@@ -106,6 +112,10 @@ def tokenize(text: str) -> list[Tok]:
         ("IMPB",    r"<="),
         ("HATHAT",  r"\^\^"),
         ("PREDINV", r"<-"),
+        ("FTOPEN",  r"\(\|"),       # Phase 2: formula term open
+        ("FTCLOSE", r"\|\)"),       # Phase 2: formula term close
+        ("SETOPEN", r"\(\$"),       # Phase 2: set open
+        ("SETCLOSE", r"\$\)"),      # Phase 2: set close
         ("LBR",     r"\{"),
         ("RBR",     r"\}"),
         ("LBK",     r"\["),
@@ -115,6 +125,11 @@ def tokenize(text: str) -> list[Tok]:
         ("SC",      r";"),
         ("CM",      r","),
         ("DOT",     r"\."),
+        ("OP_FWD",  r"!"),          # Phase 2: forward path
+        ("OP_REV",  r"\^(?!\^)"),   # Phase 2: reverse path (not ^^)
+        ("OF_KW",   r"\bof\b"),     # Phase 2: "of" keyword
+        ("HAS_KW",  r"\bhas\b"),    # Phase 2: "has" keyword
+        ("IS_KW",   r"\bis\b"),     # Phase 2: "is" keyword
         ("VAR",     r"\?[A-Za-z_]\w*"),
         ("BLANK",   r"_:[A-Za-z_]\w*"),
         ("LANG",    r"@[A-Za-z]+(-[A-Za-z0-9]+)*"),
@@ -256,11 +271,17 @@ class Parser:
         out: list[Triple] = []
         while True:
             pred = self._verb()
+            # Phase 2: skip `has` keyword between predicate and object
+            if self._peek().t == "HAS_KW":
+                self._eat("HAS_KW")
             objs = self._obj_list()
             for o in objs:
                 out.append(Triple(subj, pred, o))
             if self._peek().t == "SC":
                 self._eat("SC")
+                # After semicolon, also check for `has`
+                if self._peek().t == "HAS_KW":
+                    self._eat("HAS_KW")
                 if self._peek().t in ("RBR", "DOT"):
                     break
             else:
@@ -287,6 +308,26 @@ class Parser:
 
     def _item(self) -> Term:
         t = self._peek()
+
+        # Phase 2: triple term << S P O >>
+        if t.t == "TTOPEN":
+            return self._triple_term()
+
+        # Phase 2: formula term (| Functor Args |)
+        if t.t == "FTOPEN":
+            return self._formula_term()
+
+        # Phase 2: set ($ a b $)
+        if t.t == "SETOPEN":
+            return self._set_term()
+
+        # Phase 2: path expression starting with !
+        if t.t == "OP_FWD":
+            return self._path_expression()
+
+        # Phase 2: path expression starting with ^
+        if t.t == "OP_REV":
+            return self._path_expression()
 
         # Prefixed name: :foo → COLON + KW
         if t.t == "COLON":
@@ -410,6 +451,94 @@ class Parser:
             return Literal(v, datatype=dt)
 
         return Literal(v)
+
+    # -- Phase 2: triple terms << S P O >> -----------------------------------
+
+    def _triple_term(self) -> TripleTerm:
+        """Parse ``<< S P O >>`` into a TripleTerm."""
+        self._eat("TTOPEN")
+        s = self._item()
+        p = self._item()
+        o = self._item()
+        self._eat("TTCLOSE")
+        return TripleTerm(s, p, o)
+
+    # -- Phase 2: formula terms (| Functor Args |) --------------------------
+
+    def _formula_term(self) -> FormulaTerm:
+        """Parse ``(| Functor Args |)`` into a FormulaTerm."""
+        self._eat("FTOPEN")
+        functor = self._item()
+        args: list[Term] = []
+        while self._peek().t != "FTCLOSE":
+            args.append(self._item())
+        self._eat("FTCLOSE")
+        return FormulaTerm(functor, tuple(args))
+
+    # -- Phase 2: set terms ($ a b $) ----------------------------------------
+
+    def _set_term(self) -> Existential:
+        """Parse ``($ a b $)`` — Phase 1: treated as an anonymous blank node.
+
+        Full set semantics (unordered, membership testing) is Phase 2b.
+        For now, we just parse and generate a blank node with rdf:first/rdf:rest
+        like an RDF list, but without ordering guarantees.
+        """
+        self._eat("SETOPEN")
+        items: list[Term] = []
+        while self._peek().t != "SETCLOSE":
+            items.append(self._item())
+        self._eat("SETCLOSE")
+        # For now, treat sets like lists (Phase 2b: proper set semantics)
+        rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        first_p = NamedNode(rdf + "first")
+        rest_p = NamedNode(rdf + "rest")
+        nil = Existential("nil")
+        if not items:
+            return nil
+        head = Existential(f"_b{self._bn}")
+        self._bn += 1
+        cur = head
+        for i, item in enumerate(items):
+            self._triples.append(Triple(cur, first_p, item))
+            if i < len(items) - 1:
+                nxt = Existential(f"_b{self._bn}")
+                self._bn += 1
+                self._triples.append(Triple(cur, rest_p, nxt))
+                cur = nxt
+            else:
+                self._triples.append(Triple(cur, rest_p, nil))
+        return head
+
+    # -- Phase 2: path expressions :a ! :p ! :q / :a ^ :p --------------------
+
+    def _path_expression(self) -> Term:
+        """Parse ``! :p ! :q`` or ``^ :p`` into a PathTerm.
+
+        The caller has already consumed the initial ``!`` or ``^`` token.
+        """
+        terms: list[Term] = []
+        directions: list[str] = []
+
+        # Collect the chain of operators + terms
+        # We're already past the initial operator, so the next is the first term
+        # Actually: we haven't eaten the operator yet. Let me reconsider.
+        # _item is called when the current token is OP_FWD or OP_REV.
+        # The structure is: ! :p ! :q (starts with !)
+        # So we need to parse: [op term]+
+        while self._peek().t in ("OP_FWD", "OP_REV"):
+            op = self._eat_any().t
+            directions.append("forward" if op == "OP_FWD" else "reverse")
+            terms.append(self._item())
+
+        # We should have at least one term after the operators
+        if not terms:
+            raise ParseError(f"Expected term after path operator at {self._src}:{self._i}")
+
+        # The result is a PathTerm connecting through the terms
+        # Actually, path expressions are typically: subject ! pred1 ! pred2
+        # where the subject is separate. Let me return the PathTerm for the path part.
+        return PathTerm(tuple(terms), tuple(directions))
 
     # -- data triples (no rules) ---------------------------------------------
 
