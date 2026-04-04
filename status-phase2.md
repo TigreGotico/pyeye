@@ -63,11 +63,11 @@
 ### 2h. Entailment Modes
 - [x] RDFS entailment (subClassOf, subPropertyOf, domain, range)
 - [x] `execute(entail=True)` flag
-- [ ] `--not-entail` flag
+- [x] `--not-entail-triple` flag
 
 ### 2i. HTTP Data Loading
-- [ ] HTTP/HTTPS URI support in `--n3`, `--query`
-- [ ] Local caching with `--wcache`
+- [x] HTTP/HTTPS URI support in `--n3`, `--query`
+- [x] Local caching with `--wcache` / `cache_dir`
 
 ### 2j. Performance
 - [ ] Binding copy optimization
