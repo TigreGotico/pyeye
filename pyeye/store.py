@@ -75,6 +75,30 @@ class TripleStore:
         """Return ``True`` if *triple* is in the default graph."""
         return triple in self._triples
 
+    def retract(self, triple: Triple) -> bool:
+        """Remove *triple* from the default graph.
+
+        Returns ``True`` if the triple was found and removed.
+        """
+        if triple not in self._triples:
+            return False
+        self._triples.discard(triple)
+        pred = triple.predicate
+        if isinstance(pred, NamedNode) and pred in self._by_pred:
+            self._by_pred[pred].discard(triple)
+            if not self._by_pred[pred]:
+                del self._by_pred[pred]
+        return True
+
+    def retract_all(self, subject: Term | None = None,
+                     predicate: Term | None = None,
+                     object: Term | None = None) -> int:
+        """Remove all matching triples. Returns count of removed triples."""
+        to_remove = list(self.match(subject=subject, predicate=predicate, object=object))
+        for t in to_remove:
+            self.retract(t)
+        return len(to_remove)
+
     # -- queries -----------------------------------------------------------------
 
     def match(

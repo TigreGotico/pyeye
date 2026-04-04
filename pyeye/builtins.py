@@ -870,25 +870,30 @@ def e_closure(args: list[Term], engine: EngineProto) -> Term | None:
 
 
 def e_becomes(args: list[Term], engine: EngineProto) -> list[Triple] | None:
-    """Retract-then-assert: retract all triples matching pattern, assert new ones.
+    """Retract-then-assert: retract all triples matching old pattern, assert new ones.
 
-    e:becomes(old_triple, new_triple) — removes old, adds new.
-    Simplified: just asserts the new triple (retraction is complex in forward chain).
+    e:becomes(old_subject, old_predicate, old_object, new_subject, new_predicate, new_object)
+    — removes matching old triples, adds new triple.
     """
     if _unground(args):
         return None
-    if len(args) >= 2:
-        # Retract old triple
-        old_triple = args[0]
-        if isinstance(old_triple, Triple):
-            # Can't easily retract from indexed store in Phase 2
-            # Just assert the new one
-            pass
+    if len(args) >= 6:
+        # Retract old triples
+        old_triple = Triple(args[0], args[1], args[2])
+        engine.store.retract(old_triple)
         # Assert new triple
-        new_triple = args[1]
-        if isinstance(new_triple, Triple):
-            engine.store.add(new_triple)
-            return [new_triple]
+        new_triple = Triple(args[3], args[4], args[5])
+        engine.store.add(new_triple)
+        return [new_triple]
+    elif len(args) >= 2:
+        # Simplified: args[0] = old triple (or pattern), args[1] = new triple
+        old_t = args[0]
+        new_t = args[1]
+        if isinstance(old_t, Triple):
+            engine.store.retract(old_t)
+        if isinstance(new_t, Triple):
+            engine.store.add(new_t)
+            return [new_t]
     return None
 
 

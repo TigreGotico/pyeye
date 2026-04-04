@@ -26,17 +26,19 @@
 - [x] Deterministic pattern ordering
 - [x] `djiti_debug` flag
 
-### 2d. Remaining Builtins (82 total, up from 30)
+### 2d. Remaining Builtins (124 total, up from 30)
 - [x] Math: floor, ceiling, exponentiation, logarithm, sin, cos, tan
+- [x] Math: avg, std, pcc (Pearson correlation), rms
 - [x] String: regex matches, replace, substring
 - [x] Crypto: md5, sha, sha256, sha512
-- [x] List: car, cdr
-- [x] Log: uuid, n3String, implies, forAllIn
+- [x] List: car, cdr, select, remove
+- [x] Log: uuid, n3String, implies, forAllIn, ask, shell, collectAllIn
 - [x] Graph: member, length, difference, intersection, union, statement
 - [x] Time: hours, minutes, seconds, localTime
-- [x] E: calculate, findall, closure
-- [ ] RIF/XPath: ~70 functions
-- [ ] e: becomes, transaction, exec, shell, ask
+- [x] E: calculate, findall, closure, becomes, transaction, exec, shell
+- [x] RIF/XPath: concat, substring, string-length, upper/lower-case,
+  contains, starts/ends-with, substring-before/after, translate,
+  normalize-space, tokenize, equalTo, less/greater-than, matches
 
 ### 2e. Proof Trace Output
 - [x] `ProofStep` dataclass
