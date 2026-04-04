@@ -930,29 +930,112 @@ def e_derive(args: list[Term], engine: EngineProto) -> Term | None:
 def e_becomes(args: list[Term], engine: EngineProto) -> list[Triple] | None:
     """Retract-then-assert: retract all triples matching old pattern, assert new ones.
 
-    e:becomes(old_subject, old_predicate, old_object, new_subject, new_predicate, new_object)
-    — removes matching old triples, adds new triple.
+    C10 fix: Supports variable patterns in old triples (retracts all matching)
+    and multiple new triples via list argument.
+
+    e:becomes(old_s, old_p, old_o, new_s, new_p, new_o)
+    — removes ALL matching old triples, adds new triple.
+
+    e:becomes(old_s, old_p, old_o, [new_t1, new_t2, ...])
+    — removes ALL matching old triples, adds all new triples.
     """
     if _unground(args):
         return None
+
     if len(args) >= 6:
-        # Retract old triples
-        old_triple = Triple(args[0], args[1], args[2])
-        engine.store.retract(old_triple)
-        # Assert new triple
+        # C10 fix: Retract ALL triples matching the old pattern (may have variables)
+        old_s = args[0] if not isinstance(args[0], Variable) else None
+        old_p = args[1] if not isinstance(args[1], Variable) else None
+        old_o = args[2] if not isinstance(args[2], Variable) else None
+        engine.store.retract_all(subject=old_s, predicate=old_p, object=old_o)
+
+        # Assert new triple(s)
+        new_arg = args[3] if len(args) > 3 else None
+        if new_arg is None:
+            return []
+
+        # Check if new_arg is a list head (Existential pointing to RDF list)
+        if isinstance(new_arg, Existential):
+            return _assert_list_as_triples(new_arg, engine)
+
+        # Single new triple from args[3:6]
         new_triple = Triple(args[3], args[4], args[5])
         engine.store.add(new_triple)
         return [new_triple]
+
     elif len(args) >= 2:
-        # Simplified: args[0] = old triple (or pattern), args[1] = new triple
+        # Simplified: args[0] = old pattern, args[1] = new triple/list
         old_t = args[0]
         new_t = args[1]
         if isinstance(old_t, Triple):
             engine.store.retract(old_t)
+        elif isinstance(old_t, Existential):
+            # Retract all triples in the list
+            _retract_list(old_t, engine)
         if isinstance(new_t, Triple):
             engine.store.add(new_t)
             return [new_t]
+        elif isinstance(new_t, Existential):
+            return _assert_list_as_triples(new_t, engine)
     return None
+
+
+def _retract_list(head: Existential, engine: EngineProto) -> None:
+    """Retract all triples in an RDF list."""
+    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
+    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+    nil = Existential("nil")
+    cur = head
+    visited: set[str] = set()
+    while cur.name not in visited and cur.name != "nil":
+        visited.add(cur.name)
+        # Find and retract the triple at this list node
+        first_matches = list(engine.store.match(subject=cur, predicate=rdf_first))
+        if first_matches:
+            t = first_matches[0]
+            if isinstance(t.object, Triple):
+                engine.store.retract(t.object)
+        rest_matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
+        if rest_matches:
+            nxt = rest_matches[0].object
+            if nxt == nil:
+                break
+            if isinstance(nxt, Existential):
+                cur = nxt
+            else:
+                break
+        else:
+            break
+
+
+def _assert_list_as_triples(head: Existential, engine: EngineProto) -> list[Triple]:
+    """Assert all triples in an RDF list as store triples."""
+    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
+    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+    nil = Existential("nil")
+    cur = head
+    visited: set[str] = set()
+    asserted: list[Triple] = []
+    while cur.name not in visited and cur.name != "nil":
+        visited.add(cur.name)
+        first_matches = list(engine.store.match(subject=cur, predicate=rdf_first))
+        if first_matches:
+            t = first_matches[0]
+            if isinstance(t.object, Triple):
+                if engine.store.add(t.object):
+                    asserted.append(t.object)
+        rest_matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
+        if rest_matches:
+            nxt = rest_matches[0].object
+            if nxt == nil:
+                break
+            if isinstance(nxt, Existential):
+                cur = nxt
+            else:
+                break
+        else:
+            break
+    return asserted
 
 
 def e_transaction(args: list[Term], engine: EngineProto) -> list[Triple] | None:

@@ -136,12 +136,12 @@ def tokenize(text: str) -> list[Tok]:
         ("GRAPH_KW", r"\bGRAPH\b"), # Phase 2: TriG graph keyword
         ("TRUE",    r"\btrue\b"),   # Boolean literal
         ("FALSE",   r"\bfalse\b"),  # Boolean literal
-        ("VAR",     r"\?[A-Za-z_]\w*"),
-        ("BLANK",   r"_:[A-Za-z_]\w*"),
+        ("VAR",     r"\?[^\W\d]\w*"),  # C9 fix: Unicode variable names
+        ("BLANK",   r"_:[^\W\d]\w*"),  # C9 fix: Unicode blank node names
         ("LANG",    r"@[A-Za-z]+(-[A-Za-z0-9]+)*"),
         ("COLON",   r":"),
         ("NUM",     r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?"),
-        ("KW",      r"[A-Za-z_]\w*"),
+        ("KW",      r"[^\W\d]\w*"),   # C9 fix: Unicode keywords (local names)
         ("HASH",    r"#[^\n]*"),
         ("WS",      r"\s+"),
     ]

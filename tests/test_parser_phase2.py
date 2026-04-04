@@ -242,3 +242,23 @@ class TestBooleanLiterals:
         rule = doc.rules[0]
         body_obj = rule.body.triples[0].object
         assert body_obj == L("true", datatype=NN("http://www.w3.org/2001/XMLSchema#boolean"))
+
+
+class TestUnicodeNames:
+    """C9 fix: Unicode characters in prefixed names."""
+
+    def test_unicode_local_name(self):
+        """ex:chañaral should parse correctly."""
+        text = '@prefix ex: <http://ex.org/> .\nex:chañaral :label "Chañaral" .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert t.subject == NN("http://ex.org/chañaral")
+
+    def test_unicode_variable(self):
+        """Unicode variable names should work."""
+        text = '@prefix : <http://ex.org/> .\n{?Ñame :p ?Val} => {?Ñame :q ?Val} .'
+        doc = parse_n3(text)
+        assert len(doc.rules) == 1
+        rule = doc.rules[0]
+        assert rule.body.triples[0].subject.name == "Ñame"
