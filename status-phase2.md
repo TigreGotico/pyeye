@@ -9,14 +9,14 @@
 ## Phase 2 Progress
 
 ### 2a/2b. Extended Term Types + Full N3 Parser
-- [x] Add `TripleTerm`, `FormulaTerm`, `PathTerm`, `Quad` dataclasses
-- [x] Update unification for new term types
-- [x] Update N3 writer for new term types + TriG output
+- [x] Add `TripleTerm`, `FormulaTerm`, `PathTerm`, `Quad`, `NegativeSurface` dataclasses
+- [x] Update unification for new term types (including NegativeSurface)
+- [x] Update N3 writer for new term types + TriG output + NegativeSurface
 - [x] Parser: triple terms `<< S P O >>`
 - [x] Parser: formula terms `(| Functor Args |)`
-- [x] Parser: `has` syntactic sugar
-- [ ] Parser: `is` / `of` syntactic sugar
-- [ ] Parser: BLOGIC negative surfaces
+- [x] Parser: `has` / `is` syntactic sugar
+- [x] Parser: `of` syntactic sugar (property inversion)
+- [x] Parser: BLOGIC negative surfaces
 - [x] Parser: set syntax `($ a b $)` (as list, full semantics Phase 2b)
 - [x] Parser: chained path expressions `!` / `^`
 - [x] Backward compatibility: all 183 Phase 1 tests pass
@@ -26,13 +26,12 @@
 - [x] Deterministic pattern ordering
 - [x] `djiti_debug` flag
 
-### 2d. Remaining Builtins
-- [ ] Math: trig, floor, ceiling, exponentiation, logarithm, stats
-- [ ] String: regex matches, replace, substring, scrape
+### 2d. Remaining Builtins (51 total, up from 30)
+- [x] Math: floor, ceiling, exponentiation, logarithm, sin, cos, tan
+- [x] String: regex matches, replace, substring
+- [x] Crypto: md5, sha, sha256, sha512
 - [ ] List: select, remove, permutation, car, cdr
 - [ ] Log: implies, isImpliedBy, collectAllIn, shell, ask, uuid, n3String
-- [ ] Crypto: md5, sha, sha256, sha512
-- [ ] Graph: member, length, difference, intersection, union, statement
 - [ ] RIF/XPath: ~70 functions
 - [ ] e: derive, calculate, call, findall, exec, becomes, transaction, closure
 
