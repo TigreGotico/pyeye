@@ -2,7 +2,7 @@
 
 ## Summary
 
-This audit compared the pyeye codebase against the original EYE reasoner (`eye.pl`, 14,361 lines of SWI-Prolog) and the Eyeling JavaScript port (12,800 lines). **45 findings** were identified across 8 areas. Of these, **17 have been fixed** (C1-C10, M1, M2, M6, M7, M9-M11). The remaining **28 are unresolved** — mostly medium-severity gaps in coverage, performance, or formatting.
+This audit compared the pyeye codebase against the original EYE reasoner (`eye.pl`, 14,361 lines of SWI-Prolog) and the Eyeling JavaScript port (12,800 lines). **45 findings** were identified across 8 areas. Of these, **18 have been fixed** (C1-C10, M1-M3, M6, M7, M9-M11). The remaining **27 are unresolved** — mostly medium-severity gaps in coverage, performance, or formatting.
 
 ### Fixed Findings ✅
 
@@ -20,7 +20,9 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 | C10: Multi-triple becomes | ✅ Fixed | Variable patterns, list support |
 | M1: String escapes | ✅ Fixed | `_decode_escapes()` handles `\n`, `\t`, `\uXXXX`, etc. |
 | M2: IRI validation | ✅ Fixed | Rejects forbidden characters `{ } | ^ \` |
+| M3: Quantifier scoping | ✅ Fixed | @forSome vars get fresh skolems, global brake |
 | M6: Brake mechanism | ✅ Fixed | Tracks processed rule+binding per pass |
+| M7: Multi-level proofs | ✅ Fixed | `_build_proof_tree()` links child proof trees |
 | M9: Subject/object index | ✅ Fixed | Three-key indexing |
 | M10: Blank node collapse | ✅ Fixed | `[ ... ]` property lists |
 | M11: Boolean output | ✅ Fixed | Bare `true`/`false` for xsd:boolean literals |
@@ -28,7 +30,7 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 ### Still Open
 
 - **C7**: `e:calculate` uses `ast.literal_eval` (safe but limited) — documented limitation
-- **M3, M4, M5, M7, M8, M12, M13**: Various medium findings (quantifier scoping, implication in formulas, set semantics, flat proofs, list unification, incremental reasoning, coverage gap)
+- **M4, M5, M8, M12, M13**: Various medium findings (implication in formulas, set semantics, list unification, incremental reasoning, coverage gap)
 
 ---
 
@@ -38,7 +40,7 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 |---|---|---|---|---|
 | M1 | Medium | `parser.py` `_literal()` | **String escape sequences not decoded.** | ✅ Fixed |
 | M2 | Medium | `parser.py` `IRI` regex | **IRI validation missing.** | ✅ Fixed |
-| M3 | Medium | `parser.py` `_do_quantifier()` | **`@forSome`/`@forAll` scoping lost.** | ❌ Open |
+| M3 | Medium | `parser.py` `_do_quantifier()` | **`@forSome`/`@forAll` scoping lost.** | ✅ Fixed |
 | M4 | Medium | `parser.py` `_formula()` | **Implication inside formulas not parsed.** | ❌ Open |
 | M5 | Medium | `parser.py` `_set_term()` | **Set syntax creates ordered lists.** | ❌ Open |
 | M6 | Medium | `engine.py` `run()` | **No brake mechanism.** | ✅ Fixed |
