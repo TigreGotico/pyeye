@@ -169,17 +169,25 @@ class TestSetSyntax:
     """FR 2a.7: Parse set syntax ``($ a b $)``."""
 
     def test_set_parsed(self):
+        """M5 fix: Sets are parsed as SetTerm, not RDF lists."""
+        from pyeye.term import SetTerm
         text = '@prefix : <http://ex.org/> .\n:Alice :likes ($ :pizza :sushi $) .'
         doc = parse_n3(text)
-        # Set is treated like a list — creates rdf:first/rdf:rest triples
-        assert any(t.predicate == NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-                   for t in doc.triples)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert isinstance(t.object, SetTerm)
+        assert len(t.object.elements) == 2
+        assert t.object.elements[0] == NN("http://ex.org/pizza")
+        assert t.object.elements[1] == NN("http://ex.org/sushi")
 
     def test_empty_set(self):
+        """M5 fix: Empty set is parsed as SetTerm with no elements."""
+        from pyeye.term import SetTerm
         text = '@prefix : <http://ex.org/> .\n:Alice :likes ($ $) .'
         doc = parse_n3(text)
         t = doc.triples[0]
-        assert t.object == E("nil")
+        assert isinstance(t.object, SetTerm)
+        assert t.object.elements == ()
 
 
 class TestBackwardCompatibility:

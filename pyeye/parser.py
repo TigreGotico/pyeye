@@ -34,6 +34,7 @@ from pyeye.term import (
     PathTerm,
     NegativeSurface,
     Quad,
+    SetTerm,
 )
 
 
@@ -623,38 +624,18 @@ class Parser:
 
     # -- Phase 2: set terms ($ a b $) ----------------------------------------
 
-    def _set_term(self) -> Existential:
-        """Parse ``($ a b $)`` — Phase 1: treated as an anonymous blank node.
+    def _set_term(self) -> SetTerm:
+        """Parse ``($ a b $)`` into a SetTerm.
 
-        Full set semantics (unordered, membership testing) is Phase 2b.
-        For now, we just parse and generate a blank node with rdf:first/rdf:rest
-        like an RDF list, but without ordering guarantees.
+        M5 fix: Sets are now proper unordered collections (SetTerm),
+        not RDF lists.
         """
         self._eat("SETOPEN")
         items: list[Term] = []
         while self._peek().t != "SETCLOSE":
             items.append(self._item())
         self._eat("SETCLOSE")
-        # For now, treat sets like lists (Phase 2b: proper set semantics)
-        rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-        first_p = NamedNode(rdf + "first")
-        rest_p = NamedNode(rdf + "rest")
-        nil = Existential("nil")
-        if not items:
-            return nil
-        head = Existential(f"_b{self._bn}")
-        self._bn += 1
-        cur = head
-        for i, item in enumerate(items):
-            self._triples.append(Triple(cur, first_p, item))
-            if i < len(items) - 1:
-                nxt = Existential(f"_b{self._bn}")
-                self._bn += 1
-                self._triples.append(Triple(cur, rest_p, nxt))
-                cur = nxt
-            else:
-                self._triples.append(Triple(cur, rest_p, nil))
-        return head
+        return SetTerm(tuple(items))
 
     # -- Phase 2: path expressions :a ! :p ! :q / :a ^ :p --------------------
 

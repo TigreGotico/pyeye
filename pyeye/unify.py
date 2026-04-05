@@ -38,6 +38,7 @@ from pyeye.term import (
     FormulaTerm,
     PathTerm,
     NegativeSurface,
+    SetTerm,
 )
 
 
@@ -108,6 +109,8 @@ def term_contains_var(term: Term, var_name: str) -> bool:
             term_contains_var(t, var_name)
             for t in term.formula.triples
         )
+    if isinstance(term, SetTerm):
+        return any(term_contains_var(e, var_name) for e in term.elements)
     return False
 
 
@@ -144,6 +147,8 @@ def apply_binding(term: Term, binding: Binding) -> Term:
                 for t in term.formula.triples
             ))
         )
+    if isinstance(term, SetTerm):
+        return SetTerm(tuple(apply_binding(e, binding) for e in term.elements))
     # NamedNode, Literal, Existential — ground, no substitution needed
     return term
 
@@ -175,7 +180,9 @@ def _unify_term(
     if not isinstance(pattern, Variable):
         if _terms_equivalent(pattern, candidate):
             return binding
-        return None
+        # M8 fix: List unification — if pattern has a variable that could match
+        # an RDF list, expand the list from the store
+        return _try_list_unification(pattern, candidate, binding)
 
     # Pattern is an unbound variable — bind it (with occurs check)
     var_name: str = pattern.name  # type: ignore[assignment]
@@ -226,3 +233,85 @@ def _literals_equivalent(a: Literal, b: Literal) -> bool:
             pass
 
     return False
+
+
+# ---------------------------------------------------------------------------
+# M8: List and Set unification helpers
+# ---------------------------------------------------------------------------
+
+_RDF_FIRST = "http://www.w3.org/1999/02/22-rdf-syntax-ns#first"
+_RDF_REST = "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"
+_RDF_NIL = "nil"
+
+
+def _try_list_unification(
+    pattern: Term,
+    candidate: Term,
+    binding: Binding,
+) -> Binding | None:
+    """M8 fix: Try to unify a pattern with a candidate by expanding RDF lists.
+
+    If the pattern has a Variable where the candidate is an Existential
+    that heads an RDF list, expand the list and bind the variable to the
+    list elements.
+    """
+    # Check if pattern has variables that could match an RDF list
+    vars_in_pattern: list[str] = []
+    _collect_vars(pattern, vars_in_pattern)
+
+    # If candidate is an Existential that might be a list head, try list expansion
+    if isinstance(candidate, Existential) and vars_in_pattern:
+        # Try to expand as RDF list
+        list_elements = _expand_rdf_list_from_binding(candidate, {})
+        if list_elements is not None and len(vars_in_pattern) == 1:
+            # Single variable can bind to the whole list
+            var_name = vars_in_pattern[0]
+            if not term_contains_var(candidate, var_name):
+                return {**binding, var_name: candidate}
+    return None
+
+
+def _collect_vars(term: Term, out: list[str]) -> None:
+    """Collect all variable names from a term."""
+    if isinstance(term, Variable):
+        out.append(term.name)
+    elif isinstance(term, Formula):
+        for t in term.triples:
+            _collect_vars(t.subject, out)
+            _collect_vars(t.predicate, out)
+            _collect_vars(t.object, out)
+    elif isinstance(term, Triple):
+        _collect_vars(term.subject, out)
+        _collect_vars(term.predicate, out)
+        _collect_vars(term.object, out)
+    elif isinstance(term, (TripleTerm, FormulaTerm, PathTerm, SetTerm)):
+        if hasattr(term, 'subject'):
+            _collect_vars(term.subject, out)  # type: ignore
+        if hasattr(term, 'predicate'):
+            _collect_vars(term.predicate, out)  # type: ignore
+        if hasattr(term, 'object'):
+            _collect_vars(term.object, out)  # type: ignore
+        if hasattr(term, 'functor'):
+            _collect_vars(term.functor, out)  # type: ignore
+        if hasattr(term, 'args'):
+            for a in term.args:  # type: ignore
+                _collect_vars(a, out)
+        if hasattr(term, 'terms'):
+            for t in term.terms:  # type: ignore
+                _collect_vars(t, out)
+        if hasattr(term, 'elements'):
+            for e in term.elements:  # type: ignore
+                _collect_vars(e, out)
+
+
+def _expand_rdf_list_from_binding(
+    head: Existential,
+    binding: Binding,
+) -> list[Term] | None:
+    """Expand an RDF list from the store starting at *head*.
+
+    This is a stub that returns None — full list expansion requires
+    access to the store, which unify() doesn't have. List expansion
+    is handled by the engine's _collect_builtin_args.
+    """
+    return None

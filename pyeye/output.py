@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from pyeye.term import NamedNode, Literal, Variable, Existential, Formula, Triple, Term
-from pyeye.term import TripleTerm, FormulaTerm, PathTerm, Quad, NegativeSurface
+from pyeye.term import TripleTerm, FormulaTerm, PathTerm, Quad, NegativeSurface, SetTerm
 
 
 class N3Writer:
@@ -177,6 +177,9 @@ class N3Writer:
                 for tr in t.formula.triples
             )
             return f"{{{{{inner}}}}}"  # double braces for negation
+        if isinstance(t, SetTerm):
+            elems = " ".join(self._term(e) for e in t.elements)
+            return f"($ {elems} $)"
         return str(t)
 
     def _abbreviate(self, uri: str) -> str:

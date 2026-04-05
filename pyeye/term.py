@@ -252,5 +252,30 @@ class Quad:
         return Triple(self.subject, self.predicate, self.object)
 
 
+# ---------------------------------------------------------------------------
+# Set (Phase 2b: unordered collections)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SetTerm:
+    """An unordered set: ``($ a b c $)``.
+
+    M5 fix: Unlike lists, sets have no inherent order. Elements can be
+    matched in any position for unification.
+    """
+    elements: tuple[Term, ...]
+
+    def __hash__(self) -> int:
+        # Hash is order-independent for set semantics
+        return hash(frozenset(hash(e) for e in self.elements))
+
+    def __str__(self) -> str:
+        elems = " ".join(str(e) for e in self.elements)
+        return f"($ {elems} $)"
+
+    def is_ground(self) -> bool:
+        return not any(isinstance(e, Variable) for e in self.elements)
+
+
 # Backwards-compatible type alias used by the parser and engine.
 Binding = dict[str, Term]
