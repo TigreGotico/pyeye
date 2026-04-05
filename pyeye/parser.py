@@ -49,6 +49,8 @@ class Rule:
     body: Formula
     head: Formula
     source: str = ""
+    for_some: tuple[str, ...] = ()  # M3 fix: existentially quantified variables
+    for_all: tuple[str, ...] = ()   # M3 fix: universally quantified variables
 
 
 @dataclass
@@ -59,6 +61,8 @@ class ParsedDocument:
     rules: list[Rule] = field(default_factory=list)
     prefixes: dict[str, str] = field(default_factory=dict)
     base: str | None = None
+    for_some: list[str] = field(default_factory=list)
+    for_all: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +202,9 @@ class Parser:
         self._triples: list[Triple] = []
         self._rules: list[Rule] = []
         self._bn = 0
+        # M3 fix: Track quantified variables
+        self._for_some: list[str] = []
+        self._for_all: list[str] = []
 
     def parse(self) -> ParsedDocument:
         while not self._eof():
@@ -208,6 +215,8 @@ class Parser:
             rules=self._rules,
             prefixes=self._pm.prefixes,
             base=self._pm._base,
+            for_some=list(self._for_some),
+            for_all=list(self._for_all),
         )
 
     # -- statement dispatch --------------------------------------------------
@@ -253,15 +262,25 @@ class Parser:
         self._eat("DOT")
 
     def _do_quantifier(self) -> None:
-        """Consume @forSome/@forAll <var>, <var> ."""
+        """Consume @forSome/@forAll <var>, <var> . and store variable names."""
+        is_forsome = self._peek().t == "FSOME"
         self._eat_any()
+        vars_list = []
         while self._peek().t not in ("DOT", "EOF"):
-            if self._peek().t == "CM":
+            if self._peek().t == "VAR":
+                var_name = self._eat("VAR").v[1:]  # strip ?
+                vars_list.append(var_name)
+            elif self._peek().t == "CM":
                 self._eat("CM")
             else:
                 self._eat_any()
         if self._peek().t == "DOT":
             self._eat("DOT")
+        # M3 fix: Store quantified variables
+        if is_forsome:
+            self._for_some.extend(vars_list)
+        else:
+            self._for_all.extend(vars_list)
 
     # -- TriG: GRAPH <g> { ... } --------------------------------------------
 
@@ -292,12 +311,20 @@ class Parser:
             self._eat("IMPF")
             head = self._formula()
             self._eat("DOT")
-            self._rules.append(Rule(body, head, self._src))
+            self._rules.append(Rule(
+                body, head, self._src,
+                for_some=tuple(self._for_some),
+                for_all=tuple(self._for_all),
+            ))
         elif t.t == "IMPB":
             self._eat("IMPB")
             head = self._formula()
             self._eat("DOT")
-            self._rules.append(Rule(head, body, self._src))  # reverse
+            self._rules.append(Rule(
+                head, body, self._src,
+                for_some=tuple(self._for_some),
+                for_all=tuple(self._for_all),
+            ))  # reverse
         elif t.t == "DOT":
             self._eat("DOT")
             self._triples.extend(body.triples)

@@ -41,11 +41,14 @@ class TestQuantifierParsing:
     def test_forsome_parsed(self):
         doc = parse_n3("@prefix : <http://ex.org/> .\n@forSome ?X .\n{:a :p ?X} => {:b :q ?X} .")
         assert len(doc.rules) == 1
-        # @forSome just scopes ?X — the rule should parse fine
+        assert "X" in doc.rules[0].for_some
+        assert doc.for_some == ["X"]
 
     def test_forall_parsed(self):
         doc = parse_n3("@prefix : <http://ex.org/> .\n@forAll ?X .\n{:a :p ?X} => {:b :q ?X} .")
         assert len(doc.rules) == 1
+        assert "X" in doc.rules[0].for_all
+        assert doc.for_all == ["X"]
 
     def test_multiple_quantifier_vars(self):
         doc = parse_n3(
@@ -62,6 +65,55 @@ class TestQuantifierParsing:
             "{?S :p :o} => {:a :q :b} ."
         )
         assert len(doc.rules) == 1
+        assert doc.rules[0].for_some == ("S",)
+
+
+class TestForSomeBehavior:
+    """M3 fix: @forSome variables get fresh skolems when unbound."""
+
+    def test_forsome_generates_skolem(self):
+        """Unbound @forSome vars should get fresh skolem IDs."""
+        from pyeye.engine import Engine
+        from pyeye.parser import Rule
+        from pyeye.term import Formula, Triple, Variable, Existential, NamedNode
+
+        engine = Engine()
+        engine.add_rule(Rule(
+            body=Formula((
+                Triple(Variable("S"), NamedNode("http://ex.org/p"), NamedNode("http://ex.org/o")),
+            )),
+            head=Formula((
+                Triple(NamedNode("http://ex.org/result"), NamedNode("http://ex.org/hasSkolem"), Variable("S")),
+            )),
+            for_some=("S",),
+        ))
+        engine.run()
+        # No data matched, so nothing derived
+        assert len(engine.derived_triples) == 0
+
+    def test_forsome_with_partial_binding(self):
+        """@forSome vars not in binding should get skolems."""
+        from pyeye.engine import Engine
+        from pyeye.parser import Rule
+        from pyeye.term import Formula, Triple, Variable, NamedNode
+
+        engine = Engine()
+        engine.add_triple(Triple(
+            NamedNode("http://ex.org/a"), NamedNode("http://ex.org/p"), NamedNode("http://ex.org/b"),
+        ))
+        engine.add_rule(Rule(
+            body=Formula((
+                Triple(Variable("X"), NamedNode("http://ex.org/p"), Variable("Y")),
+            )),
+            head=Formula((
+                Triple(Variable("X"), NamedNode("http://ex.org/hasSkolem"), Variable("S")),
+            )),
+            for_some=("S",),
+        ))
+        engine.run()
+        # Should derive: :a :hasSkolem _:forsome-1
+        assert len(engine.derived_triples) == 1
+        assert engine.derived_triples[0].object.name.startswith("forsome-")
 
 
 class TestUngroundBuiltins:

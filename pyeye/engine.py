@@ -154,13 +154,19 @@ class Engine:
 
         M6 fix: Brake mechanism — tracks processed (rule, binding) pairs
         to avoid redundant work within a single pass.
+
+        M3 fix: @forSome bindings are tracked across all passes to prevent
+        infinite derivation (each pass would generate a new skolem).
         """
+        # M3/M6 fix: Track processed bindings across all passes for @forSome rules
+        global_processed: set[tuple[int, int]] = set()
+
         while True:
             self._derived_count = 0
             # M6: Track processed rule+binding combinations this pass
             processed: set[tuple[int, str]] = set()
             for rule_idx, rule in enumerate(self._rules):
-                self._apply_rule(rule, rule_idx, processed)
+                self._apply_rule(rule, rule_idx, processed, global_processed, rule.for_some)
                 if self._limit_answers > 0 and self._derived_count >= self._limit_answers:
                     return
             if self._derived_count == 0:
@@ -173,11 +179,16 @@ class Engine:
         rule: Rule,
         rule_idx: int,
         processed: set[tuple[int, str]],
+        global_processed: set[tuple[int, int]],
+        for_some_vars: tuple[str, ...] = (),
     ) -> None:
         """Match body patterns against store, derive head if new.
 
         M6 fix: Skip (rule_idx, binding_hash) combinations already processed
         this pass.
+
+        M3 fix: For @forSome rules, track base bindings across all passes
+        to prevent infinite derivation.
         """
         bindings = self._match_formula(rule.body, {})
         for binding in bindings:
@@ -186,15 +197,34 @@ class Engine:
             if self._max_steps > 0 and self._step_count >= self._max_steps:
                 return
 
-            # M6: Brake — skip if this rule+binding was already processed
-            binding_key = frozenset(binding.items())
-            brake_key = (rule_idx, hash(binding_key))
-            if brake_key in processed:
-                continue
-            processed.add(brake_key)
+            # M3 fix: Handle @forSome variables — replace unbound vars with fresh skolems
+            for_some_binding = dict(binding)
+            for var_name in for_some_vars:
+                if var_name not in for_some_binding:
+                    self._bn_counter += 1
+                    for_some_binding[var_name] = Existential(f"forsome-{self._bn_counter}")
+
+            # M3/M6 fix: Brake — skip if this base binding was already processed
+            # For @forSome rules, check global_processed across all passes
+            brake_binding = {k: v for k, v in for_some_binding.items() if k not in for_some_vars}
+            binding_key = frozenset(brake_binding.items())
+            brake_hash = hash(binding_key)
+            brake_key_global = (rule_idx, brake_hash)
+
+            if for_some_vars:
+                # @forSome: check global brake across all passes
+                if brake_key_global in global_processed:
+                    continue
+                global_processed.add(brake_key_global)
+            else:
+                # Normal rule: check per-pass brake
+                brake_key_pass = (rule_idx, hash(frozenset(binding.items())))
+                if brake_key_pass in processed:
+                    continue
+                processed.add(brake_key_pass)
 
             # Instantiate head
-            head_triples = self._instantiate_formula(rule.head, binding)
+            head_triples = self._instantiate_formula(rule.head, for_some_binding)
             for head_triple in head_triples:
                 if self._limit_answers > 0 and self._derived_count >= self._limit_answers:
                     return
@@ -218,7 +248,7 @@ class Engine:
                         )
                         self._proof_steps.append(step)
                         # M7 fix: Build multi-level proof tree
-                        tree = self._build_proof_tree(rule, binding, head_triple)
+                        tree = self._build_proof_tree(rule, for_some_binding, head_triple)
                         self._proof_trees.append(tree)
                         self._proof_index[head_triple] = tree
 
