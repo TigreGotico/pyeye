@@ -2,7 +2,7 @@
 
 ## Summary
 
-This audit compared the pyeye codebase against the original EYE reasoner (`eye.pl`, 14,361 lines of SWI-Prolog) and the Eyeling JavaScript port (12,800 lines). **45 findings** were identified across 8 areas. Of these, **14 have been fixed** (C1-C10, M1, M9-M11). The remaining **31 are unresolved** — mostly medium-severity gaps in coverage, performance, or formatting.
+This audit compared the pyeye codebase against the original EYE reasoner (`eye.pl`, 14,361 lines of SWI-Prolog) and the Eyeling JavaScript port (12,800 lines). **45 findings** were identified across 8 areas. Of these, **15 have been fixed** (C1-C10, M1, M2, M9-M11). The remaining **30 are unresolved** — mostly medium-severity gaps in coverage, performance, or formatting.
 
 ### Fixed Findings ✅
 
@@ -21,7 +21,7 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 ### Still Open
 
 - **C7**: `e:calculate` uses `ast.literal_eval` (safe but limited) — documented limitation
-- **M2, M3, M4, M5, M6, M7, M8, M12, M13**: Various medium findings (IRI validation, quantifier scoping, implication in formulas, set semantics, brake mechanism, flat proofs, list unification, incremental reasoning, coverage gap)
+- **M3, M4, M5, M6, M7, M8, M12, M13**: Various medium findings (quantifier scoping, implication in formulas, set semantics, brake mechanism, flat proofs, list unification, incremental reasoning, coverage gap)
 
 ---
 
@@ -30,7 +30,7 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 | # | Severity | Location | Description | Status |
 |---|---|---|---|---|
 | M1 | Medium | `parser.py` `_literal()` | **String escape sequences not decoded.** | ✅ Fixed |
-| M2 | Medium | `parser.py` `IRI` regex | **IRI validation missing.** | ❌ Open |
+| M2 | Medium | `parser.py` `IRI` regex | **IRI validation missing.** | ✅ Fixed |
 | M3 | Medium | `parser.py` `_do_quantifier()` | **`@forSome`/`@forAll` scoping lost.** | ❌ Open |
 | M4 | Medium | `parser.py` `_formula()` | **Implication inside formulas not parsed.** | ❌ Open |
 | M5 | Medium | `parser.py` `_set_term()` | **Set syntax creates ordered lists.** | ❌ Open |
