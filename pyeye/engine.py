@@ -139,11 +139,17 @@ class Engine:
     # -- execution -----------------------------------------------------------
 
     def run(self) -> None:
-        """Run forward chaining to fixpoint or until a limit is hit."""
+        """Run forward chaining to fixpoint or until a limit is hit.
+
+        M6 fix: Brake mechanism — tracks processed (rule, binding) pairs
+        to avoid redundant work within a single pass.
+        """
         while True:
             self._derived_count = 0
-            for rule in self._rules:
-                self._apply_rule(rule)
+            # M6: Track processed rule+binding combinations this pass
+            processed: set[tuple[int, str]] = set()
+            for rule_idx, rule in enumerate(self._rules):
+                self._apply_rule(rule, rule_idx, processed)
                 if self._limit_answers > 0 and self._derived_count >= self._limit_answers:
                     return
             if self._derived_count == 0:
@@ -151,14 +157,30 @@ class Engine:
             if self._max_steps > 0 and self._step_count >= self._max_steps:
                 break
 
-    def _apply_rule(self, rule: Rule) -> None:
-        """Match body patterns against store, derive head if new."""
+    def _apply_rule(
+        self,
+        rule: Rule,
+        rule_idx: int,
+        processed: set[tuple[int, str]],
+    ) -> None:
+        """Match body patterns against store, derive head if new.
+
+        M6 fix: Skip (rule_idx, binding_hash) combinations already processed
+        this pass.
+        """
         bindings = self._match_formula(rule.body, {})
         for binding in bindings:
             if self._limit_answers > 0 and self._derived_count >= self._limit_answers:
                 return
             if self._max_steps > 0 and self._step_count >= self._max_steps:
                 return
+
+            # M6: Brake — skip if this rule+binding was already processed
+            binding_key = frozenset(binding.items())
+            brake_key = (rule_idx, hash(binding_key))
+            if brake_key in processed:
+                continue
+            processed.add(brake_key)
 
             # Instantiate head
             head_triples = self._instantiate_formula(rule.head, binding)
