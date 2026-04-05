@@ -2,7 +2,7 @@
 
 ## Summary
 
-This audit compared the pyeye codebase against the original EYE reasoner (`eye.pl`, 14,361 lines of SWI-Prolog) and the Eyeling JavaScript port (12,800 lines). **45 findings** were identified across 8 areas. Of these, **20 have been fixed** (C1-C10, M1-M3, M5-M11). The remaining **25 are unresolved** — 4 medium-severity gaps, 3 low-severity issues, and C7 (documented).
+This audit compared the pyeye codebase against the original EYE reasoner (`eye.pl`, 14,361 lines of SWI-Prolog) and the Eyeling JavaScript port (12,800 lines). **45 findings** were identified across 8 areas. Of these, **21 have been fixed** (C1-C10, M1-M3, M5-M12). The remaining **24 are unresolved** — 3 medium-severity gaps, 3 low-severity issues, and C7 (documented).
 
 ### Fixed Findings ✅
 
@@ -33,7 +33,6 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 
 - **C7**: `e:calculate` uses `ast.literal_eval` (safe but limited) — documented limitation
 - **M4**: Implication inside formulas — advanced N3 feature, low impact
-- **M12**: Incomplete incremental reasoning — works for single-new-triple cases
 - **M13**: Coverage gap — 124 builtins cover 80% of use cases
 - **L1-L3**: Low severity edge cases
 
@@ -54,7 +53,7 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 | M9 | Medium | `store.py` | **Only predicate-based index.** | ✅ Fixed |
 | M10 | Medium | `output.py` `write_triples()` | **No blank node property list collapsing.** | ✅ Fixed |
 | M11 | Medium | `output.py` `_render_literal()` | **Boolean output not normalized.** | ✅ Fixed |
-| M12 | Medium | `engine.py` `_incremental_derive()` | **Incomplete incremental reasoning.** | ❌ Open |
+| M12 | Medium | `engine.py` `_incremental_derive()` | **Incomplete incremental reasoning.** | ✅ Fixed |
 | M13 | Medium | `builtins.py` (missing ~95 builtins) | **Coverage gap.** | ❌ Open |
 
 ---

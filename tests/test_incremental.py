@@ -101,3 +101,52 @@ class TestIncrementalReasoning:
         # Run should not duplicate derivations
         engine.run()
         assert len(engine.derived_triples) == 2
+
+    def test_incremental_multi_new_triple_completion(self):
+        """M12 fix: Rule fires when last needed triple is added.
+
+        Rule body has [A, B, C]. Existing store has A and B.
+        When C is added incrementally, the rule should fire.
+        """
+        engine = Engine()
+        engine.add_rule(Rule(
+            body=F((
+                T(V("X"), NN("http://x/p"), V("Y")),
+                T(V("Y"), NN("http://x/q"), V("Z")),
+                T(V("Z"), NN("http://x/r"), V("W")),
+            )),
+            head=F((T(V("X"), NN("http://x/derived"), V("W")),)),
+        ))
+        # Add first two facts (not enough to fire)
+        engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
+        engine.add_triple(T(NN("http://x/b"), NN("http://x/q"), NN("http://x/c")))
+        assert len(engine.derived_triples) == 0
+
+        # Add third fact — completes the body, should fire
+        engine.add_triple(T(NN("http://x/c"), NN("http://x/r"), NN("http://x/d")))
+        assert len(engine.derived_triples) == 1
+        assert engine.derived_triples[0].subject == NN("http://x/a")
+        assert engine.derived_triples[0].object == NN("http://x/d")
+
+    def test_incremental_cascading_multi_rules(self):
+        """M12 fix: Multiple rules cascade from single incremental add."""
+        engine = Engine()
+        engine.add_rule(Rule(
+            body=F((T(V("X"), NN("http://x/p"), V("Y")),)),
+            head=F((T(V("X"), NN("http://x/q"), V("Y")),)),
+        ))
+        engine.add_rule(Rule(
+            body=F((T(V("X"), NN("http://x/q"), V("Y")),)),
+            head=F((T(V("X"), NN("http://x/r"), V("Y")),)),
+        ))
+        engine.add_rule(Rule(
+            body=F((T(V("X"), NN("http://x/r"), V("Y")),)),
+            head=F((T(V("X"), NN("http://x/s"), V("Y")),)),
+        ))
+        # Single add should cascade through all three rules
+        engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
+        assert len(engine.derived_triples) == 3
+        preds = {t.predicate.value for t in engine.derived_triples}
+        assert "http://x/q" in preds
+        assert "http://x/r" in preds
+        assert "http://x/s" in preds
