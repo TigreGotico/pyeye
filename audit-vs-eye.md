@@ -2,7 +2,7 @@
 
 ## Summary
 
-This audit compared the pyeye codebase against the original EYE reasoner (`eye.pl`, 14,361 lines of SWI-Prolog) and the Eyeling JavaScript port (12,800 lines). **45 findings** were identified across 8 areas. Of these, **16 have been fixed** (C1-C10, M1, M2, M6, M9-M11). The remaining **29 are unresolved** — mostly medium-severity gaps in coverage, performance, or formatting.
+This audit compared the pyeye codebase against the original EYE reasoner (`eye.pl`, 14,361 lines of SWI-Prolog) and the Eyeling JavaScript port (12,800 lines). **45 findings** were identified across 8 areas. Of these, **17 have been fixed** (C1-C10, M1, M2, M6, M7, M9-M11). The remaining **28 are unresolved** — mostly medium-severity gaps in coverage, performance, or formatting.
 
 ### Fixed Findings ✅
 
@@ -42,7 +42,7 @@ This audit compared the pyeye codebase against the original EYE reasoner (`eye.p
 | M4 | Medium | `parser.py` `_formula()` | **Implication inside formulas not parsed.** | ❌ Open |
 | M5 | Medium | `parser.py` `_set_term()` | **Set syntax creates ordered lists.** | ❌ Open |
 | M6 | Medium | `engine.py` `run()` | **No brake mechanism.** | ✅ Fixed |
-| M7 | Medium | `engine.py` proof recording | **Proof trees are flat (one level).** | ❌ Open |
+| M7 | Medium | `engine.py` proof recording | **Proof trees are flat (one level).** | ✅ Fixed |
 | M8 | Medium | `unify.py` `unify()` | **No list or formula unification.** | ❌ Open |
 | M9 | Medium | `store.py` | **Only predicate-based index.** | ✅ Fixed |
 | M10 | Medium | `output.py` `write_triples()` | **No blank node property list collapsing.** | ✅ Fixed |
