@@ -57,6 +57,8 @@ class Engine:
         self._explain = explain
         self._proof_steps: list[ProofStep] = []
         self._proof_trees: list[ProofTree] = []
+        # M7 fix: Index of derived triple → proof tree for multi-level proofs
+        self._proof_index: dict[Triple, ProofTree] = {}
 
     # -- population ----------------------------------------------------------
 
@@ -113,12 +115,9 @@ class Engine:
                                                     source=rule.source,
                                                 )
                                                 self._proof_steps.append(step)
-                                                tree = ProofTree(
-                                                    root=head_triple,
-                                                    rule=rule,
-                                                    chaining="forward",
-                                                )
+                                                tree = self._build_proof_tree(rule, binding, head_triple)
                                                 self._proof_trees.append(tree)
+                                                self._proof_index[head_triple] = tree
                         else:
                             # Single-pattern rule body — derive head directly
                             head_triples = self._instantiate_formula(rule.head, ub)
@@ -130,6 +129,18 @@ class Engine:
                                         self._derived_count += 1
                                         self._step_count += 1
                                         self._derived_triples.append(head_triple)
+                                        if self._explain:
+                                            step = ProofStep(
+                                                conclusion=head_triple,
+                                                premise=list(rule.body.triples),
+                                                rule=rule,
+                                                chaining="forward",
+                                                source=rule.source,
+                                            )
+                                            self._proof_steps.append(step)
+                                            tree = self._build_proof_tree(rule, ub, head_triple)
+                                            self._proof_trees.append(tree)
+                                            self._proof_index[head_triple] = tree
                         break  # Rule already processed for this triple
 
     def snapshot_initial(self) -> None:
@@ -206,13 +217,35 @@ class Engine:
                             source=rule.source,
                         )
                         self._proof_steps.append(step)
-                        # Build a simple proof tree (flat, one level)
-                        tree = ProofTree(
-                            root=head_triple,
-                            rule=rule,
-                            chaining="forward",
-                        )
+                        # M7 fix: Build multi-level proof tree
+                        tree = self._build_proof_tree(rule, binding, head_triple)
                         self._proof_trees.append(tree)
+                        self._proof_index[head_triple] = tree
+
+    def _build_proof_tree(
+        self,
+        rule: Rule,
+        binding: Binding,
+        conclusion: Triple,
+    ) -> ProofTree:
+        """Build a multi-level proof tree for a derived triple.
+
+        M7 fix: For each body pattern in the rule, check if the bound
+        triple exists in the proof index (i.e., was derived by another
+        rule). If so, attach that proof tree as a child.
+        """
+        children: list[ProofTree] = []
+        for pattern in rule.body.triples:
+            bound = apply_binding_to_triple(pattern, binding)
+            if bound in self._proof_index:
+                children.append(self._proof_index[bound])
+
+        return ProofTree(
+            root=conclusion,
+            children=children,
+            rule=rule,
+            chaining="forward",
+        )
 
     def _match_formula(
         self,

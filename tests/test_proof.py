@@ -54,6 +54,35 @@ class TestProofTrees:
         assert tree.rule is not None
         assert tree.chaining == "forward"
 
+    def test_multi_level_proof_tree(self):
+        """M7 fix: Proof trees should have children for multi-step derivations."""
+        r = execute(
+            data_strings=["@prefix : <http://ex.org/> .\n:a :p :b ."],
+            rule_strings=[
+                "@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} .\n{?X :q ?Y} => {?X :r ?Y} .",
+            ],
+            explain=True,
+        )
+        # Should have 2 derived triples: :a :q :b and :a :r :b
+        assert len(r.explains) == 2, f"Expected 2 proof trees, got {len(r.explains)}: {r.explains}"
+
+        # Find the proof tree for the second derivation (:a :r :b)
+        # This should have the first proof tree as a child
+        second_tree = None
+        for tree in r.explains:
+            if tree.root.predicate.value.endswith("r"):
+                second_tree = tree
+                break
+
+        assert second_tree is not None
+        # The second rule's body matches the first rule's head
+        # So the proof tree should have children
+        assert len(second_tree.children) >= 1, f"Expected children in second proof tree"
+        # The child should be a proof tree for :a :q :b
+        child = second_tree.children[0]
+        assert isinstance(child, ProofTree)
+        assert child.root.predicate.value.endswith("q")
+
 
 class TestProofSerialization:
     """FR 2e.25-27: Serialize proofs to N3, DOT, and HTML."""
