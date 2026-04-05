@@ -262,3 +262,31 @@ class TestUnicodeNames:
         assert len(doc.rules) == 1
         rule = doc.rules[0]
         assert rule.body.triples[0].subject.name == "Ñame"
+
+
+class TestIRIValidation:
+    """M2 fix: IRI validation rejects forbidden characters."""
+
+    def test_valid_iri(self):
+        """Valid IRI should parse without error."""
+        text = '@prefix : <http://ex.org/> .\n:a :p :b .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+
+    def test_forbidden_brace(self):
+        """IRI with { should be rejected."""
+        from pyeye.parser import ParseError
+        with pytest.raises(ParseError, match="Forbidden character"):
+            parse_n3('@prefix : <http://ex.org/> .\n<a{b> :p :c .')
+
+    def test_forbidden_pipe(self):
+        """IRI with | should be rejected."""
+        from pyeye.parser import ParseError
+        with pytest.raises(ParseError, match="Forbidden character"):
+            parse_n3('@prefix : <http://ex.org/> .\n<a|b> :p :c .')
+
+    def test_forbidden_backslash(self):
+        """IRI with \\ should be rejected."""
+        from pyeye.parser import ParseError
+        with pytest.raises(ParseError, match="Forbidden character"):
+            parse_n3('@prefix : <http://ex.org/> .\n<a\\b> :p :c .')

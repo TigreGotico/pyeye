@@ -100,7 +100,10 @@ class Tok:
 
 
 def tokenize(text: str) -> list[Tok]:
-    """Lex N3 text into tokens.  Skips comments and whitespace."""
+    """Lex N3 text into tokens.  Skips comments and whitespace.
+
+    M2 fix: IRI validation — rejects forbidden characters in IRIREFs.
+    """
     specs: list[tuple[str, str]] = [
         ("LONGSTR", r"'''[\s\S]*?'''|\"\"\"[\s\S]*?\"\"\""),
         ("STR",     r'"(?:[^"\\]|\\.)*"'),
@@ -154,9 +157,28 @@ def tokenize(text: str) -> list[Tok]:
         val = m.group()
         if kind in ("WS", "HASH", None):
             continue
+        # M2 fix: Validate IRI characters
+        if kind == "IRI":
+            _validate_iri(val)
         out.append(Tok(kind, val))
     out.append(Tok("EOF", ""))
     return out
+
+
+# Forbidden characters in IRIREF per N3 spec
+_IRI_FORBIDDEN = set('{}|^\\`"')
+
+
+def _validate_iri(iri: str) -> None:
+    """M2 fix: Reject forbidden characters in IRI references.
+
+    Per the N3 spec, IRIREFs must not contain: { } | ^ \\ ` "
+    """
+    # Strip < > delimiters
+    content = iri[1:-1]
+    for char in content:
+        if char in _IRI_FORBIDDEN:
+            raise ParseError(f"Forbidden character {char!r} in IRI: {iri}")
 
 
 # ---------------------------------------------------------------------------
