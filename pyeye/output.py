@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 from pyeye.term import NamedNode, Literal, Variable, Existential, Formula, Triple, Term
 from pyeye.term import TripleTerm, FormulaTerm, PathTerm, Quad, NegativeSurface
 
 
 class N3Writer:
-    """Serializes terms and triples to N3 text."""
+    """Serializes terms and triples to N3 text.
+
+    M10 fix: Collapses blank node subjects into Turtle-style
+    ``[ ... ]`` property lists and inlines singly-referenced blank
+    node objects.
+    """
 
     def __init__(self, prefixes: dict[str, str] | None = None) -> None:
         self._prefixes = dict(prefixes or {})
@@ -18,21 +25,64 @@ class N3Writer:
     # -- public --------------------------------------------------------------
 
     def write_triples(self, triples: list[Triple]) -> str:
-        """Serialize a list of triples to N3 text."""
+        """Serialize a list of triples to N3 text.
+
+        M10 fix: Blank node subjects are collapsed into ``[ pred obj; ... ]``
+        property lists. Blank node objects that are only used once are
+        inlined.
+        """
+        if not triples:
+            return self._write_prefix_block("")
+
+        # Group triples by subject
+        by_subject: dict[Term, list[Triple]] = defaultdict(list)
+        for t in triples:
+            by_subject[t.subject].append(t)
+
+        # Identify blank node subjects and which are referenced as objects
+        bnode_subjects: set[str] = set()
+        bnode_refs: dict[str, int] = defaultdict(int)  # count of references as object
+
+        for t in triples:
+            if isinstance(t.subject, Existential):
+                bnode_subjects.add(t.subject.name)
+            if isinstance(t.object, Existential):
+                bnode_refs[t.object.name] += 1
+
+        # Build output, collapsing blank node property lists
         lines: list[str] = []
 
-        # Prefix declarations
-        for pfx, uri in self._prefixes.items():
-            colon = ":" if pfx else ""
-            lines.append(f"@prefix {pfx}{colon} <{uri}> .")
-        if self._prefixes:
-            lines.append("")
+        # Sort subjects for deterministic output
+        sorted_subjects = sorted(by_subject.keys(), key=lambda s: (
+            0 if isinstance(s, NamedNode) else 1,
+            str(s),
+        ))
 
-        # Triples
-        for t in sorted(triples, key=lambda x: (str(x.subject), str(x.predicate), str(x.object))):
-            lines.append(f"{self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)} .")
+        for subj in sorted_subjects:
+            trip_list = by_subject[subj]
+            # Sort triples within each subject by (predicate, object)
+            trip_list.sort(key=lambda t: (str(t.predicate), str(t.object)))
 
-        return "\n".join(lines) + ("\n" if lines else "")
+            if isinstance(subj, Existential) and subj.name in bnode_subjects:
+                # This is a blank node subject — use [ ... ] syntax
+                pred_objs: list[str] = []
+                for t in trip_list:
+                    pred_str = self._term(t.predicate)
+                    obj_str = self._term_for_object(t.object, bnode_subjects, bnode_refs)
+                    pred_objs.append(f"{pred_str} {obj_str}")
+
+                # Collapse using semicolons
+                collapsed = "; ".join(pred_objs)
+                lines.append(f"[ {collapsed} ] .")
+            else:
+                # Normal subject
+                subj_str = self._term(subj)
+                for t in trip_list:
+                    pred_str = self._term(t.predicate)
+                    obj_str = self._term_for_object(t.object, bnode_subjects, bnode_refs)
+                    lines.append(f"{subj_str} {pred_str} {obj_str} .")
+
+        return self._write_prefix_block("\n".join(lines))
 
     def write_quads(self, quads: list[Quad]) -> str:
         """Serialize a list of quads to TriG text (named graphs)."""
@@ -62,6 +112,35 @@ class N3Writer:
             lines.append("}")
 
         return "\n".join(lines) + ("\n" if lines else "")
+
+    def _write_prefix_block(self, body: str) -> str:
+        """Combine prefix declarations with body text."""
+        lines: list[str] = []
+        for pfx, uri in self._prefixes.items():
+            colon = ":" if pfx else ""
+            lines.append(f"@prefix {pfx}{colon} <{uri}> .")
+        if self._prefixes:
+            lines.append("")
+        if body:
+            lines.append(body)
+        return "\n".join(lines) + ("\n" if lines else "")
+
+    def _term_for_object(
+        self,
+        obj: Term,
+        bnode_subjects: set[str],
+        bnode_refs: dict[str, int],
+    ) -> str:
+        """Render an object term, inlining blank nodes where appropriate.
+
+        M10 fix: If the object is a blank node that is also a subject
+        with only one reference, inline it as ``[ ... ]``.
+        """
+        if isinstance(obj, Existential) and obj.name in bnode_subjects:
+            if bnode_refs.get(obj.name, 0) <= 1:
+                # This blank node is a subject — will be rendered separately
+                return f"_:{obj.name}"
+        return self._term(obj)
 
     # -- term rendering ------------------------------------------------------
 

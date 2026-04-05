@@ -9,6 +9,7 @@ from pyeye.term import NamedNode, Literal, Variable, Existential, Triple
 
 
 NN = NamedNode
+L = Literal
 T = Triple
 
 
@@ -114,3 +115,32 @@ class TestN3Writer:
         t = T(NN("http://ex/x"), NN("http://ex/has"), Formula((inner,)))
         result = w.write_triples([t])
         assert "{<http://ex/a> <http://ex/p> <http://ex/b>}" in result
+
+    def test_blank_node_property_list(self):
+        """M10 fix: Blank node subjects are collapsed into [ ... ] syntax."""
+        w = N3Writer({"ex": "http://ex.org/"})
+        bnode = Existential("_b1")
+        triples = [
+            T(bnode, NN("http://ex.org/name"), L("Alice")),
+            T(bnode, NN("http://ex.org/age"), L("30")),
+        ]
+        result = w.write_triples(triples)
+        # Should use [ ... ] syntax instead of separate _:b1 lines
+        assert "[" in result  # Blank node property list syntax
+        assert "]" in result
+        assert "ex:name" in result or ":name" in result
+        assert "ex:age" in result or ":age" in result
+        assert "_:b1" not in result  # Blank node should not appear as subject
+
+    def test_multiple_blank_node_groups(self):
+        """M10 fix: Multiple blank node subjects each get their own [ ... ]."""
+        w = N3Writer({"ex": "http://ex.org/"})
+        b1 = Existential("_b1")
+        b2 = Existential("_b2")
+        triples = [
+            T(b1, NN("http://ex.org/name"), L("Alice")),
+            T(b2, NN("http://ex.org/name"), L("Bob")),
+        ]
+        result = w.write_triples(triples)
+        # Should have two separate [ ... ] blocks
+        assert result.count("[") == 2
