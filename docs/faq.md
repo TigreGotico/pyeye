@@ -102,6 +102,28 @@ Phase 1 uses a straightforward matching strategy: for each rule, try each patter
 
 ## Phase 2 Features
 
+### How do I use OWL 2 RL entailment?
+
+```bash
+pyeye --n3 ontology.ttl --query rules.n3 --entail-owl
+```
+
+Or from Python:
+
+```python
+r = execute(data_strings=[...], rule_strings=[...], entail_owl=True)
+```
+
+OWL 2 RL entailment is a superset of RDFS entailment. It derives implicit triples from:
+
+- **Property characteristics**: `owl:TransitiveProperty`, `owl:SymmetricProperty`, `owl:FunctionalProperty`, `owl:InverseFunctionalProperty`, `owl:inverseOf`
+- **Individual equality**: `owl:sameAs`, `owl:differentFrom`
+- **Class constructors**: `owl:intersectionOf`, `owl:unionOf`, `owl:someValuesFrom`, `owl:allValuesFrom`, `owl:hasValue`, `owl:oneOf`
+- **Property chains**: `owl:propertyChainAxiom`
+- **Equivalent classes and properties**: `owl:equivalentClass`, `owl:equivalentProperty`
+
+`apply_owl_rl_entailment` — `pyeye/owl.py:81`
+
 ### How do I use RDFS entailment?
 
 ```bash
@@ -286,26 +308,29 @@ Open `debug.html` in a browser for collapsible proof branches.
 
 ---
 
-## Phase 1 vs Phase 2
+## Feature Summary
 
-| Feature | Phase 1 | Phase 2 |
-| :--- | :--- | :--- |
-| Forward chaining | ✅ | ✅ |
-| Backward chaining | ❌ | ✅ |
-| Triple terms `<< >>` | ❌ | ✅ |
-| Formula terms `(| |)` | ❌ | ✅ |
-| Path expressions `!` / `^` | ❌ | ✅ |
-| `has`/`is`/`of` sugar | ❌ | ✅ |
-| BLOGIC negation | ❌ | ✅ |
-| Set syntax `($ $)` | ❌ | ✅ |
-| TriG named graphs | ❌ | ✅ |
-| RDFS entailment | ❌ | ✅ |
-| Proof traces | ❌ | ✅ |
-| DJITI indexing | ❌ | ✅ |
-| Incremental reasoning | ❌ | ✅ |
-| HTTP data loading | ❌ | ✅ |
-| Not-entail checking | ❌ | ✅ |
-| Core builtins | 30 | 93 |
+All features listed below are currently implemented:
+
+| Feature | Available |
+| :--- | :--- |
+| Forward chaining | ✅ |
+| Backward chaining | ✅ |
+| Triple terms `<< >>` | ✅ |
+| Formula terms `(| |)` | ✅ |
+| Path expressions `!` / `^` | ✅ |
+| `has`/`is`/`of` sugar | ✅ |
+| BLOGIC negation | ✅ |
+| Set syntax `($ $)` | ✅ |
+| TriG named graphs | ✅ |
+| RDFS entailment (`--entail`) | ✅ |
+| OWL 2 RL entailment (`--entail-owl`) | ✅ |
+| Proof traces | ✅ |
+| DJITI indexing | ✅ |
+| Incremental reasoning | ✅ |
+| HTTP data loading | ✅ |
+| Not-entail checking | ✅ |
+| 240 builtins | ✅ |
 
 ---
 
@@ -389,10 +414,10 @@ result = execute(
         # Custom rules that go beyond OWL expressivity
         """
         @prefix : <http://smart-building.org/> .
-        @prefix math: <http://www.w3.org/2000/10/swap/math#> .
+        @prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
         
         # Rule: if room temperature > 30 AND room is occupied, turn on AC
-        { ?Room :temperature ?T . ?T math:greaterThan "30" .
+        { ?Room :temperature ?T . ?T e:greaterThan "30" .
           ?Room :occupied true }
             => { ?Room :acOn true } .
         """,

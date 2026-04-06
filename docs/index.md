@@ -2,7 +2,7 @@
 
 **A pure-Python forward-chaining N3 reasoner.** Give it facts and rules, it derives new facts automatically.
 
-**240 builtins** · **Two-phase architecture** (forward + backward chaining)
+**240 builtins** · **Forward + backward chaining** · **RDFS + OWL 2 RL entailment**
 
 ## Start Here
 
@@ -10,9 +10,9 @@
 | :--- | :--- |
 | **New to all of this** (don't know what N3/RDF/triples are) | [Getting Started](getting-started.md) — explains everything from scratch |
 | **Familiar with the concepts** but new to pyeye | [Getting Started](getting-started.md) — skip to "Installation" |
-| **Looking for a specific function** | [API Reference](api-reference.md) |
-| **Wondering what syntax is allowed** | [Syntax Guide](syntax-guide.md) |
-| **Using the command line** | [CLI Reference](cli-reference.md) |
+| **Looking for a specific function** | [API Reference](api.md) |
+| **Wondering what syntax is allowed** | [N3 Syntax Guide](n3-syntax.md) |
+| **Using the command line** | [CLI Reference](cli.md) |
 | **Working with builtins** | [Builtins Reference](builtins.md) — 240 functions under the `e:` namespace |
 | **Troubleshooting a problem** | [FAQ](faq.md) |
 | **Running untrusted N3** | [Security](../SECURITY.md) — dangerous builtins, safe mode, SSRF protection |
@@ -21,11 +21,14 @@
 
 | Document | What's in it |
 | :--- | :--- |
-| [Getting Started](getting-started.md) | What pyeye is, key concepts explained, installation, 5-minute tutorial, Phase 2 features (backward chaining, proofs, entailment) |
-| [Syntax Guide](syntax-guide.md) | Every N3 construct supported, including Phase 2: triple terms, formula terms, paths, sets, has/is/of sugar, BLOGIC, TriG |
+| [Getting Started](getting-started.md) | What pyeye is, key concepts explained, installation, 5-minute tutorial, backward chaining, proofs, entailment |
+| [N3 Syntax](n3-syntax.md) | Every N3 construct: triple terms, formula terms, paths, sets, has/is/of sugar, BLOGIC, TriG |
+| [Syntax Guide](syntax-guide.md) | Same as N3 Syntax — alternative entry point |
 | [Builtins](builtins.md) | All 240 built-in functions grouped by category, all under the `e:` namespace |
-| [API Reference](api-reference.md) | Every public function, class, and method with parameter tables and code examples |
-| [CLI Reference](cli-reference.md) | All command-line flags, exit codes, and real-world examples including Phase 2 flags |
+| [API Reference](api.md) | Every public function, class, and method with parameter tables and code examples |
+| [API Reference (alt)](api-reference.md) | Same as API Reference — alternative entry point |
+| [CLI Reference](cli.md) | All command-line flags, exit codes, and real-world examples |
+| [CLI Reference (alt)](cli-reference.md) | Same as CLI Reference — alternative entry point |
 | [FAQ](faq.md) | Common questions, troubleshooting, "what's this?" explanations, security guidance |
 
 ## What is pyeye?
@@ -43,22 +46,22 @@ It's written in Python, requires only one dependency (`rdflib`), and runs locall
 
 ## Key Features
 
-| Feature | Phase | Description |
-| :--- |---|---|
-| Forward chaining | 1 | Euler Abstract Machine: apply rules until fixpoint |
-| Cycle detection | 1 | Prevents infinite loops when rules re-derive existing facts |
-| Predicate indexing | 1 | O(1) lookup when predicate is a concrete NamedNode |
-| 30 core builtins | 1 | Math, string, time, list, log, type, crypto |
-| Full N3 grammar | 2 | Triple terms, formula terms, paths, sets, has/is/of sugar, BLOGIC |
-| TriG named graphs | 2 | `GRAPH <g> { ... }` syntax with graph-scoped queries |
-| Backward chaining | 2 | Goal-directed reasoning with tabling (memoization) |
-| Proof traces | 2 | N3, DOT (Graphviz), and HTML proof tree output |
-| RDFS entailment | 2 | subClassOf, subPropertyOf, domain, range inference |
-| DJITI indexing | 2 | Most-constrained-first join ordering for performance |
-| Incremental reasoning | 2 | `add_triple()` after rules triggers immediate re-evaluation |
-| HTTP data loading | 2 | Remote files with SHA-256 cache, SSRF protection |
-| 240 builtins total | 2 | All under `e:` (`http://eulersharp.sourceforge.net/2003/03swap/log-rules#`): Math(44), String(28), List(27), Log(34), Crypto(4), Time(9), Graph(9), E/misc(85+) |
-| Not-entail checking | 2 | Verify a triple is NOT derivable |
+| Feature | Description |
+| :--- |---|
+| Forward chaining | Euler Abstract Machine: apply rules until fixpoint |
+| Backward chaining | Goal-directed reasoning with tabling (memoization) |
+| Cycle detection | Prevents infinite loops when rules re-derive existing facts |
+| Predicate indexing | O(1) lookup when predicate is a concrete NamedNode |
+| DJITI indexing | Most-constrained-first join ordering for performance |
+| Incremental reasoning | `add_triple()` after rules triggers immediate re-evaluation |
+| RDFS entailment | subClassOf, subPropertyOf, domain, range inference |
+| OWL 2 RL entailment | Transitive/symmetric/functional properties, sameAs, class constructors |
+| 240 builtins | All under `e:` (`http://eulersharp.sourceforge.net/2003/03swap/log-rules#`): Math(44), String(28+), List(27), Log(34+), Crypto(5), Time(9), Graph(9), E/misc(89+) |
+| Proof traces | N3, DOT (Graphviz), and HTML proof tree output |
+| Full N3 grammar | Triple terms, formula terms, paths, sets, has/is/of sugar, BLOGIC |
+| TriG named graphs | `GRAPH <g> { ... }` syntax with graph-scoped queries |
+| HTTP data loading | Remote files with SHA-256 cache, SSRF protection |
+| Not-entail checking | Verify a triple is NOT derivable |
 
 ## Quick Example
 
@@ -104,10 +107,11 @@ pyeye/
 │   ├── unify.py       # Pattern matching engine (forward + bidirectional unification)
 │   ├── store.py       # In-memory triple/quad database with predicate + graph indexing
 │   ├── parser.py      # Full N3 + TriG recursive descent parser
-│   ├── builtins.py    # 93 built-in functions across 11 namespaces
+│   ├── builtins.py    # 240 built-in functions (all under the e: namespace)
 │   ├── engine.py      # Euler Abstract Machine: forward/backward chaining, DJITI, incremental
 │   ├── proof.py       # Proof trace: ProofStep, ProofTree, N3/DOT/HTML serializers
 │   ├── rdfs.py        # RDFS entailment: subClassOf, subPropertyOf, domain, range
+│   ├── owl.py         # OWL 2 RL entailment: sameAs, transitive/symmetric/functional, class constructors
 │   ├── entry.py       # execute() — the main API
 │   ├── output.py      # N3/TriG writer with prefix abbreviation
 │   └── cli.py         # Command-line interface
@@ -132,10 +136,11 @@ All documentation cites source code in the format `` `ClassName.method` — `pat
 | Unification | `pyeye/unify.py` |
 | Triple/quad store | `pyeye/store.py` |
 | N3/TriG parser | `pyeye/parser.py` |
-| Builtins | `pyeye/builtins.py` |
+| Builtins (240 functions) | `pyeye/builtins.py` |
 | Reasoning engine | `pyeye/engine.py` |
 | Proof traces | `pyeye/proof.py` |
 | RDFS entailment | `pyeye/rdfs.py` |
+| OWL 2 RL entailment | `pyeye/owl.py` |
 | Entry API | `pyeye/entry.py` |
 | N3/TriG writer | `pyeye/output.py` |
 | CLI | `pyeye/cli.py` |

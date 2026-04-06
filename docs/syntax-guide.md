@@ -364,7 +364,8 @@ A negative surface says: "this rule body should only match if the enclosed formu
 
 **Example:**
 ```n3
-{ ?Person :age ?A . ?A math:greaterThan "17" .
+@prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
+{ ?Person :age ?A . ?A e:greaterThan "17" .
   _:neg log:onNegativeSurface { ?Person :hasLicense true } }
     => { ?Person :cannotDrive true } .
 ```
@@ -427,6 +428,7 @@ Here's a complete N3 file with data and rules, using Phase 2 features:
 ```n3
 @prefix : <http://my-ontology.org/> .
 @prefix log: <http://www.w3.org/2000/10/swap/log#> .
+@prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
 
 # === DATA ===
 :alice :parent :bob .
@@ -449,7 +451,7 @@ _:neg log:onNegativeSurface { :alice :hasLicense true } .
 { ?X :sibling ?Y . ?Y :parent ?Z } => { ?X :auntOrUncleOf ?Z } .
 
 # Rule 4: age-based rule with negation
-{ ?X :age ?A . ?A log:greaterThan "60" .
+{ ?X :age ?A . ?A e:greaterThan "60" .
   _:neg log:onNegativeSurface { ?X :hasLicense true } }
     => { ?X :needsRide true } .
 ```

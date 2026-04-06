@@ -43,6 +43,7 @@ print(result.triples)
 | `query` | `Triple` | 2 | Backward-chain from this goal triple | `None` |
 | `forward` | `bool` | 2 | Run forward chaining before backward | `True` |
 | `entail` | `bool` | 2 | Apply RDFS entailment first | `False` |
+| `entail_owl` | `bool` | 2 | Apply OWL 2 RL entailment (superset of RDFS: adds transitive/symmetric/functional properties, sameAs, class constructors, property chains) | `False` |
 | `not_entail` | `Triple` | 2 | Check this triple is NOT entailed | `None` |
 | `cache_dir` | `str` | 2 | Cache directory for remote N3 files | `None` |
 
@@ -622,7 +623,7 @@ print(text)
 
 ## Builtins
 
-**Source:** `BUILTIN_REGISTRY` — `pyeye/builtins.py:1267`
+**Source:** `BUILTIN_REGISTRY` — `pyeye/builtins.py:2321`
 
 See the [Builtins Reference](builtins.md) for the full list with examples.
 
@@ -631,15 +632,14 @@ To see what's available:
 ```python
 from pyeye import BUILTIN_REGISTRY
 
+print(len(BUILTIN_REGISTRY))  # 240
+
 for iri in sorted(BUILTIN_REGISTRY):
     print(iri)
-# http://www.w3.org/2000/10/swap/crypto#md5
-# http://www.w3.org/2000/10/swap/crypto#sha256
-# http://www.w3.org/2000/10/swap/graph#member
-# http://www.w3.org/2000/10/swap/list#car
-# http://www.w3.org/2000/10/swap/log#uuid
-# http://www.w3.org/2007/XPath-functions#concat
-# ... 93 total
+# http://eulersharp.sourceforge.net/2003/03swap/log-rules#absoluteValue
+# http://eulersharp.sourceforge.net/2003/03swap/log-rules#acos
+# http://eulersharp.sourceforge.net/2003/03swap/log-rules#all_
+# ... 240 total (all under the e: namespace)
 ```
 
 To register custom functions for `e:derive`:

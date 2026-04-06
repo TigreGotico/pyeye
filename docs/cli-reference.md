@@ -63,6 +63,7 @@ Contains your rules. Must be `.n3` format:
 | `--max-inferences N` | 1 | Stop after N reasoning steps | `--max-inferences 100` — limit runtime |
 | `--tactic limited-answer N` | 1 | Stop after N derived triples | `--tactic limited-answer 5` — only first 5 new facts |
 | `--entail` | 2 | Apply RDFS entailment before user rules | `--entail` — derive subClassOf/subPropertyOf implications |
+| `--entail-owl` | 2 | Apply OWL 2 RL entailment (superset of `--entail`) | `--entail-owl` — also derives transitive/symmetric/functional property implications, sameAs, class constructors |
 | `--not-entail-triple S,P,O` | 2 | Check that this triple is NOT entailed | `--not-entail-triple http://x/a,http://x/p,http://x/b` |
 | `--query-goal S,P,O` | 2 | Backward chain from this triple | `--query-goal http://x/bob,http://x/child,?X` |
 | `--no-forward` | 2 | Skip forward chaining (backward only) | `--no-forward` with `--query-goal` for pure backward chaining |

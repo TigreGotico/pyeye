@@ -198,8 +198,7 @@ result = execute(
     ],
 )
 
-print("Derived", result.stats["derived"], "triples in",
-      result.stats["time_ms"]:.1f, "ms")
+print(f"Derived {result.stats['derived']} triples in {result.stats['time_ms']:.1f}ms")
 
 # Print all triples (input + derived)
 for line in result.triples.strip().split("\n"):
@@ -299,22 +298,22 @@ HTTP loading includes SSRF protection: it rejects URLs targeting private IP rang
 
 ### Built-in Functions
 
-pyeye includes 93 built-in functions for math, strings, dates, crypto, graphs, and more:
+pyeye includes 240 built-in functions for math, strings, dates, crypto, graphs, and more. All use the `e:` prefix (`http://eulersharp.sourceforge.net/2003/03swap/log-rules#`):
 
 ```python
 result = execute(
     data_strings=[
         """
         @prefix : <http://shop.org/> .
-        @prefix math: <http://www.w3.org/2000/10/swap/math#> .
+        @prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
         :widget :price 50 .
         """,
     ],
     rule_strings=[
         """
         @prefix : <http://shop.org/> .
-        @prefix math: <http://www.w3.org/2000/10/swap/math#> .
-        { ?Item :price ?P . ?P math:greaterThan "30" } => { ?Item :expensive true } .
+        @prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
+        { ?Item :price ?P . ?P e:greaterThan "30" } => { ?Item :expensive true } .
         """,
     ],
 )
@@ -330,23 +329,27 @@ See the [Builtins Reference](builtins.md) for the complete list with examples.
 ### Example: Smart Home Rules
 
 ```n3
+@prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
+
 # If temperature is above 30, turn on AC
-{ ?Room :temperature ?T . ?T math:greaterThan "30" } => { ?Room :acOn true } .
+{ ?Room :temperature ?T . ?T e:greaterThan "30" } => { ?Room :acOn true } .
 
 # If it's after 10pm and someone is in the room, dim lights
-{ ?Room :occupied true . time:now ?Now . ?Now time:hour ?H . ?H math:greaterThan "22" }
+{ ?Room :occupied true . e:now ?Now . ?Now e:hours ?H . ?H e:greaterThan "22" }
     => { ?Room :lightsDimmed true } .
 ```
 
 ### Example: Business Logic
 
 ```n3
+@prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
+
 # If an order total is above $1000, flag for review
-{ ?Order :total ?T . ?T math:greaterThan "1000" } => { ?Order :needsReview true } .
+{ ?Order :total ?T . ?T e:greaterThan "1000" } => { ?Order :needsReview true } .
 
 # If a customer has 3+ orders, mark as VIP
 { ?C :ordered ?A . ?C :ordered ?B . ?C :ordered ?D .
-  ?A log:notEqualTo ?B . ?A log:notEqualTo ?D . ?B log:notEqualTo ?D }
+  ?A e:notEqualTo ?B . ?A e:notEqualTo ?D . ?B e:notEqualTo ?D }
     => { ?C :vip true } .
 ```
 
@@ -360,10 +363,10 @@ Parents → children → grandparents → siblings → etc. One set of rules, au
 
 | If you want to... | Read this |
 | :--- | :--- |
-| Understand the N3 syntax in detail | [Syntax Guide](syntax-guide.md) |
+| Understand the N3 syntax in detail | [N3 Syntax Guide](n3-syntax.md) |
 | Use built-in functions (math, strings, dates) | [Builtins Reference](builtins.md) |
-| See every function and class | [API Reference](api-reference.md) |
-| Use the command-line tool | [CLI Reference](cli-reference.md) |
+| See every function and class | [API Reference](api.md) |
+| Use the command-line tool | [CLI Reference](cli.md) |
 | Troubleshoot problems | [FAQ](faq.md) |
 | Run with untrusted N3 files | [Security](../SECURITY.md) |
 

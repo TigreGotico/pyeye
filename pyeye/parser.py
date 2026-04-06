@@ -139,6 +139,7 @@ def tokenize(text: str) -> list[Tok]:
         ("DOT",     r"\."),
         ("OP_FWD",  r"!"),          # Phase 2: forward path
         ("OP_REV",  r"\^(?!\^)"),   # Phase 2: reverse path (not ^^)
+        ("EQ",      r"="),          # C8 fix: owl:sameAs sugar
         ("OF_KW",   r"\bof\b"),     # Phase 2: "of" keyword
         ("HAS_KW",  r"\bhas\b"),    # Phase 2: "has" keyword
         ("IS_KW",   r"\bis\b"),     # Phase 2: "is" keyword
@@ -293,7 +294,10 @@ class Parser:
     # -- TriG: GRAPH <g> { ... } --------------------------------------------
 
     def _do_graph(self) -> None:
-        """Parse ``GRAPH <graph_id> { ... triples ... }`` into quads."""
+        """Parse ``GRAPH <graph_id> { ... triples ... }`` into quads.
+
+        DOT after the GRAPH block is optional.
+        """
         self._eat("GRAPH_KW")
         # Parse graph identifier
         graph_id = self._item()
@@ -302,6 +306,9 @@ class Parser:
         # Convert triples to quads
         for t in body.triples:
             self._quads.append(Quad(t.subject, t.predicate, t.object, graph_id))
+        # DOT after GRAPH block is optional
+        if self._peek().t == "DOT":
+            self._eat("DOT")
 
     @property
     def _quads(self) -> list[Quad]:

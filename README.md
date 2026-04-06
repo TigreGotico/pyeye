@@ -17,7 +17,7 @@ And it produces:
 
 - **Derived facts** — things it figured out (`:bob :child :alice .`)
 
-It implements the Euler Abstract Machine with forward chaining, backward chaining, RDFS entailment, DJITI join ordering, proof tree output, and 240 built-in functions for math, strings, dates, crypto, graphs, and more.
+It implements the Euler Abstract Machine with forward chaining, backward chaining, RDFS entailment, OWL 2 RL entailment, DJITI join ordering, proof tree output, and 240 built-in functions for math, strings, dates, crypto, graphs, and more.
 
 ---
 
@@ -27,12 +27,6 @@ It implements the Euler Abstract Machine with forward chaining, backward chainin
 git clone https://github.com/your-org/pyeye
 cd pyeye
 pip install -e .
-```
-
-Or from a wheel:
-
-```bash
-pip install pyeye
 ```
 
 Requires Python 3.11 or newer. The only runtime dependency is `rdflib >= 6.0`.
@@ -89,11 +83,12 @@ pyeye --n3 family.ttl --query rules.n3 --pass --statistics
 | Forward chaining | Euler Abstract Machine — apply rules to fixpoint |
 | Backward chaining | Goal-directed reasoning with tabling (memoization) |
 | RDFS entailment | subClassOf, subPropertyOf, domain, range inference |
+| OWL 2 RL entailment | sameAs, transitive/symmetric/functional properties, class constructors |
 | DJITI indexing | Most-constrained-first join ordering for performance |
 | Incremental reasoning | `add_triple()` after rules triggers immediate re-evaluation |
 | Proof traces | N3, DOT (Graphviz), and HTML proof tree output |
 | HTTP data loading | Remote files with SHA-256 cache; SSRF protection built in |
-| 240 builtins | Math (44), String (28), List (27), Log (34+), Crypto (4), Time (9), Graph (9), E/misc (85+) |
+| 240 builtins | Math (44), String (28+), List (27), Log (34+), Crypto (5), Time (9), Graph (9), E/misc (89+) |
 | TriG named graphs | `GRAPH <g> { ... }` syntax |
 | BLOGIC negation | `log:onNegativeSurface { ... }` — negation as failure |
 | Not-entail checking | Verify a triple is NOT derivable |
@@ -113,6 +108,9 @@ pyeye --n3 data.ttl --query rules.n3 --pass
 
 # RDFS entailment before user rules
 pyeye --n3 data.ttl --query rules.n3 --entail
+
+# OWL 2 RL entailment (superset of RDFS)
+pyeye --n3 data.ttl --query rules.n3 --entail-owl
 
 # Proof tree (HTML)
 pyeye --n3 data.ttl --query rules.n3 --explain --explain-format html > proof.html
@@ -141,17 +139,18 @@ See [docs/cli.md](docs/cli.md) for all flags and examples.
 from pyeye import execute
 from pyeye.term import NamedNode, Variable, Triple
 
-# Forward chaining — basic
-result = execute(
-    data_strings=["@prefix : <http://ex.org/> .\n:a :p :b ."],
-    rule_strings=["@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} ."],
-)
-
 # RDFS entailment
 result = execute(
     data_strings=["... rdfs:subClassOf triples ..."],
     rule_strings=["... your rules ..."],
     entail=True,
+)
+
+# OWL 2 RL entailment
+result = execute(
+    data_strings=["... owl axioms ..."],
+    rule_strings=["... your rules ..."],
+    entail_owl=True,
 )
 
 # Backward chaining from a goal
@@ -195,7 +194,7 @@ See [docs/api.md](docs/api.md) for the full API reference.
 
 ## Using Builtins
 
-All built-in functions use the `e:` prefix:
+All 240 built-in functions use the `e:` prefix:
 
 ```n3
 @prefix : <http://shop.org/> .
@@ -220,6 +219,7 @@ See [docs/builtins.md](docs/builtins.md) for all 240 built-in functions with exa
 ```n3
 @prefix : <http://example.org/> .
 @prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
+@prefix log: <http://www.w3.org/2000/10/swap/log#> .
 
 # Facts
 :alice :parent :bob .
@@ -232,7 +232,7 @@ See [docs/builtins.md](docs/builtins.md) for all 240 built-in functions with exa
 
 # Rule with builtin and negation
 { ?X :age ?A . ?A e:greaterThan "65" .
-  _:n e:onNegativeSurface { ?X :hasCar true } }
+  _:n log:onNegativeSurface { ?X :hasCar true } }
     => { ?X :needsTransport true } .
 ```
 
@@ -261,12 +261,13 @@ pyeye/
 ├── pyeye/
 │   ├── term.py      # NamedNode, Literal, Variable, Triple, Formula, TripleTerm, PathTerm, …
 │   ├── unify.py     # Pattern matching and variable binding
-│   ├── store.py     # In-memory triple/quad store with predicate + graph indexes
+│   ├── store.py     # In-memory triple/quad store with predicate + subject + object indexes
 │   ├── parser.py    # Full N3 + TriG recursive-descent parser
 │   ├── builtins.py  # 240 built-in functions (all under e: namespace)
 │   ├── engine.py    # Euler Abstract Machine: forward + backward chaining
 │   ├── proof.py     # ProofStep, ProofTree; N3 / DOT / HTML serializers
 │   ├── rdfs.py      # RDFS entailment rules
+│   ├── owl.py       # OWL 2 RL entailment rules
 │   ├── entry.py     # execute() — the public API
 │   ├── output.py    # N3Writer — serialize triples to N3 text
 │   └── cli.py       # pyeye CLI (argparse → execute())
