@@ -183,7 +183,7 @@ Result: `:widget :finalPrice 45.0 .`
 
 ## String Builtins
 
-**28 functions** for text operations.
+**30 functions** for text operations.
 
 Source: `pyeye/builtins.py` (functions `string_*` and `func_*`)
 
@@ -212,6 +212,8 @@ Source: `pyeye/builtins.py` (functions `string_*` and `func_*`)
 | `e:capitalize` | Capitalize first letter | `"hello" e:capitalize ?R` → R="Hello" |
 | `e:upperCase` | To uppercase | `"hello" e:upperCase ?R` → R="HELLO" |
 | `e:lowerCase` | To lowercase | `"HELLO" e:lowerCase ?R` → R="hello" |
+| `string:charAt` | Character at 0-based index | `"hello" string:charAt (0 ?C)` → C="h" |
+| `string:setCharAt` | Replace character at index | `"hello" string:setCharAt (1 "a" ?R)` → R="hallo" |
 
 ### Case-Insensitive Comparisons
 
@@ -333,9 +335,11 @@ Lists in N3 are written as `(item1 item2 item3)`.
 
 ## Log / Meta Builtins
 
-**~34 functions** for engine operations, term manipulation, and meta-reasoning.
+**~44 functions** for engine operations, term manipulation, and meta-reasoning.
 
 Source: `pyeye/builtins.py` (functions `log_*`)
+
+All are available as both `e:<name>` (eulersharp) and `log:<name>` (canonical W3C swap).
 
 | Builtin | What it does | Example |
 |---|---|---|
@@ -346,13 +350,22 @@ Source: `pyeye/builtins.py` (functions `log_*`)
 | `e:outputString` | Mark term for output | `?Msg e:outputString ?Out` |
 | `e:content` | All triples in the store | `e:content ?All` |
 | `e:n3String` | Convert term to N3 text | `:foo e:n3String ?S` → S=":foo" |
+| `log:localN3String` | Serialize term using local/relative names | `?T log:localN3String ?S` |
 | `e:implies` | Does premise imply conclusion? | `?A e:implies ?B` |
+| `log:impliesAnswer` | Marks rule as producing answer triples (stub) | — |
+| `log:isImpliedBy` | Backward implication (stub) | `?B log:isImpliedBy ?A` |
+| `log:impliedBy` | Alias for `log:isImpliedBy` (eyeling spelling) | — |
 | `e:forAllIn` | Collect all bindings for variable | returns store triples |
 | `e:collectAllIn` | Collect all matching triples | returns store triples |
 | `e:ask` | HTTP GET (SSRF-protected) | `"http://ex.org/data" e:ask ?Body` |
 | `e:shell` | Execute safe command, return stdout | `"echo hi" e:shell ?Out` |
 | `e:bound` | Is term bound? | `?X e:bound ?R` |
 | `e:call` | Call a formula as a goal | `?Formula e:call ?R` |
+| `e:callNotBind` | Call without binding variables (stub) | — |
+| `e:callWithCleanup` | Call with cleanup action (stub) | — |
+| `e:callWithCut` | Call with cut semantics (stub) | — |
+| `e:callWithDisjunction` | Disjunctive call (stub) | — |
+| `e:callWithOptional` | Optional call (stub) | — |
 | `e:copy` | Copy term | `?T e:copy ?Copy` |
 | `e:dtlit` | Create datatype literal | `(?Val ?Type) e:dtlit ?L` |
 | `e:langlit` | Create language literal | `(?Val ?Lang) e:langlit ?L` |
@@ -368,6 +381,7 @@ Source: `pyeye/builtins.py` (functions `log_*`)
 | `e:graph` | Graph operations | complex |
 | `e:hasPrefix` | Does IRI have prefix? | `?IRI e:hasPrefix ?NS` |
 | `e:includes` | Formula includes triple? | `?F e:includes ?T` |
+| `log:includesNotBind` | Includes check without binding (stub) | — |
 | `e:notIncludes` | Formula doesn't include triple? | `?F e:notIncludes ?T` |
 | `e:isBuiltin` | Is IRI a builtin? | `?P e:isBuiltin ?R` |
 | `e:isomorphic` | Are two formulas isomorphic? | `?F1 e:isomorphic ?F2` |
@@ -376,6 +390,12 @@ Source: `pyeye/builtins.py` (functions `log_*`)
 | `e:becomes` | Retract old, assert new | `(?OldT ?NewT) e:becomes ?R` |
 | `e:trace` | Log to stderr for debugging | `?Msg e:trace ?R` |
 | `e:uri` | IRI as string | `?IRI e:uri ?S` |
+| `log:allPossibleCases` | Collect all solutions (stub) | — |
+| `log:dcg` | Definite Clause Grammar invocation (stub) | — |
+| `log:ifThenElseIn` | Conditional reasoning in graph (stub) | — |
+| `log:inferences` | Count of derived triples so far | `log:inferences ?N` |
+| `log:query` | Execute a query formula (stub) | — |
+| `log:table` | Tabling/memoisation directive (stub; always true) | `log:table ?P` |
 
 ### Unique ID Generator Example
 
@@ -428,21 +448,26 @@ Also available: `e:hmac-sha` for HMAC computation.
 
 ## Time Builtins
 
-**9 functions** for dates and clocks.
+**13 functions** for dates and clocks.
 
 Source: `pyeye/builtins.py` (functions `time_*`)
 
-| Builtin | What it does | Example |
-|---|---|---|
-| `e:now` | Current date and time | `e:now ?Now` → Now="2026-04-06T12:00:00" |
-| `e:localTime` | Current local time as ISO | `e:localTime ?T` → T="2026-04-06T12:00:00+01:00" |
-| `e:in-seconds` | Unix timestamp | `e:in-seconds ?T` → T=1744...0.0 |
-| `e:year` | Extract year | `"2026-04-06" e:year ?Y` → Y=2026 |
-| `e:month` | Extract month | `"2026-04-06" e:month ?M` → M=4 |
-| `e:day` | Extract day | `"2026-04-06" e:day ?D` → D=6 |
-| `e:hours` | Extract hours | `"2026-04-06T12:30:00" e:hours ?H` → H=12 |
-| `e:minutes` | Extract minutes | `"2026-04-06T12:30:00" e:minutes ?M` → M=30 |
-| `e:seconds` | Extract seconds | `"2026-04-06T12:30:45" e:seconds ?S` → S=45 |
+| Builtin | `time:` alias | What it does | Example |
+|---|---|---|---|
+| `e:now` | — | Current date and time | `e:now ?Now` → Now="2026-04-06T12:00:00" |
+| `e:localTime` | `time:localTime` | Current local time as ISO | `e:localTime ?T` |
+| `e:in-seconds` | — | Unix timestamp | `e:in-seconds ?T` |
+| `e:year` | `time:year` | Extract year | `"2026-04-06" e:year ?Y` → Y=2026 |
+| `e:month` | `time:month` | Extract month | `"2026-04-06" e:month ?M` → M=4 |
+| `e:day` | `time:day` | Extract day | `"2026-04-06" e:day ?D` → D=6 |
+| `e:hours` | `time:hour` | Extract hours | `"2026-04-06T12:30:00" e:hours ?H` → H=12 |
+| `e:minutes` | `time:minute` | Extract minutes | `"2026-04-06T12:30:00" e:minutes ?M` → M=30 |
+| `e:seconds` | `time:second` | Extract seconds (float) | `"2026-04-06T12:30:45" e:seconds ?S` → S=45 |
+| — | `time:timeZone` | Extract timezone offset | `"2026-04-06T12:00:00+02:00" time:timeZone ?Z` → Z="+02:00" |
+
+> **Note on naming:** EYE uses `time:year`/`time:month`/`time:day` matching the eye.pl `swap/time` namespace.  
+> eyeling adds `time:hour`, `time:minute`, `time:second`, `time:timeZone` — all four are now supported.  
+> The legacy `e:hours`/`e:minutes`/`e:seconds` spellings are also kept for backwards compatibility.
 
 ---
 
