@@ -116,6 +116,7 @@ def tokenize(text: str) -> list[Tok]:
         ("TTCLOSE", r">>"),         # Phase 2: triple term close — before IRI!
         ("IRI",     r"<[^>]+>"),
         ("PFX",     r"@prefix\b"),
+        ("SPARQL_PFX", r"\bPREFIX\b"),  # L1 fix: SPARQL-style prefix
         ("BASE",    r"@base\b"),
         ("FSOME",   r"@forSome\b"),
         ("FALL",    r"@forAll\b"),
@@ -224,7 +225,7 @@ class Parser:
 
     def _stmt(self) -> None:
         t = self._peek()
-        if t.t == "PFX":
+        if t.t in ("PFX", "SPARQL_PFX"):
             self._do_prefix()
         elif t.t == "BASE":
             self._do_base()
@@ -240,22 +241,28 @@ class Parser:
     # -- directives ----------------------------------------------------------
 
     def _do_prefix(self) -> None:
-        self._eat("PFX")
+        # L1 fix: Handle both @prefix (N3) and PREFIX (SPARQL) tokens
+        if self._peek().t == "SPARQL_PFX":
+            self._eat("SPARQL_PFX")
+        else:
+            self._eat("PFX")
         t = self._peek()
         if t.t == "COLON":
-            # @prefix : <...>
+            # prefix : <...>
             self._eat("COLON")
             prefix = ""
         elif t.t == "KW" and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t == "COLON":
-            # @prefix ex: <...>
+            # prefix ex: <...>
             prefix = self._eat("KW").v
             self._eat("COLON")
         else:
-            # @prefix ex <...> (no colon — non-standard but accept it)
+            # prefix ex <...> (no colon — non-standard but accept it)
             prefix = self._eat_any().v.rstrip(":")
         uri = self._eat("IRI").v[1:-1]
         self._pm.register(prefix, uri)
-        self._eat("DOT")
+        # DOT is optional (SPARQL-style)
+        if self._peek().t == "DOT":
+            self._eat("DOT")
 
     def _do_base(self) -> None:
         self._eat("BASE")
@@ -664,6 +671,10 @@ class Parser:
     def _do_data(self) -> None:
         subj = self._item()
         new = self._verb_obj_list(subj)
+        # Check if this turned out to be a rule (=> in predicate position)
+        if self._triples and self._triples[-1].predicate.value.endswith("implies"):
+            # Promote to rule - shouldn't happen in data mode
+            pass
         self._triples.extend(new)
 
     # -- tokenizer helpers ---------------------------------------------------

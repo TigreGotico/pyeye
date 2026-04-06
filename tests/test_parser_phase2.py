@@ -298,3 +298,27 @@ class TestIRIValidation:
         from pyeye.parser import ParseError
         with pytest.raises(ParseError, match="Forbidden character"):
             parse_n3('@prefix : <http://ex.org/> .\n<a\\b> :p :c .')
+
+
+class TestSPARQLStylePrefix:
+    """L1 fix: SPARQL-style PREFIX without @ or dot."""
+
+    def test_sparql_prefix_with_dot(self):
+        """PREFIX ex: <url> . should work."""
+        text = 'PREFIX ex: <http://ex.org/> .\nex:a :p :b .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+
+    def test_sparql_prefix_without_dot(self):
+        """PREFIX ex: <url> without trailing dot should work."""
+        text = 'PREFIX ex: <http://ex.org/>\nex:a :p :b .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        assert doc.triples[0].subject == NN("http://ex.org/a")
+
+    def test_sparql_prefix_empty(self):
+        """PREFIX : <url> without trailing dot."""
+        text = 'PREFIX : <http://ex.org/>\n:a :p :b .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        assert doc.triples[0].subject == NN("http://ex.org/a")

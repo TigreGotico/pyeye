@@ -30,9 +30,44 @@ class N3Writer:
         M10 fix: Blank node subjects are collapsed into ``[ pred obj; ... ]``
         property lists. Blank node objects that are only used once are
         inlined.
+
+        L2 fix: Rules with log:implies/log:impliedBy are output using
+        =>/<= sugar instead of regular triple syntax.
         """
         if not triples:
             return self._write_prefix_block("")
+
+        # Separate regular triples from rule triples (log:implies/log:impliedBy)
+        IMPLIES = "http://www.w3.org/2000/10/swap/log#implies"
+        IMPLIED_BY = "http://www.w3.org/2000/10/swap/log#impliedBy"
+
+        regular_triples: list[Triple] = []
+        rule_triples: list[Triple] = []
+
+        for t in triples:
+            if isinstance(t.predicate, NamedNode) and t.predicate.value in (IMPLIES, IMPLIED_BY):
+                rule_triples.append(t)
+            else:
+                regular_triples.append(t)
+
+        # Write regular triples
+        result = self._write_triples_n3(regular_triples)
+
+        # Write rules with =>/<= sugar
+        if rule_triples:
+            result = result.rstrip("\n")
+            if result:
+                result += "\n"
+            for t in rule_triples:
+                body_str = self._formula_to_n3(t.subject)
+                head_str = self._formula_to_n3(t.object)
+                op = "=>" if isinstance(t.predicate, NamedNode) and t.predicate.value == IMPLIES else "<="
+                result += f"{body_str} {op} {head_str} .\n"
+
+        return result
+
+    def _write_triples_n3(self, triples: list[Triple]) -> str:
+        """Write regular triples with N3 syntax."""
 
         # Group triples by subject
         by_subject: dict[Term, list[Triple]] = defaultdict(list)
@@ -124,6 +159,22 @@ class N3Writer:
         if body:
             lines.append(body)
         return "\n".join(lines) + ("\n" if lines else "")
+
+    def _formula_to_n3(self, t: Term) -> str:
+        """Convert a term that may be a Formula to N3 syntax.
+
+        L2 fix: Handle Formula, NamedNode (for single triples), etc.
+        """
+        if isinstance(t, Formula):
+            inner_triples = "; ".join(
+                f"{self._term(tr.subject)} {self._term(tr.predicate)} {self._term(tr.object)}"
+                for tr in t.triples
+            )
+            return f"{{{inner_triples}}}"
+        # Single triple as formula
+        if isinstance(t, TripleTerm):
+            return f"<<{self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)}>>"
+        return self._term(t)
 
     def _term_for_object(
         self,

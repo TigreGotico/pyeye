@@ -144,3 +144,31 @@ class TestN3Writer:
         result = w.write_triples(triples)
         # Should have two separate [ ... ] blocks
         assert result.count("[") == 2
+
+    def test_rule_output_implies_sugar(self):
+        """L2 fix: Rules with log:implies are output with => sugar."""
+        from pyeye.term import Formula
+        w = N3Writer({"ex": "http://ex.org/"})
+        body = Formula((
+            T(NN("http://ex.org/X"), NN("http://ex.org/p"), NN("http://ex.org/Y")),
+        ))
+        head = Formula((
+            T(NN("http://ex.org/Y"), NN("http://ex.org/q"), NN("http://ex.org/X")),
+        ))
+        log_implies = NN("http://www.w3.org/2000/10/swap/log#implies")
+        triples = [T(body, log_implies, head)]
+        result = w.write_triples(triples)
+        assert "=>" in result
+        assert "{ex:X ex:p ex:Y}" in result
+        assert "{ex:Y ex:q ex:X}" in result
+
+    def test_rule_output_implied_by_sugar(self):
+        """L2 fix: Rules with log:impliedBy are output with <= sugar."""
+        from pyeye.term import Formula
+        w = N3Writer()
+        body = Formula((T(NN("http://ex.org/a"), NN("http://ex.org/p"), NN("http://ex.org/b")),))
+        head = Formula((T(NN("http://ex.org/b"), NN("http://ex.org/q"), NN("http://ex.org/a")),))
+        log_implied_by = NN("http://www.w3.org/2000/10/swap/log#impliedBy")
+        triples = [T(body, log_implied_by, head)]
+        result = w.write_triples(triples)
+        assert "<=" in result
