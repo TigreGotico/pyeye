@@ -10,21 +10,15 @@ This review focused on **actual bugs** (semantic differences producing incorrect
 
 ## Findings
 
-### Bug 1: Empty Formula Parsing (High Severity)
+### Bug 1: Empty Formula Parsing (High Severity) — FIXED ✅
 
-**Symptom**: `{()}` (empty formula / unit formula) fails to parse with `Unexpected RBR '}'`.
+**Symptom**: `{()}` (empty formula / unit formula) failed to parse with `Unexpected RBR '}'`.
 
-**Root cause**: `_formula()` calls `_triple_pattern()` which expects at least a subject term. When the formula body is `()`, the parser sees `LBR LP RP RBR`. `_rdf_list()` returns `Existential("nil")` but this is never used in a triple, so `_triple_pattern()` fails to find a subject and errors.
+**Root cause**: `_formula()` called `_triple_pattern()` which expected at least a subject term. When the formula body was `()`, the parser saw `LBR LP RP RBR`. `_rdf_list()` returned `Existential("nil")` but this was never used in a triple, so `_triple_pattern()` failed.
 
-**EYE behavior**: `{()}` is valid — it's the unit formula (always true, like `true` in logic).
+**Fix**: Added check in `_formula()` for empty `()` list — consumed and skipped as unit formula.
 
-**Eyeling behavior**: Same — empty formula is valid.
-
-**Impact**: Rules like `{()} => {log:outputString "Hello"}` cannot be expressed. Also affects `{()} => {...}` patterns used in EYE for unconditional derivations.
-
-**Fix difficulty**: Medium. Need to handle the case where `_formula()` body is empty or contains only a unit list.
-
-**Status**: ❌ Open
+**Status**: ✅ Fixed (commit 8752976)
 
 ---
 
