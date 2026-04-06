@@ -190,6 +190,45 @@ class TestSetSyntax:
         assert t.object.elements == ()
 
 
+class TestImplicationInsideFormulas:
+    """M4 fix: Handle implication inside formulas { {A} => {B} }."""
+
+    def test_implication_in_formula(self):
+        """{ {A} => {B} } :in :rules — implication inside formula."""
+        from pyeye.term import Formula
+        text = '@prefix : <http://ex.org/> . { {:a :p :b} => {:c :q :d} } :in :rules .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert isinstance(t.subject, Formula)
+        assert len(t.subject.triples) == 1
+        # The inner triple has log:implies as predicate
+        inner = t.subject.triples[0]
+        assert "implies" in inner.predicate.value
+
+    def test_implied_by_in_formula(self):
+        """{ {A} <= {B} } :in :rules — impliedBy inside formula."""
+        from pyeye.term import Formula
+        text = '@prefix : <http://ex.org/> . { {:a :p :b} <= {:c :q :d} } :in :rules .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert isinstance(t.subject, Formula)
+        inner = t.subject.triples[0]
+        assert "impliedBy" in inner.predicate.value
+
+    def test_mixed_formula_content(self):
+        """Formula with both regular triples and implications."""
+        from pyeye.term import Formula
+        text = '@prefix : <http://ex.org/> . { :a :p :b . {:c :q :d} => {:e :r :f} } :in :rules .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert isinstance(t.subject, Formula)
+        # Should have 2 triples: :a :p :b and the implication
+        assert len(t.subject.triples) == 2
+
+
 class TestBackwardCompatibility:
     """FR 2a.9: All Phase 1 syntax still works."""
 

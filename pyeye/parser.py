@@ -344,12 +344,15 @@ class Parser:
             self._eat("DOT")
             self._triples.extend(body.triples)
         else:
-            raise ParseError(f"Expected => or <= or . got {t.t}")
+            # M4 fix: Formula used as subject of a data triple
+            # e.g., { {A} => {B} } :in :rules .
+            self._triples.extend(self._verb_obj_list(body))
 
     def _formula(self) -> Formula:
         """Parse ``{ ... }`` into a Formula.
 
         Bug 1 fix: Handle empty formulas ``{()}`` and ``{}`` as unit formulas.
+        M4 fix: Handle implication inside formulas ``{ {A} => {B} }``.
         EYE treats these as always-true (the unit of conjunction).
         """
         self._eat("LBR")
@@ -364,6 +367,26 @@ class Parser:
                     self._eat("RP")
                     # Empty list is unit — no triples to add
                     continue
+            # M4 fix: Check for implication inside formulas: {A} => {B}
+            if self._peek().t == "LBR":
+                body_formula = self._formula()
+                if self._peek().t == "IMPF":
+                    self._eat("IMPF")
+                    head_formula = self._formula()
+                    # Create triple with log:implies predicate
+                    log_implies = NamedNode("http://www.w3.org/2000/10/swap/log#implies")
+                    tris.append(Triple(body_formula, log_implies, head_formula))
+                elif self._peek().t == "IMPB":
+                    self._eat("IMPB")
+                    head_formula = self._formula()
+                    # Create triple with log:impliedBy predicate
+                    log_implied_by = NamedNode("http://www.w3.org/2000/10/swap/log#impliedBy")
+                    tris.append(Triple(head_formula, log_implied_by, body_formula))
+                else:
+                    # Not an implication — put the formula back as subject
+                    # and parse as normal triple pattern
+                    tris.extend(self._verb_obj_list(body_formula))
+                continue
             tris.extend(self._triple_pattern())
         self._eat("RBR")
         return Formula(tris)

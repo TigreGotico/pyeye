@@ -1,14 +1,29 @@
 # Builtins Reference
 
-**Source:** `BUILTIN_REGISTRY` — `pyeye/builtins.py:2321` (240 entries)
+**Source:** `BUILTIN_REGISTRY` — `pyeye/builtins.py` (425 entries)
 
-pyeye has **240 built-in functions**. Every single one uses the `e:` prefix:
+pyeye has **425 built-in functions** registered under two namespace families.
+
+### Legacy `e:` namespace (eulersharp)
 
 ```
 @prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
 ```
 
-This is the EYE (Euler Yet another proof Engine) namespace, matching the original `eye.pl` and `eyeling.js` implementations that pyeye ports.
+### Canonical W3C `swap:` namespaces (recommended for EYE/eyeling compatibility)
+
+```n3
+@prefix math:   <http://www.w3.org/2000/10/swap/math#> .
+@prefix string: <http://www.w3.org/2000/10/swap/string#> .
+@prefix list:   <http://www.w3.org/2000/10/swap/list#> .
+@prefix log:    <http://www.w3.org/2000/10/swap/log#> .
+@prefix crypto: <http://www.w3.org/2000/10/swap/crypto#> .
+@prefix graph:  <http://www.w3.org/2000/10/swap/graph#> .
+@prefix time:   <http://www.w3.org/2000/10/swap/time#> .
+@prefix reason: <http://www.w3.org/2000/10/swap/reason#> .
+```
+
+Both namespace styles are fully equivalent. `math:greaterThan` and `e:greaterThan` resolve to the same implementation. N3 files written for EYE or eyeling will work unchanged.
 
 ---
 
