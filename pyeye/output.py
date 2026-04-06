@@ -38,8 +38,8 @@ class N3Writer:
             return self._write_prefix_block("")
 
         # Separate regular triples from rule triples (log:implies/log:impliedBy)
-        IMPLIES = "http://www.w3.org/2000/10/swap/log#implies"
-        IMPLIED_BY = "http://www.w3.org/2000/10/swap/log#impliedBy"
+        IMPLIES = "http://eulersharp.sourceforge.net/2003/03swap/log-rules#implies"
+        IMPLIED_BY = "http://eulersharp.sourceforge.net/2003/03swap/log-rules#impliedBy"
 
         regular_triples: list[Triple] = []
         rule_triples: list[Triple] = []

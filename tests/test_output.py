@@ -155,7 +155,7 @@ class TestN3Writer:
         head = Formula((
             T(NN("http://ex.org/Y"), NN("http://ex.org/q"), NN("http://ex.org/X")),
         ))
-        log_implies = NN("http://www.w3.org/2000/10/swap/log#implies")
+        log_implies = NN("http://eulersharp.sourceforge.net/2003/03swap/log-rules#implies")
         triples = [T(body, log_implies, head)]
         result = w.write_triples(triples)
         assert "=>" in result
@@ -168,7 +168,7 @@ class TestN3Writer:
         w = N3Writer()
         body = Formula((T(NN("http://ex.org/a"), NN("http://ex.org/p"), NN("http://ex.org/b")),))
         head = Formula((T(NN("http://ex.org/b"), NN("http://ex.org/q"), NN("http://ex.org/a")),))
-        log_implied_by = NN("http://www.w3.org/2000/10/swap/log#impliedBy")
+        log_implied_by = NN("http://eulersharp.sourceforge.net/2003/03swap/log-rules#impliedBy")
         triples = [T(body, log_implied_by, head)]
         result = w.write_triples(triples)
         assert "<=" in result

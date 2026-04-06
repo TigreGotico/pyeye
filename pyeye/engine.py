@@ -345,7 +345,7 @@ class Engine:
 
             # Phase 2: Check for negative surface (BLOGIC)
             # Pattern: ?S log:onNegativeSurface { ... }
-            NEG_PRED = "http://www.w3.org/2000/10/swap/log#onNegativeSurface"
+            NEG_PRED = "http://eulersharp.sourceforge.net/2003/03swap/log-rules#onNegativeSurface"
             if isinstance(resolved.predicate, NamedNode) and resolved.predicate.value == NEG_PRED:
                 # Negation: if the formula CAN be matched, this path fails
                 if isinstance(resolved.object, Formula):

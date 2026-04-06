@@ -25,13 +25,13 @@ class TestNegativeSurface:
         """`:S log:onNegativeSurface { :a :p :b }` parses correctly."""
         text = """
 @prefix : <http://ex.org/> .
-@prefix log: <http://www.w3.org/2000/10/swap/log#> .
+@prefix log: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
 :S log:onNegativeSurface { :a :p :b } .
 """
         doc = parse_n3(text)
         assert len(doc.triples) == 1
         t = doc.triples[0]
-        assert t.predicate == NN("http://www.w3.org/2000/10/swap/log#onNegativeSurface")
+        assert t.predicate == NN("http://eulersharp.sourceforge.net/2003/03swap/log-rules#onNegativeSurface")
         assert isinstance(t.object, Formula)
 
     def test_negative_surface_blocks_derivation(self):
@@ -44,7 +44,7 @@ class TestNegativeSurface:
         # Since :a :p :b IS true, the negation blocks this rule
         engine.add_rule(Rule(
             body=F((
-                T(V("S"), NN("http://www.w3.org/2000/10/swap/log#onNegativeSurface"),
+                T(V("S"), NN("http://eulersharp.sourceforge.net/2003/03swap/log-rules#onNegativeSurface"),
                   F((T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")),))),
             )),
             head=F((T(NN("http://x/result"), NN("http://x/derived"), NN("http://x/yes")),)),
@@ -63,7 +63,7 @@ class TestNegativeSurface:
         # Rule: if :a :p :b is NOT true, then derive something
         engine.add_rule(Rule(
             body=F((
-                T(V("S"), NN("http://www.w3.org/2000/10/swap/log#onNegativeSurface"),
+                T(V("S"), NN("http://eulersharp.sourceforge.net/2003/03swap/log-rules#onNegativeSurface"),
                   F((T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")),))),
             )),
             head=F((T(NN("http://x/result"), NN("http://x/derived"), NN("http://x/yes")),)),
