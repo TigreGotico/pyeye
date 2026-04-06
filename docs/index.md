@@ -2,7 +2,7 @@
 
 **A pure-Python forward-chaining N3 reasoner.** Give it facts and rules, it derives new facts automatically.
 
-**93 builtins** · **312 tests** · **Two-phase architecture** (forward + backward chaining)
+**240 builtins** · **Two-phase architecture** (forward + backward chaining)
 
 ## Start Here
 
@@ -13,7 +13,7 @@
 | **Looking for a specific function** | [API Reference](api-reference.md) |
 | **Wondering what syntax is allowed** | [Syntax Guide](syntax-guide.md) |
 | **Using the command line** | [CLI Reference](cli-reference.md) |
-| **Working with builtins** | [Builtins Reference](builtins.md) — 93 functions across 11 namespaces |
+| **Working with builtins** | [Builtins Reference](builtins.md) — 240 functions under the `e:` namespace |
 | **Troubleshooting a problem** | [FAQ](faq.md) |
 | **Running untrusted N3** | [Security](../SECURITY.md) — dangerous builtins, safe mode, SSRF protection |
 
@@ -23,7 +23,7 @@
 | :--- | :--- |
 | [Getting Started](getting-started.md) | What pyeye is, key concepts explained, installation, 5-minute tutorial, Phase 2 features (backward chaining, proofs, entailment) |
 | [Syntax Guide](syntax-guide.md) | Every N3 construct supported, including Phase 2: triple terms, formula terms, paths, sets, has/is/of sugar, BLOGIC, TriG |
-| [Builtins](builtins.md) | All 93 built-in functions with what they do, how to use them, and full worked examples |
+| [Builtins](builtins.md) | All 240 built-in functions grouped by category, all under the `e:` namespace |
 | [API Reference](api-reference.md) | Every public function, class, and method with parameter tables and code examples |
 | [CLI Reference](cli-reference.md) | All command-line flags, exit codes, and real-world examples including Phase 2 flags |
 | [FAQ](faq.md) | Common questions, troubleshooting, "what's this?" explanations, security guidance |
@@ -57,7 +57,7 @@ It's written in Python, requires only one dependency (`rdflib`), and runs locall
 | DJITI indexing | 2 | Most-constrained-first join ordering for performance |
 | Incremental reasoning | 2 | `add_triple()` after rules triggers immediate re-evaluation |
 | HTTP data loading | 2 | Remote files with SHA-256 cache, SSRF protection |
-| 93 builtins total | 2 | Math(19), String(9+XPath 13), Time(9), Crypto(4), List(6), Log(11), Graph(6), E(8), Type(4), XPath predicates(4) |
+| 240 builtins total | 2 | All under `e:` (`http://eulersharp.sourceforge.net/2003/03swap/log-rules#`): Math(44), String(28), List(27), Log(34), Crypto(4), Time(9), Graph(9), E/misc(85+) |
 | Not-entail checking | 2 | Verify a triple is NOT derivable |
 
 ## Quick Example

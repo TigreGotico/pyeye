@@ -45,6 +45,8 @@ def main() -> None:
     # Phase 2 flags
     parser.add_argument("--entail", action="store_true",
                         help="Apply RDFS entailment before user rules")
+    parser.add_argument("--entail-owl", dest="entail_owl", action="store_true",
+                        help="Apply OWL 2 RL entailment (includes RDFS)")
     parser.add_argument("--not-entail", dest="not_entail", action="store_true",
                         help="Check that no entailment occurred (Phase 2)")
     parser.add_argument("--not-entail-triple", dest="not_entail_triple", default=None,
@@ -99,6 +101,7 @@ def main() -> None:
             pass_mode=args.pass_mode,
             pass_all=args.pass_all,
             entail=args.entail,
+            entail_owl=args.entail_owl,
             forward=not args.no_forward,
             not_entail=not_entail_triple,
             cache_dir=args.cache_dir,

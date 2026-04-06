@@ -48,6 +48,7 @@ def execute(
     query: Triple | None = None,
     forward: bool = True,
     entail: bool = False,
+    entail_owl: bool = False,
     not_entail: Triple | None = None,
     cache_dir: str | None = None,
     explain_format: Literal["n3", "dot", "html"] = "n3",
@@ -92,6 +93,12 @@ def execute(
         If True, apply RDFS entailment rules before running user rules.
         Derives implicit triples from subClassOf, subPropertyOf,
         domain, and range declarations.
+    entail_owl :
+        If True, apply OWL 2 RL entailment rules (implies entail=True).
+        Derives implicit triples from OWL axioms: sameAs, differentFrom,
+        transitive/symmetric/functional properties, intersectionOf,
+        unionOf, someValuesFrom, allValuesFrom, hasValue, oneOf,
+        property chains, and keys.
     not_entail :
         If set, check that this triple is NOT entailed by the data + rules.
         Returns empty triples if not entailed, or the triple if it IS entailed
@@ -230,6 +237,13 @@ def execute(
         rdfs_count = apply_rdfs_entailment(engine.store)
     else:
         rdfs_count = 0
+
+    # Apply OWL 2 RL entailment (implies entail=True)
+    if entail_owl and not nope:
+        from pyeye.owl import apply_owl_rl_entailment
+        owl_count = apply_owl_rl_entailment(engine.store)
+    else:
+        owl_count = 0
 
     # Snapshot baseline (input facts should not count as derived)
     engine.snapshot_initial()
