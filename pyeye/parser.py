@@ -340,9 +340,23 @@ class Parser:
             raise ParseError(f"Expected => or <= or . got {t.t}")
 
     def _formula(self) -> Formula:
+        """Parse ``{ ... }`` into a Formula.
+
+        Bug 1 fix: Handle empty formulas ``{()}`` and ``{}`` as unit formulas.
+        EYE treats these as always-true (the unit of conjunction).
+        """
         self._eat("LBR")
         tris: list[Triple] = []
         while self._peek().t != "RBR":
+            # Bug 1 fix: If we see RP immediately, it's an empty list ()
+            # which is the unit formula — consume it and continue
+            if self._peek().t == "LP":
+                # Peek ahead to see if it's empty ()
+                if self._i + 1 < len(self._toks) and self._toks[self._i + 1].t == "RP":
+                    self._eat("LP")
+                    self._eat("RP")
+                    # Empty list is unit — no triples to add
+                    continue
             tris.extend(self._triple_pattern())
         self._eat("RBR")
         return Formula(tris)
