@@ -57,19 +57,15 @@ This review focused on **actual bugs** (semantic differences producing incorrect
 
 ---
 
-### Bug 4: `log:notEqualTo` Builtin Name Mismatch (Low Severity)
+### Bug 4: `log:notEqualTo` Missing from Registry (Low Severity) — FIXED ✅
 
-**Symptom**: The builtin is registered as `log:notEqualTo` but the predicate URI in rules is `http://www.w3.org/2000/10/swap/log#notEqualTo`.
+**Symptom**: `log:notEqualTo` was not in the builtin registry.
 
-**Root cause**: Need to verify the exact registration in `builtins.py`.
+**Root cause**: The builtin function existed as `math_notEqualTo` but wasn't registered under the `log:` namespace.
 
-**EYE behavior**: `log:notEqualTo` checks inequality — succeeds if args are NOT equal.
+**Fix**: Added `log_notEqualTo` function and registered it under `http://www.w3.org/2000/10/swap/log#notEqualTo`. Also fixed `_handle_builtin` to properly handle boolean-returning builtins as success/fail predicates.
 
-**Eyeling behavior**: Same.
-
-**Fix difficulty**: Easy if confirmed.
-
-**Status**: ⚠️ Needs verification
+**Status**: ✅ Fixed
 
 ---
 

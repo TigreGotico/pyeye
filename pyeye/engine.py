@@ -425,6 +425,16 @@ class Engine:
                     self.store.add(t)
                 results.append(b)
             elif isinstance(result, Term):
+                # Check for boolean result (success/fail predicate)
+                # Only Literals have .value for "true"/"false" check
+                if isinstance(result, Literal) and result.value in ("true", "false"):
+                    if result.value == "true" and isinstance(builtin_obj, (Literal, NamedNode)):
+                        # Boolean predicate succeeded
+                        results.append(b)
+                        continue
+                    elif result.value == "false" and isinstance(builtin_obj, (Literal, NamedNode)):
+                        # Boolean predicate failed
+                        continue
                 # Function-style: compare with pattern object
                 if isinstance(builtin_obj, Variable):
                     new_b = dict(b)

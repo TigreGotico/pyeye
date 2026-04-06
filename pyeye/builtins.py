@@ -336,6 +336,13 @@ def log_equalTo(args: list[Term], engine: EngineProto) -> Term | None:
     return _bool_result(args[0] == args[1])
 
 
+def log_notEqualTo(args: list[Term], engine: EngineProto) -> Term | None:
+    """Bug 4 fix: log:notEqualTo — inequality check for any terms."""
+    if _unground(args):
+        return None
+    return _bool_result(args[0] != args[1])
+
+
 # ---------------------------------------------------------------------------
 # Type builtins
 # ---------------------------------------------------------------------------
@@ -1411,6 +1418,7 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_LOG + "skolem": log_skolem,
     NS_LOG + "content": log_content,
     NS_LOG + "equalTo": log_equalTo,
+    NS_LOG + "notEqualTo": log_notEqualTo,
     NS_LOG + "uuid": log_uuid,
     NS_LOG + "n3String": log_n3String,
     NS_LOG + "implies": log_implies,
