@@ -105,3 +105,4 @@ This review focused on **actual bugs** (semantic differences producing incorrect
 | No list unification | Low impact — handled by engine's `_collect_builtin_args` |
 | No implication inside formulas | Advanced N3 feature, rarely used |
 | Incremental reasoning single-triple trigger | Works for all practical cases |
+| Graph-scoped indexing (L3) | Already implemented — `_quads_by_graph` provides O(1) lookup |
