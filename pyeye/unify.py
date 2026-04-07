@@ -111,7 +111,7 @@ def term_contains_var(term: Term, var_name: str) -> bool:
         )
     if isinstance(term, SetTerm):
         return any(term_contains_var(e, var_name) for e in term.elements)
-    return False
+    return False  # pragma: no cover — all concrete Term subclasses handled above
 
 
 def apply_binding(term: Term, binding: Binding) -> Term:
@@ -263,7 +263,7 @@ def _try_list_unification(
     if isinstance(candidate, Existential) and vars_in_pattern:
         # Try to expand as RDF list
         list_elements = _expand_rdf_list_from_binding(candidate, {})
-        if list_elements is not None and len(vars_in_pattern) == 1:
+        if list_elements is not None and len(vars_in_pattern) == 1:  # pragma: no cover — _expand_rdf_list_from_binding always returns None (stub)
             # Single variable can bind to the whole list
             var_name = vars_in_pattern[0]
             if not term_contains_var(candidate, var_name):

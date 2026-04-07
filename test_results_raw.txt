@@ -1,0 +1,318 @@
+ERROR	ackermann.n3	ParseError: Forbidden character '{' in IRI: <= {
+    (?Y 3) math:sum ?B.
+    (?X ?B 2) :ackermann ?C.
+    (?C 3)
+ERROR	age.n3	ParseError: Forbidden character '{' in IRI: <= {
+    ?S :birthDay ?B.
+    "" time:localTime ?D.
+    (?D ?B) math
+FAIL	alignment-demo.n3	extra(2): @prefix list: <http://www.w3.org/2000/10/swap/list#> .
+ERROR	allen-interval-calculus.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:496
+ERROR	annotation.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:47
+FAIL	auroracare.n3	missing(13): === A – Primary care visit === | extra(130): " .
+ERROR	backward.n3	ParseError: Forbidden character '{' in IRI: <= {
+    ?X math:greaterThan ?Y.
+}.
+
+# derivation (forward)
+{
+    5 
+ERROR	basic-monadic.n3	ParseError: Forbidden character '{' in IRI: <= {
+    ?D0 :i42 ?D1.
+    ?D1 :i42 ?D2.
+    ?D2 :i42 ?D3.
+    ?D3 :
+ERROR	bayes-diagnosis.n3	ParseError: Forbidden character '{' in IRI: <= true.
+
+{ ( ?d ?xs ) :pairList ?pairs } <= {
+  ?xs list:firstRest 
+ERROR	bayes-therapy.n3	ParseError: Forbidden character '{' in IRI: <= true.
+
+{ ( ?d ?xs ) :pairList ?pairs } <= {
+  ?xs list:firstRest 
+ERROR	bmi.n3	ParseError: Expected LBR, got FALSE 'false' at <string>:919
+ERROR	cat-koko.n3	ParseError: Unexpected DOT '.' at <string>:38
+ERROR	cobalt-kepler-kitchen.n3	TypeError: unhashable type: 'list'
+ERROR	collatz.n3	ParseError: Forbidden character '{' in IRI: <=
+{ ?N math:equalTo 1. } .
+
+# For N>
+FAIL	collection.n3	extra(1): @prefix  <http://example.org/stuff/1.0/> .
+ERROR	complex.n3	ParseError: Forbidden character '{' in IRI: <= {
+    (?A ?B) complex:polar (?R ?T).
+    (?R ?C) math:exponentiat
+ERROR	composition-of-injective-functions-is-injective.n3	TypeError: unhashable type: 'list'
+ERROR	context-association.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:108
+ERROR	control-system.n3	ParseError: Forbidden character '{' in IRI: <=
+{ ?I :measurement1 (?M1 ?M2).
+  ?M1 math:lessThan ?M2.
+  (?M2 ?M1
+ERROR	cranberry-calculus.n3	TypeError: unhashable type: 'list'
+FAIL	crypto-builtins-tests.n3	missing(5): :ok_crypto_md5_1 a :Pass . | extra(6): :ok_crypto_md5_1 <http://www.w3.org/1999/02/22-rdf-syntax-ns
+ERROR	decimal-ebike-motor-thermal-envelope.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:29
+ERROR	decimal-transcendental-servo-envelope.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:29
+FAIL	deep-taxonomy-10.n3	missing(1): Deep Taxonomy - deep classification benchmark | extra(42): " .
+FAIL	deep-taxonomy-100.n3	missing(1): Deep Taxonomy - deep classification benchmark | extra(312): " .
+FAIL	deep-taxonomy-1000.n3	missing(1): Deep Taxonomy - deep classification benchmark | extra(3012): " .
+FAIL	deep-taxonomy-10000.n3	missing(1): Deep Taxonomy - deep classification benchmark | extra(30012): " .
+FAIL	deep-taxonomy-100000.n3	missing(1): Deep Taxonomy - very deep classification benchmark | extra(300012): " .
+ERROR	delfour.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:78
+ERROR	derived-backward-rule-2.n3	ParseError: Forbidden character '{' in IRI: <= true .
+    { :Human rdfs:subClassOf :Mortal } <= true.
+}.
+
+{
+    
+ERROR	derived-backward-rule.n3	ParseError: Forbidden character '{' in IRI: <= {
+        ?y ?p ?x .
+    } .
+} .
+
+# Ordinary forward rule that us
+ERROR	derived-rule.n3	ParseError: Unexpected DOT '.' at <string>:46
+ERROR	digital-product-passport.n3	ParseError: Forbidden character '{' in IRI: <= { true. } .
+{ () :sumRecycledG 0. } <= { true. } .
+
+# Non-empty l
+ERROR	dijkstra.n3	ParseError: Forbidden character '{' in IRI: <= {
+    (((0 ?Start)) ?Goal ()) :dijkstra2 (?RevPath ?Cost).
+    ?R
+ERROR	dining-philosophers.n3	ParseError: Unexpected DOT '.' at <string>:1585
+ERROR	doctor-advice-work-conflict.n3	ParseError: Unexpected DOT '.' at <string>:145
+ERROR	dog.n3	TypeError: unhashable type: 'list'
+ERROR	drone-corridor-planner.n3	ParseError: Forbidden character '{' in IRI: <= true.
+
+{:map-DRONE gps:description (
+  {?S :location :Gent.   ?S 
+ERROR	e-computable-real.n3	TypeError: unhashable type: 'list'
+ERROR	easter.n3	ParseError: Unexpected DOT '.' at <string>:33
+ERROR	equals.n3	ParseError: Unexpected EQ '=' at <string>:11
+ERROR	equivalence-classes-overlap-implies-same-class.n3	TypeError: unhashable type: 'list'
+ERROR	ershov-mixed-computation.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:25
+ERROR	euler-identity.n3	TypeError: unhashable type: 'list'
+ERROR	ev-roundtrip-planner.n3	ParseError: Forbidden character '{' in IRI: <= true.
+
+{:map-EV gps:description (
+  {:car1 :at :Brussels. :car1 :
+ERROR	eventual-interoperability-interaction-patterns.n3	ParseError: Unexpected SC ';' at <string>:854
+FAIL	existential-rule.n3	missing(3): :Plato :is _:sk_1 . | extra(4): :Plato : _:B .
+ERROR	expression-eval.n3	ParseError: Forbidden character '{' in IRI: <= { ?N :n ?V. }.
+
+# Addition
+{ ?E :value ?V. } <= {
+  ?E :op :add.
+
+FAIL	faltings-genus2-finiteness.n3	missing(4): :C :coveredBy :FaltingsTheorem . | extra(4): @prefix  <http://example.org/faltings#> .
+FAIL	family-cousins.n3	missing(23): :Adam :generation 0 . | extra(3): :Adam :generation "0"^^<http://www.w3.org/2001/XMLSchema#int
+ERROR	fastpow.n3	ParseError: Forbidden character '{' in IRI: <= {
+  (?B ?E) math:exponentiation ?R.
+}.
+
+# -----------------------
+ERROR	fft32-numeric.n3	TypeError: unhashable type: 'list'
+ERROR	fft8-numeric.n3	TypeError: unhashable type: 'list'
+ERROR	fft8-symbolic.n3	TypeError: unhashable type: 'list'
+ERROR	fibonacci.n3	ParseError: Forbidden character '{' in IRI: <= {(?X 0 1) :fib ?Y}.
+
+{(0 ?A ?B) :fib ?A} <= true.
+{(1 ?A ?B) :fib
+ERROR	floating-point-first-ema-tracker.n3	TypeError: unhashable type: 'list'
+ERROR	floating-point-first-rc-discharge.n3	TypeError: unhashable type: 'list'
+ERROR	floating-point-first-servo-envelope.n3	TypeError: unhashable type: 'list'
+ERROR	floating-point-first-thermal-cooling.n3	TypeError: unhashable type: 'list'
+ERROR	french-cities.n3	ParseError: Expected LBR, got FALSE 'false' at <string>:440
+ERROR	fuse.n3	ParseError: Expected LBR, got FALSE 'false' at <string>:33
+ERROR	gd-step-certified.n3	ParseError: Forbidden character '{' in IRI: <= { ?a math:notLessThan ?b. }.  # a >
+ERROR	genetic-algorithm-knapsack.n3	ParseError: Forbidden character '{' in IRI: <= { ( ?N 1 ) math:sum ?N1 }.
+
+# build a string of N zeros
+{ ( 0 ) :
+ERROR	genetic-algorithm.n3	ParseError: Forbidden character '{' in IRI: <= { ( ?N 1 ) math:sum ?N1 }.
+
+# build a string of N zeros
+{ ( 0 ) :
+ERROR	get-uuid.n3	ParseError: Forbidden character '{' in IRI: <=
+{
+   # 0. add some skolem uri to introduce randomness when there 
+ERROR	godel-incompleteness.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:78
+ERROR	godel-template.n3	ParseError: Forbidden character '{' in IRI: <= {
+  ?n math:lessThan 10.
+  ?d :digitValue ?n.
+}.
+
+# Recursive cas
+ERROR	goldbach.n3	ParseError: Forbidden character '{' in IRI: <=
+{ ?N math:equalTo 1 } .
+
+{ ?N :repeat ?I }
+<=
+{
+  ?N math:greater
+FAIL	good-cobbler.n3	missing(4):     :joe :is (:good :Cobbler) . | extra(1): @prefix  <https://eyereasoner.github.io/ns#> .
+ERROR	gps.n3	ParseError: Forbidden character '{' in IRI: <= true.
+
+{ :mapBE gps:description ({?S :location :Gent} true {?S :l
+ERROR	gray-code-counter.n3	ParseError: Forbidden character '{' in IRI: <= true.
+{(?D 1 ?Q) :dff ?D} <= true.
+
+{(?A ?B) :neta ?Q} <= {
+    (
+ERROR	greatest-lower-bound-uniqueness.n3	TypeError: unhashable type: 'list'
+ERROR	group-inverse-uniqueness.n3	TypeError: unhashable type: 'list'
+ERROR	hadamard-approx.n3	TypeError: unhashable type: 'list'
+ERROR	hanoi.n3	ParseError: Forbidden character '{' in IRI: <=
+{   ?N math:greaterThan 1.
+    (?N 1) math:difference ?N1.
+    (?
+ERROR	high-trust-rdf-bloom-envelope.n3	TypeError: unhashable type: 'list'
+ERROR	high-trust-rdf-bloom-tamper-contrast.n3	TypeError: unhashable type: 'list'
+ERROR	ill-formed-literals.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:35
+ERROR	integer-first-control-tank-level.n3	TypeError: unhashable type: 'list'
+ERROR	integer-first-sqrt2-mediants.n3	TypeError: unhashable type: 'list'
+ERROR	interop-demo.n3	ParseError: Unexpected SC ';' at <string>:50
+ERROR	jade-eigen-loom.n3	TypeError: unhashable type: 'list'
+FAIL	jsonterm-advanced.n3	missing(6): _:b1 ex:eligibleForReview true . | extra(1): @prefix j: <https://example.org/json#> .
+FAIL	jsonterm.n3	missing(1): ex:test ex:is true . | extra(1): @prefix j: <https://example.org/json#> .
+ERROR	kaprekar.n3	TypeError: unhashable type: 'list'
+ERROR	kronecker.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:33
+ERROR	liar.n3	ParseError: Expected LBR, got FALSE 'false' at <string>:17
+ERROR	library-and-path.n3	TypeError: unhashable type: 'list'
+FAIL	light-eaters.n3	missing(14): :Fern :canPhotosynthesize true . | extra(2): @prefix  <http://example.org/light-eaters#> .
+FAIL	list-builtins-tests.n3	missing(12): :ok_list_append_1 a :Pass . | extra(6): :ok_list_iterate_1 <http://www.w3.org/1999/02/22-rdf-syntax-
+FAIL	list-iterate.n3	missing(6): "Dewey" :hasIndex 1 . | extra(2): @prefix  <urn:example:> .
+FAIL	list-map.n3	missing(5): :test1 :is true . | extra(2): @prefix  <http://example.org/#> .
+FAIL	lldm.n3	missing(39): :meas47 :cL1 "-0.06285714285714286"^^xsd:decimal . | extra(6): @prefix  <http://www.agfa.com/w3c/2002/10/medicad/op/lldmP#>
+ERROR	log-collect-all-in.n3	TypeError: unhashable type: 'list'
+ERROR	log-conclusion.n3	ParseError: Unexpected DOT '.' at <string>:35
+ERROR	log-for-all-in.n3	TypeError: unhashable type: 'list'
+ERROR	log-not-includes.n3	ParseError: Unexpected DOT '.' at <string>:50
+FAIL	log-pan-rt-soe.n3	missing(7):     :s :p :o . | extra(2): @prefix  <http://example.org/> .
+FAIL	log-skolem.n3	missing(3): :Result :skolem genid:32007e38-bd28-5f18-4712-ae1df708a5d4 . | extra(3): :Result :skolem _:sk-1 .
+FAIL	log-uri.n3	missing(3): :uriResource :is <https://www.w3.org> . | extra(2): @prefix  <http://example.org/#> .
+ERROR	math-builtins-tests.n3	ParseError: Unexpected SC ';' at <string>:90
+ERROR	matiyasevich-pi-fib.n3	TypeError: unhashable type: 'list'
+FAIL	minimal-skos-alignment.n3	extra(1): @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+ERROR	modexp.n3	ParseError: Forbidden character '{' in IRI: <= {
+    (?A ?B) math:product ?P.
+    (?P ?M) math:remainder ?R.
+}.
+
+TIMEOUT	monkey.n3	exceeded 15s
+ERROR	monoid-identity-uniqueness.n3	TypeError: unhashable type: 'list'
+ERROR	n3-delegation-access.n3	TypeError: unhashable type: 'list'
+ERROR	n3-speaks-for-itself.n3	TypeError: unhashable type: 'list'
+ERROR	odrl-dpv-campaign-audit.n3	ParseError: Unexpected DOT '.' at <string>:36
+ERROR	odrl-dpv-conflict-audit.n3	ParseError: Unexpected DOT '.' at <string>:41
+ERROR	odrl-dpv-ehds-risk-ranked.n3	ParseError: Expected IRI, got KW 'ehds' at <string>:21
+ERROR	odrl-dpv-healthcare-risk-ranked.n3	ParseError: Unexpected DOT '.' at <string>:77
+ERROR	odrl-dpv-risk-ranked.n3	TypeError: unhashable type: 'list'
+ERROR	odrl-policy-audit.n3	ParseError: Unexpected DOT '.' at <string>:31
+ERROR	odrl-policy-evaluation-snaf.n3	ParseError: Unexpected DOT '.' at <string>:601
+ERROR	odrl-risk-mitigation.n3	TypeError: unhashable type: 'list'
+ERROR	odrl-risk.n3	TypeError: unhashable type: 'list'
+ERROR	odrl-trust.n3	ParseError: Forbidden character '{' in IRI: <=
+{
+  ?Req odrl:assignee ?A; odrl:target ?T; odrl:action ?Act.
+
+  ?
+ERROR	oslo-steps-library-scholarly.n3	ParseError: Forbidden character '{' in IRI: <=
+{
+  ?STEP a o-steps:Step.
+  ?STEP o-steps:requiresState ?REQ.
+  ?
+ERROR	oslo-steps-workflow-composition.n3	ParseError: Forbidden character '{' in IRI: <=
+{
+  ?STEP a o-steps:Step.
+  ?STEP o-steps:requiresState ?REQ.
+  ?
+ERROR	paraconsistent-animals.n3	ParseError: Unexpected DOT '.' at <string>:82
+ERROR	parcellocker.n3	ParseError: Expected LBR, got FALSE 'false' at <string>:498
+ERROR	patch.n3	TypeError: unhashable type: 'list'
+ERROR	path-discovery.n3	ParseError: Forbidden character '{' in IRI: <= {
+    ?length math:notGreaterThan ?max.
+    ?from nepo:hasOutboun
+ERROR	peano.n3	ParseError: Forbidden character '{' in IRI: <= true.
+
+{(?A (:s ?B)) :add (:s ?C)} <= {
+    (?A ?B) :add ?C.
+}.
+
+
+ERROR	pi-computable-real.n3	TypeError: unhashable type: 'list'
+ERROR	pi.n3	ParseError: Forbidden character '{' in IRI: <= {
+    (1 ?N 0 ?P 1) :pi true.
+    (4 ?P) math:product ?A.
+    (3 
+ERROR	pillar.n3	ParseError: Forbidden character '{' in IRI: <= { ?What :to :Pillar }.
+
+{ ?What :to :Pillar } <= { :Pillar :to ?W
+ERROR	pn-junction-tunneling.n3	ParseError: Expected LBR, got FALSE 'false' at <string>:1028
+ERROR	polygon.n3	ParseError: Forbidden character '{' in IRI: <= true.
+{ ?POINTS polygon:area ?AREA } <= {
+    ?POINTS list:firstR
+ERROR	polynomial.n3	ParseError: Forbidden character '{' in IRI: <= {
+  (?A ?C) math:sum ?E.
+  (?B ?D) math:sum ?F.
+}.
+
+{ ((?A ?B) (?
+ERROR	quoted-head-unquote-select.n3	ParseError: Unexpected DOT '.' at <string>:22
+ERROR	quoted-head-unquote.n3	ParseError: Unexpected DOT '.' at <string>:22
+ERROR	rdf-list.n3	ParseError: Forbidden character '{' in IRI: <= { ?X rdf:first ?Y }.
+{ ?X :tail ?Y } <= { ?X rdf:rest ?Y} .
+
+{ 
+ 
+FAIL	reaching-out.n3	missing(11):     <https://www.w3.org/2000/10/swap/test/s1.n3#dependsOn> < | extra(3): :gotFormula : true .
+ERROR	reifies.n3	TypeError: unhashable type: 'list'
+FAIL	reordering.n3	missing(2): :test :is true . | extra(3): @prefix  <https://eyereasoner.github.io/ns#> .
+ERROR	resto.n3	ParseError: Expected LBR, got FALSE 'false' at <string>:915
+ERROR	ruby-runge-workshop.n3	TypeError: unhashable type: 'list'
+ERROR	rule-matching.n3	ParseError: Unexpected IMPF '=>' at <string>:6
+ERROR	saffron-slopeworks.n3	TypeError: unhashable type: 'list'
+FAIL	schema-foaf-mapping.n3	missing(1): ex:alice a foaf:Person . | extra(2): @prefix schema: <https://schema.org/> .
+ERROR	self-referential.n3	ParseError: Unexpected IMPF '=>' at <string>:25
+ERROR	shacl-conforms.n3	TypeError: unhashable type: 'list'
+FAIL	similar.n3	missing(2): :test :is true . | extra(8): :Alice :similar :Alice .
+ERROR	snaf.n3	TypeError: unhashable type: 'list'
+ERROR	socrates.n3	TypeError: unhashable type: 'list'
+FAIL	spectral-week.n3	missing(16): :Fern :absorbedBlue "60"^^xsd:decimal . | extra(3): @prefix  <http://example.org/spectral-week#> .
+ERROR	sqrt2-cauchy.n3	TypeError: unhashable type: 'list'
+ERROR	sqrt2-computable-real.n3	TypeError: unhashable type: 'list'
+ERROR	sqrt2-dedekind.n3	TypeError: unhashable type: 'list'
+ERROR	string-builtins-tests.n3	TypeError: not all arguments converted during string formatting
+ERROR	sudoku.n3	ParseError: Unexpected SC ';' at <string>:386
+ERROR	superdense-coding.n3	ParseError: Forbidden character '{' in IRI: <= {
+    ?X dqc:g ?Z.
+    ?Z dqc:k ?Y.
+}.
+
+# GK
+{?X dqc:gk ?Y} <= {
+
+ERROR	tabling-query-cache-stress.n3	TypeError: unhashable type: 'list'
+FAIL	takeuchi.n3	missing(1004): (10 10 10) :needTak true . | extra(2): @prefix  <https://eyereasoner.github.io/eye/reasoning#> .
+ERROR	tgate-approx.n3	TypeError: unhashable type: 'list'
+ERROR	time.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:20
+TIMEOUT	topaz-markov-mill.n3	exceeded 15s
+ERROR	traffic-skos-aggregate.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:881
+ERROR	transcendental-families.n3	ParseError: Unexpected SC ';' at <string>:310
+ERROR	transcendental-lab.n3	ParseError: Unexpected SC ';' at <string>:135
+ERROR	transcendental-names-and-families.n3	ParseError: Unexpected SC ';' at <string>:356
+ERROR	transcendental-numbers-stretched.n3	TypeError: unhashable type: 'list'
+ERROR	transcendental-numbers.n3	TypeError: unhashable type: 'list'
+ERROR	transistor-switch.n3	ParseError: Unexpected SC ';' at <string>:92
+ERROR	triple-term.n3	TypeError: unhashable type: 'list'
+ERROR	turing.n3	ParseError: Unexpected RBR '}' at <string>:20
+ERROR	two-two-four.n3	ParseError: Unexpected DOT '.' at <string>:113
+ERROR	ultramarine-simpson-forge.n3	TypeError: unhashable type: 'list'
+ERROR	vieta-expand.n3	ParseError: Forbidden character '{' in IRI: <= {
+  (?A ?C) math:sum ?E.
+  (?B ?D) math:sum ?F.
+}.
+
+# (a b) compl
+ERROR	void.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:82
+ERROR	wind-turbine.n3	ParseError: Expected IRI, got KW 'xsd' at <string>:34
+FAIL	witch.n3	missing(7): :DUCK a :BURNS . | extra(7): :DUCK <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> :BUR
+FAIL	zebra.n3	missing(2): :german :eats :fish . | extra(3): @prefix  <http://eulersharp.sourceforge.net/2005/11swap/zebr

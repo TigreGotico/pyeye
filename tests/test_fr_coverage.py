@@ -156,7 +156,7 @@ class TestUngroundBuiltins:
         e.add_rule(Rule(
             body=Formula((
                 Triple(Variable("X"), NamedNode("http://x/val"), Variable("V")),
-                Triple(Variable("V"), NamedNode("http://eulersharp.sourceforge.net/2003/03swap/log-rules#greaterThan"), Literal("5", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#integer"))),
+                Triple(Variable("V"), NamedNode("http://www.w3.org/2000/10/swap/math#greaterThan"), Literal("5", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#integer"))),
             )),
             head=Formula((Triple(Variable("X"), NamedNode("http://x/big"), Literal("true")),)),
         ))

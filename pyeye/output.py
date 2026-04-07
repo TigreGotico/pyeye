@@ -231,9 +231,14 @@ class N3Writer:
         if isinstance(t, SetTerm):
             elems = " ".join(self._term(e) for e in t.elements)
             return f"($ {elems} $)"
-        return str(t)
+        return str(t)  # pragma: no cover — all Term subclasses handled above
+
+    _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 
     def _abbreviate(self, uri: str) -> str:
+        # rdf:type → `a` shorthand
+        if uri == self._RDF_TYPE:
+            return "a"
         # Try registered prefixes
         for full_uri, short in self._rev.items():
             if uri.startswith(full_uri):

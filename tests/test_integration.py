@@ -182,7 +182,7 @@ class TestSpecAcceptance:
         from pyeye.engine import Engine
         from pyeye.parser import Rule
         from pyeye.term import Formula, Variable, Triple, NamedNode
-        from pyeye.builtins import NS_E as NS_LOG
+        from pyeye.builtins import NS_LOG
 
         engine = Engine(max_steps=2)
         # Data triple to bind ?S, then skolem generates fresh ID

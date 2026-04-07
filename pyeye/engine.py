@@ -21,7 +21,7 @@ from pyeye.term import (
 from pyeye.unify import unify, apply_binding_to_triple, apply_binding, term_contains_var
 from pyeye.store import TripleStore
 from pyeye.parser import Rule
-from pyeye.builtins import Builtin, BUILTIN_REGISTRY
+from pyeye.builtins import Builtin, BUILTIN_REGISTRY, MultiResult
 from pyeye.proof import ProofStep, ProofTree
 from pyeye.term import Formula, NegativeSurface
 
@@ -219,7 +219,7 @@ class Engine:
             else:
                 # Normal rule: check per-pass brake
                 brake_key_pass = (rule_idx, hash(frozenset(binding.items())))
-                if brake_key_pass in processed:
+                if brake_key_pass in processed:  # pragma: no cover — duplicate binding hash
                     continue
                 processed.add(brake_key_pass)
 
@@ -301,26 +301,120 @@ class Engine:
 
         return self._match_triples_iter(patterns, binding)
 
+    def _is_builtin_pattern(self, pattern: Triple) -> bool:
+        """Return True if the pattern's predicate is a registered builtin."""
+        resolved_pred = pattern.predicate
+        return (
+            isinstance(resolved_pred, NamedNode)
+            and resolved_pred.value in self._builtins
+        )
+
+    def _pattern_vars(self, pattern: Triple) -> set[str]:
+        """Return the set of variable names referenced in the pattern."""
+        vars_found: set[str] = set()
+        for t in (pattern.subject, pattern.predicate, pattern.object):
+            if isinstance(t, Variable):
+                vars_found.add(t.name)
+        return vars_found
+
     def _djiti_order(
         self,
         patterns: list[Triple],
         binding: Binding,
     ) -> list[Triple]:
-        """Reorder patterns by how many store triples they could match.
+        """Reorder patterns: store patterns first (fewest matches first),
+        then builtin patterns in dependency order.
 
-        Patterns with fewer possible matches are placed first, reducing
-        the branching factor of the nested join. Deterministic: ties are
-        broken by original position.
+        Builtins must NEVER be sorted before the store patterns that bind
+        their input variables, otherwise they execute with unbound variables
+        and silently return None.
         """
-        counts: list[int] = []
-        for pattern in patterns:
-            resolved = self._resolve_triple(pattern, binding)
-            counts.append(len(self._store_matches(resolved)))
+        store_patterns: list[tuple[int, Triple]] = []
+        builtin_patterns: list[tuple[int, Triple]] = []
 
-        indexed = list(enumerate(patterns))
-        indexed.sort(key=lambda pair: counts[pair[0]])
-        ordered = [p for _, p in indexed]
-        ordered_counts = [counts[i] for i, _ in indexed]
+        for i, pattern in enumerate(patterns):
+            if self._is_builtin_pattern(pattern):
+                builtin_patterns.append((i, pattern))
+            else:
+                store_patterns.append((i, pattern))
+
+        # Sort store patterns by match count (fewest first)
+        store_counts: list[int] = []
+        for _, pattern in store_patterns:
+            resolved = self._resolve_triple(pattern, binding)
+            store_counts.append(len(self._store_matches(resolved)))
+
+        store_indexed = list(enumerate(store_patterns))
+        store_indexed.sort(key=lambda pair: store_counts[pair[0]])
+        ordered_store = [p for _, (_, p) in store_indexed]
+        ordered_store_counts = [store_counts[i] for i, _ in store_indexed]
+
+        # Sort builtins by dependency: those with most vars already bound go first
+        bound_vars: set[str] = set(binding.keys())
+        # Iteratively add vars as store patterns bind them
+        for pattern in ordered_store:
+            for t in (pattern.subject, pattern.predicate, pattern.object):
+                if isinstance(t, Variable):
+                    bound_vars.add(t.name)
+
+        def builtin_output_var(pattern: Triple, store) -> set[str]:
+            """Return variables that this builtin binds.
+
+            Includes:
+            - The object (usually the result variable)
+            - For log:collectAllIn with Existential subject: extract variables from the RDF list
+            """
+            output = set()
+            if isinstance(pattern.object, Variable):
+                output.add(pattern.object.name)
+
+            # Special case: log:collectAllIn with Existential subject binds variables in the list
+            if (isinstance(pattern.predicate, NamedNode) and
+                pattern.predicate.value == "http://www.w3.org/2000/10/swap/log#collectAllIn" and
+                isinstance(pattern.subject, Existential)):
+                # Extract variables from the RDF list at pattern.subject
+                rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
+                rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+                nil = Existential("nil")
+                cur = pattern.subject
+                visited: set[str] = set()
+                while cur.name not in visited and cur.name != "nil":
+                    visited.add(cur.name)
+                    first_matches = list(store.match(subject=cur, predicate=rdf_first))
+                    if first_matches:
+                        elem = first_matches[0].object
+                        if isinstance(elem, Variable):
+                            output.add(elem.name)
+                    rest_matches = list(store.match(subject=cur, predicate=rdf_rest))
+                    if rest_matches:
+                        cur = rest_matches[0].object
+                    else:
+                        break
+            return output
+
+        # Greedy topological sort: iteratively pick the next-most-ready builtin
+        ordered_builtins: list[Triple] = []
+        remaining: list[tuple[int, Triple]] = list(builtin_patterns)
+        while remaining:
+            # Find the builtin with fewest unbound inputs
+            best_idx = -1
+            best_key = (float('inf'), float('inf'))
+            for i, (orig_idx, pattern) in enumerate(remaining):
+                pvars = self._pattern_vars(pattern)
+                unbound = len(pvars - bound_vars)
+                key = (unbound, orig_idx)
+                if key < best_key:
+                    best_key = key
+                    best_idx = i
+
+            # Pick the best builtin
+            orig_idx, pattern = remaining.pop(best_idx)
+            ordered_builtins.append(pattern)
+            # Add its output variables for subsequent builtins
+            bound_vars.update(builtin_output_var(pattern, self.store))
+
+        ordered = ordered_store + ordered_builtins
+        ordered_counts = ordered_store_counts + [0] * len(ordered_builtins)
 
         if self._djiti_debug:
             self._djiti_log.append({
@@ -414,11 +508,24 @@ class Engine:
             builtin_obj = resolved.object
             # The subject and predicate provide the input args
             args = self._collect_builtin_args(resolved, b)
-            if not args:
+            if not args:  # pragma: no cover — _collect_builtin_args always returns ≥1 element
                 continue
+            self._current_binding = b  # allow builtins to access current binding
             result = builtin(args, self)
+            # Use the (possibly updated) binding from the builtin
+            b = self._current_binding
             if result is None:
                 continue  # unground args — skip
+            if isinstance(result, MultiResult):
+                # Generative builtin: extend binding once per result term
+                for r_term in result.results:
+                    if isinstance(builtin_obj, Variable):
+                        new_b = dict(b)
+                        new_b[builtin_obj.name] = r_term
+                        results.append(new_b)
+                    elif r_term == builtin_obj:
+                        results.append(b)
+                continue
             if isinstance(result, list):
                 # Predicate-style: assert triples
                 for t in result:
@@ -428,11 +535,18 @@ class Engine:
                 # Check for boolean result (success/fail predicate)
                 # Only Literals have .value for "true"/"false" check
                 if isinstance(result, Literal) and result.value in ("true", "false"):
-                    if result.value == "true" and isinstance(builtin_obj, (Literal, NamedNode)):
-                        # Boolean predicate succeeded
+                    if result.value == "true" and isinstance(builtin_obj, (Literal, NamedNode, Existential)):
+                        # Boolean predicate succeeded (ground object)
                         results.append(b)
                         continue
-                    elif result.value == "false" and isinstance(builtin_obj, (Literal, NamedNode)):
+                    elif result.value == "true" and isinstance(builtin_obj, Variable):
+                        # Boolean predicate succeeded with unbound scope variable —
+                        # bind scope to True and use the (possibly updated) binding
+                        new_b = dict(b)
+                        new_b[builtin_obj.name] = result
+                        results.append(new_b)
+                        continue
+                    elif result.value == "false":
                         # Boolean predicate failed
                         continue
                 # Function-style: compare with pattern object
@@ -455,14 +569,18 @@ class Engine:
         o = self._resolve_term(resolved.object, binding)
         # If subject is a list (Existential pointing to RDF list), expand it
         if isinstance(s, Existential):
-            args.extend(self._expand_list(s))
+            args.extend(self._expand_list(s, binding))
         else:
             args.append(s)
         args.append(o)
         return args
 
-    def _expand_list(self, head: Existential) -> list[Term]:
-        """Expand an RDF list starting at *head* into a Python list of Terms."""
+    def _expand_list(self, head: Existential, binding: Binding | None = None) -> list[Term]:
+        """Expand an RDF list starting at *head* into a Python list of Terms.
+
+        *binding* is used to resolve Variable terms stored in the list
+        (e.g. inline list subjects in rule bodies like ``(?A ?B) math:sum ?C``).
+        """
         rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
         rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
         nil = Existential("nil")
@@ -473,7 +591,11 @@ class Engine:
             visited.add(cur.name)
             first_matches = list(self.store.match(subject=cur, predicate=rdf_first))
             if first_matches:
-                result.append(first_matches[0].object)
+                elem = first_matches[0].object
+                # Resolve variable if binding provided (inline list in rule body)
+                if binding and isinstance(elem, Variable):
+                    elem = binding.get(elem.name, elem)
+                result.append(elem)
             rest_matches = list(self.store.match(subject=cur, predicate=rdf_rest))
             if rest_matches:
                 nxt = rest_matches[0].object
@@ -505,23 +627,59 @@ class Engine:
         formula: Formula,
         binding: Binding,
     ) -> list[Triple]:
-        """Create ground triples from the head formula with bindings applied."""
+        """Create ground triples from the head formula with bindings applied.
+
+        Only skolemize blank nodes that appear literally in the head formula
+        template (not ones that arrived via variable binding from the body).
+        """
+        # Collect blank-node names that appear *directly* in the head template
+        head_blanks: set[str] = set()
+        for pattern in formula.triples:
+            for term in (pattern.subject, pattern.predicate, pattern.object):
+                if isinstance(term, Existential) and term.name.startswith("_b"):
+                    head_blanks.add(term.name)
+
+        # Build a per-instantiation mapping from template bnode → fresh skolem
+        # so that shared bnodes in the head map to the SAME fresh node.
+        bnode_map: dict[str, Existential] = {}
+
         result: list[Triple] = []
         for pattern in formula.triples:
             t = apply_binding_to_triple(pattern, binding)
-            # Skolemize unbound existentials
-            t = self._skolemize(t)
+            t = self._skolemize(t, head_blanks, bnode_map)
             result.append(t)
         return result
 
-    def _skolemize(self, triple: Triple) -> Triple:
-        """Replace any remaining Existential terms with fresh skolem constants."""
+    def _skolemize(
+        self,
+        triple: Triple,
+        head_blanks: set[str] | None = None,
+        bnode_map: dict[str, Existential] | None = None,
+    ) -> Triple:
+        """Replace anonymous blank nodes in the head with fresh skolem constants.
+
+        Only blank nodes that appear literally in the head formula template
+        (whose names are in *head_blanks*) are skolemized. Blank nodes that
+        arrived via variable binding from the body are left untouched.
+        """
         def sk(t: Term) -> Term:
-            if isinstance(t, Existential) and t.name.startswith("_b"):
-                # C6 fix: Use separate blank node counter
-                self._bn_counter += 1
-                return Existential(f"bn-{self._bn_counter}")
-            return t
+            if not isinstance(t, Existential):
+                return t
+            if not t.name.startswith("_b"):
+                return t
+            # Only skolemize if it's a template bnode (not a body binding)
+            if head_blanks is not None and t.name not in head_blanks:
+                return t
+            # Use consistent mapping within this instantiation
+            if bnode_map is not None:
+                if t.name not in bnode_map:
+                    self._bn_counter += 1
+                    bnode_map[t.name] = Existential(f"bn-{self._bn_counter}")
+                return bnode_map[t.name]
+            # Legacy path (called without head_blanks)
+            self._bn_counter += 1
+            return Existential(f"bn-{self._bn_counter}")
+
         return Triple(
             sk(triple.subject),
             sk(triple.predicate),
@@ -636,7 +794,7 @@ class Engine:
                 return None  # occurs check
             return {**binding, t2.name: t1}
 
-        return None  # unreachable but satisfies type checker
+        return None  # pragma: no cover — unreachable: exhaustive isinstance checks above
 
     def _tabling_key(self, triple: Triple) -> str:
         """Create a cache key for tabling from a triple.

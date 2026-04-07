@@ -85,6 +85,11 @@ class Formula:
     """A nested formula (conjunction of triples), e.g. ``{ :a :p :b }``."""
     triples: tuple[Triple, ...] = ()
 
+    def __post_init__(self) -> None:
+        # Normalize list to tuple so Formula is always hashable
+        if isinstance(self.triples, list):
+            object.__setattr__(self, "triples", tuple(self.triples))
+
     def __hash__(self) -> int:
         return hash(self.triples)
 

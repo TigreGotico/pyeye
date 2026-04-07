@@ -92,7 +92,8 @@ class TestN3Writer:
         result = w.write_triples([t1])
         assert "@prefix ex:" in result
         assert "@prefix rdf:" in result
-        assert "rdf:type" in result
+        # rdf:type is serialized as 'a' shorthand per N3/Turtle spec
+        assert " a " in result
 
     def test_unmatched_uri_falls_back_to_full(self):
         """URIs not matching any prefix are rendered as full <...>."""

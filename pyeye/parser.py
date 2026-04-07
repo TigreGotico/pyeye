@@ -114,16 +114,16 @@ def tokenize(text: str) -> list[Tok]:
         ("STR",     r'"(?:[^"\\]|\\.)*"'),
         ("TTOPEN",  r"<<"),         # Phase 2: triple term open — before IRI!
         ("TTCLOSE", r">>"),         # Phase 2: triple term close — before IRI!
+        ("IMPF",    r"=>"),
+        ("IMPB",    r"<="),         # must be before IRI so <= is not swallowed as <...>
+        ("PREDINV", r"<-"),         # must be before IRI so <-<IRI> is not swallowed as <...>
         ("IRI",     r"<[^>]+>"),
         ("PFX",     r"@prefix\b"),
         ("SPARQL_PFX", r"\bPREFIX\b"),  # L1 fix: SPARQL-style prefix
         ("BASE",    r"@base\b"),
         ("FSOME",   r"@forSome\b"),
         ("FALL",    r"@forAll\b"),
-        ("IMPF",    r"=>"),
-        ("IMPB",    r"<="),
         ("HATHAT",  r"\^\^"),
-        ("PREDINV", r"<-"),
         ("FTOPEN",  r"\(\|"),       # Phase 2: formula term open
         ("FTCLOSE", r"\|\)"),       # Phase 2: formula term close
         ("SETOPEN", r"\(\$"),       # Phase 2: set open
@@ -151,7 +151,7 @@ def tokenize(text: str) -> list[Tok]:
         ("LANG",    r"@[A-Za-z]+(-[A-Za-z0-9]+)*"),
         ("COLON",   r":"),
         ("NUM",     r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?"),
-        ("KW",      r"[^\W\d]\w*"),   # C9 fix: Unicode keywords (local names)
+        ("KW",      r"[^\W\d][\w\-]*"),  # C9 fix: Unicode keywords and local names (hyphens allowed per N3 spec)
         ("HASH",    r"#[^\n]*"),
         ("WS",      r"\s+"),
     ]
@@ -333,7 +333,12 @@ class Parser:
             ))
         elif t.t == "IMPB":
             self._eat("IMPB")
-            head = self._formula()
+            # Allow `true` as the unit formula (empty body) in backward rules
+            if self._peek().t == "TRUE":
+                self._eat("TRUE")
+                head = Formula(())
+            else:
+                head = self._formula()
             self._eat("DOT")
             self._rules.append(Rule(
                 head, body, self._src,
@@ -373,12 +378,18 @@ class Parser:
                 if self._peek().t == "IMPF":
                     self._eat("IMPF")
                     head_formula = self._formula()
+                    # Optional trailing DOT inside formula
+                    if self._peek().t == "DOT":
+                        self._eat("DOT")
                     # Create triple with log:implies predicate
                     log_implies = NamedNode("http://www.w3.org/2000/10/swap/log#implies")
                     tris.append(Triple(body_formula, log_implies, head_formula))
                 elif self._peek().t == "IMPB":
                     self._eat("IMPB")
                     head_formula = self._formula()
+                    # Optional trailing DOT inside formula
+                    if self._peek().t == "DOT":
+                        self._eat("DOT")
                     # Create triple with log:impliedBy predicate
                     log_implied_by = NamedNode("http://www.w3.org/2000/10/swap/log#impliedBy")
                     tris.append(Triple(head_formula, log_implied_by, body_formula))
@@ -389,7 +400,7 @@ class Parser:
                 continue
             tris.extend(self._triple_pattern())
         self._eat("RBR")
-        return Formula(tris)
+        return Formula(tuple(tris))
 
     # -- triple patterns -----------------------------------------------------
 
@@ -400,6 +411,20 @@ class Parser:
     def _verb_obj_list(self, subj: Term) -> list[Triple]:
         out: list[Triple] = []
         while True:
+            # Handle inverse predicate: `<-pred obj` → Triple(obj, pred, subj)
+            if self._peek().t == "PREDINV":
+                self._eat("PREDINV")
+                pred = self._item()
+                objs = self._obj_list()
+                for o in objs:
+                    out.append(Triple(o, pred, subj))
+                if self._peek().t == "SC":
+                    self._eat("SC")
+                    if self._peek().t in ("RBR", "DOT"):
+                        break
+                else:
+                    break
+                continue
             pred = self._verb()
 
             # C8 fix: `=` sugar — owl:sameAs
@@ -489,30 +514,33 @@ class Parser:
         if t.t == "OP_REV":
             return self._path_expression()
 
+        # Keyword tokens that can appear as local names in prefixed names
+        _LOCAL_NAME_TOKENS = frozenset(("KW", "IS_KW", "HAS_KW", "OF_KW", "GRAPH_KW", "TRUE", "FALSE"))
+
         # Prefixed name: :foo → COLON + KW
         if t.t == "COLON":
             self._eat("COLON")
             lt = self._peek()
-            local = self._eat("KW").v if lt.t == "KW" else ""
-            return self._pm.expand(":" + local)
+            local = self._eat_any().v if lt.t in _LOCAL_NAME_TOKENS else ""
+            return self._maybe_path(self._pm.expand(":" + local))
 
         # Prefixed name: ex:foo → KW + COLON + KW
         if t.t == "KW" and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t == "COLON":
             prefix = self._eat("KW").v
             self._eat("COLON")
             lt = self._peek()
-            local = self._eat("KW").v if lt.t == "KW" else ""
-            return self._pm.expand(prefix + ":" + local)
+            local = self._eat_any().v if lt.t in _LOCAL_NAME_TOKENS else ""
+            return self._maybe_path(self._pm.expand(prefix + ":" + local))
 
         if t.t == "IRI":
             self._eat("IRI")
-            return NamedNode(t.v[1:-1])
+            return self._maybe_path(NamedNode(t.v[1:-1]))
         if t.t == "VAR":
             self._eat("VAR")
-            return Variable(t.v[1:])       # strip ?
+            return self._maybe_path(Variable(t.v[1:]))       # strip ?
         if t.t == "BLANK":
             self._eat("BLANK")
-            return Existential(t.v[2:])     # strip _:
+            return self._maybe_path(Existential(t.v[2:]))     # strip _:
         # C1 fix: Boolean literals
         if t.t == "TRUE":
             self._eat("TRUE")
@@ -536,6 +564,66 @@ class Parser:
             self._eat("KW")
             return self._pm.expand(t.v)
         raise ParseError(f"Unexpected {t.t} '{t.v}' at {self._src}:{self._i}")
+
+    def _maybe_path(self, term: Term) -> Term:
+        """After parsing a term, expand any following ! (forward) or ^ (reverse) path ops.
+
+        ``a ! p ! q`` expands as:
+            _:b1 . a p _:b1 .    (forward: a -> p -> _:b1)
+            _:b2 . _:b1 q _:b2 . (forward: _:b1 -> q -> _:b2)
+        returns _:b2.
+
+        ``a ^ p`` expands as:
+            _:b1 . _:b1 p a .    (reverse: _:b1 -> p -> a)
+        returns _:b1.
+        """
+        cur = term
+        while self._peek().t in ("OP_FWD", "OP_REV"):
+            op = self._eat_any().t
+            pred = self._item_no_path()
+            nxt = Existential(f"_b{self._bn}")
+            self._bn += 1
+            if op == "OP_FWD":
+                # cur ! pred → cur pred nxt
+                self._triples.append(Triple(cur, pred, nxt))
+            else:
+                # cur ^ pred → nxt pred cur
+                self._triples.append(Triple(nxt, pred, cur))
+            cur = nxt
+        return cur
+
+    def _item_no_path(self) -> Term:
+        """Parse a single term WITHOUT expanding path operators afterward.
+
+        Used internally by _maybe_path to read the predicate of a path step,
+        preventing infinite recursion.
+        """
+        t = self._peek()
+
+        _LOCAL_NAME_TOKENS = frozenset(("KW", "IS_KW", "HAS_KW", "OF_KW", "GRAPH_KW", "TRUE", "FALSE"))
+
+        if t.t == "COLON":
+            self._eat("COLON")
+            lt = self._peek()
+            local = self._eat_any().v if lt.t in _LOCAL_NAME_TOKENS else ""
+            return self._pm.expand(":" + local)
+
+        if t.t == "KW" and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t == "COLON":
+            prefix = self._eat("KW").v
+            self._eat("COLON")
+            lt = self._peek()
+            local = self._eat_any().v if lt.t in _LOCAL_NAME_TOKENS else ""
+            return self._pm.expand(prefix + ":" + local)
+
+        if t.t == "IRI":
+            self._eat("IRI")
+            return NamedNode(t.v[1:-1])
+
+        if t.t == "VAR":
+            self._eat("VAR")
+            return Variable(t.v[1:])
+
+        raise ParseError(f"Expected IRI or prefixed name in path at {self._src}:{self._i}")
 
     # -- blank nodes ---------------------------------------------------------
 
@@ -604,7 +692,16 @@ class Parser:
         # Datatype
         if self._peek().t == "HATHAT":
             self._eat("HATHAT")
-            dt = NamedNode(self._eat("IRI").v[1:-1])
+            nt = self._peek()
+            if nt.t == "IRI":
+                dt = NamedNode(self._eat("IRI").v[1:-1])
+            else:
+                # Prefixed name: xsd:date, xsd:integer, etc.
+                dt_term = self._item()
+                if isinstance(dt_term, NamedNode):
+                    dt = dt_term
+                else:
+                    raise ParseError(f"Expected IRI or prefixed name after ^^, got {nt.t} '{nt.v}'")
             return Literal(v, datatype=dt)
 
         # Language tag
@@ -704,7 +801,7 @@ class Parser:
             directions.append("forward" if op == "OP_FWD" else "reverse")
             terms.append(self._item())
 
-        if not terms:
+        if not terms:  # pragma: no cover — _path_expression always called with OP_FWD/OP_REV pending
             raise ParseError(f"Expected term after path operator at {self._src}:{self._i}")
 
         # C3 fix: Use None-like placeholder; actual subject comes from triple context
@@ -716,8 +813,7 @@ class Parser:
         subj = self._item()
         new = self._verb_obj_list(subj)
         # Check if this turned out to be a rule (=> in predicate position)
-        if self._triples and self._triples[-1].predicate.value.endswith("implies"):
-            # Promote to rule - shouldn't happen in data mode
+        if self._triples and self._triples[-1].predicate.value.endswith("implies"):  # pragma: no cover — dead code: data mode never produces implies triples
             pass
         self._triples.extend(new)
 
@@ -725,7 +821,7 @@ class Parser:
 
     def _peek(self) -> Tok:
         if self._i >= len(self._toks):
-            return Tok("EOF", "")
+            return Tok("EOF", "")  # pragma: no cover — tokenizer always appends EOF token
         return self._toks[self._i]
 
     def _eat_any(self) -> Tok:
@@ -759,7 +855,7 @@ def _to_term(obj) -> Term:
         )
     if isinstance(obj, BNode):
         return Existential(str(obj))
-    raise ValueError(f"Unknown rdflib term: {type(obj)}")
+    raise ValueError(f"Unknown rdflib term: {type(obj)}")  # pragma: no cover — rdflib only returns URIRef, Literal, BNode
 
 
 def load_data_file(path: str | Path) -> ParsedDocument:
@@ -774,9 +870,27 @@ def load_data_file(path: str | Path) -> ParsedDocument:
 
 
 def load_data_string(text: str) -> ParsedDocument:
-    """Load N3/Turtle data from a string via rdflib."""
-    g = Graph()
-    g.parse(data=text, format="n3")
+    """Load N3/Turtle data from a string.
+
+    Delegates to rdflib for pure data (no rules). Falls back to pyeye's own
+    N3 parser when the input contains N3 constructs rdflib doesn't handle:
+    formulas/rules (``{...} => {...}``), backward rules (``<=``), or inverse
+    predicates (``<-``).
+    """
+    import re as _re
+    # Fast pre-check: if input contains N3-only constructs, use pyeye parser
+    if _re.search(r'=>|<=|<-[<:]', text):
+        return parse_n3(text)
+    from rdflib.graph import QuotedGraph as _QuotedGraph
+    try:
+        g = Graph()
+        g.parse(data=text, format="n3")
+    except Exception:
+        return parse_n3(text)
+    # Check if any term is a QuotedGraph (formula)
+    for s, p, o in g:
+        if isinstance(s, _QuotedGraph) or isinstance(p, _QuotedGraph) or isinstance(o, _QuotedGraph):
+            return parse_n3(text)
     pm = PrefixManager()
     return ParsedDocument(
         triples=[Triple(_to_term(s), _to_term(p), _to_term(o)) for s, p, o in g],

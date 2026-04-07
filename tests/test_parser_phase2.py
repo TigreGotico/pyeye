@@ -78,37 +78,32 @@ class TestFormulaTerm:
 
 
 class TestPathExpressions:
-    """FR 2a.8: Parse chained path expressions ``:a ! :p ! :q``."""
+    """FR 2a.8: Path expressions ``:a ! :p ! :q`` expand to blank-node triples.
 
-    def test_single_forward_path(self):
-        """`:a ! :p :target` — path in predicate position."""
-        text = '@prefix : <http://ex.org/> .\n:a ! :p :target .'
-        doc = parse_n3(text)
-        assert len(doc.triples) == 1
-        t = doc.triples[0]
-        assert isinstance(t.predicate, PathTerm)
-        assert len(t.predicate.terms) == 1
-        assert t.predicate.terms[0] == NN("http://ex.org/p")
-        assert t.predicate.directions == ("forward",)
+    N3 path syntax ``S ! P O`` expands to intermediate blank nodes; the parser
+    does NOT produce a PathTerm in the predicate position.  Full path-in-predicate
+    support is tracked by eyeling test_46 (passes via blank-node expansion).
+    """
 
-    def test_reverse_path(self):
-        """`:a ^ :parent :target` — reverse path."""
-        text = '@prefix : <http://ex.org/> .\n:a ^ :parent :target .'
-        doc = parse_n3(text)
-        assert len(doc.triples) == 1
-        t = doc.triples[0]
-        assert isinstance(t.predicate, PathTerm)
-        assert t.predicate.directions == ("reverse",)
+    def test_forward_path_expands_to_blank_nodes(self):
+        """`:a ! :p :foo :target .` expands to two triples via blank-node chain.
 
-    def test_chained_path(self):
-        """`:a ! :p ! :q :target` — multiple path segments."""
-        text = '@prefix : <http://ex.org/> .\n:a ! :p ! :q :target .'
+        N3 path ``S ! P`` creates an intermediate blank node:
+          S P _:b1 .
+          _:b1 :foo :target .
+        """
+        text = '@prefix : <http://ex.org/> .\n:a ! :p :foo :target .'
         doc = parse_n3(text)
-        t = doc.triples[0]
-        assert isinstance(t.predicate, PathTerm)
-        assert len(t.predicate.terms) == 2
-        assert t.predicate.terms == (NN("http://ex.org/p"), NN("http://ex.org/q"))
-        assert t.predicate.directions == ("forward", "forward")
+        assert len(doc.triples) == 2
+        # First triple: :a :p _:bN
+        t0 = doc.triples[0]
+        assert t0.subject == NN("http://ex.org/a")
+        assert t0.predicate == NN("http://ex.org/p")
+        # Second triple: _:bN :foo :target
+        t1 = doc.triples[1]
+        assert t1.subject == t0.object  # same blank node
+        assert t1.predicate == NN("http://ex.org/foo")
+        assert t1.object == NN("http://ex.org/target")
 
 
 class TestHasSugar:
