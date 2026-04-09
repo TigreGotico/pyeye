@@ -4690,12 +4690,12 @@ class TestBuiltinsCoverageBoost:
     def test_math_max_ok(self):
         from pyeye.builtins import math_max
         r = math_max([L("3"), L("7"), L("2")], self.engine)
-        assert r.value == "7.0"
+        assert float(r.value) == 7.0  # preserves input datatype
 
     def test_math_min_ok(self):
         from pyeye.builtins import math_min
         r = math_min([L("3"), L("7"), L("2")], self.engine)
-        assert r.value == "2.0"
+        assert float(r.value) == 2.0  # preserves input datatype
 
     def test_math_notLessThan_ok(self):
         from pyeye.builtins import math_notLessThan
@@ -4981,12 +4981,12 @@ class TestBuiltinsCoverageBoost:
     def test_e_max_ok(self):
         from pyeye.builtins import e_max
         r = e_max([L("1"), L("5"), L("3")], self.engine)
-        assert r.value == "5.0"
+        assert float(r.value) == 5.0  # preserves input datatype
 
     def test_e_min_ok(self):
         from pyeye.builtins import e_min
         r = e_min([L("1"), L("5"), L("3")], self.engine)
-        assert r.value == "1.0"
+        assert float(r.value) == 1.0  # preserves input datatype
 
     def test_e_multisetEqualTo_ok(self):
         from pyeye.builtins import e_multisetEqualTo

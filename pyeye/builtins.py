@@ -56,8 +56,17 @@ class Builtin(Protocol):
 # ---------------------------------------------------------------------------
 
 def _unground(args: list[Term]) -> bool:
-    """Return True if any arg is a Variable (not yet ground)."""
-    return any(isinstance(a, Variable) for a in args)
+    """Return True if any *input* arg is a Variable (not yet ground).
+
+    The engine always appends the object (output slot) as the last element of
+    args.  When that slot is an unbound Variable it must not be counted as
+    unground — only the input args matter.  This function therefore strips a
+    trailing Variable before checking, which fixes the entire class of
+    'builtin silently returns None in rule context' bugs without requiring
+    per-function args[:N] patches.
+    """
+    check = args[:-1] if len(args) >= 2 and isinstance(args[-1], Variable) else args
+    return any(isinstance(a, Variable) for a in check)
 
 
 def _str_val(t: Term) -> str:
@@ -553,17 +562,19 @@ def math_tan(args: list[Term], engine: EngineProto) -> Term | None:
 
 def math_avg(args: list[Term], engine: EngineProto) -> Term | None:
     """Average of a list of numbers."""
-    if _unground(args):
+    inputs = _input_only(args)
+    if _unground(inputs):
         return None
-    nums = [_num_val(a) for a in args]
+    nums = [_num_val(a) for a in inputs]
     return _num_result(_statistics.mean(nums))
 
 
 def math_std(args: list[Term], engine: EngineProto) -> Term | None:
     """Standard deviation of a list of numbers."""
-    if _unground(args):
+    inputs = _input_only(args)
+    if _unground(inputs):
         return None
-    nums = [_num_val(a) for a in args]
+    nums = [_num_val(a) for a in inputs]
     if len(nums) < 2:
         return _num_result(0.0)
     return _num_result(_statistics.stdev(nums))
@@ -597,9 +608,10 @@ def math_pcc(args: list[Term], engine: EngineProto) -> Term | None:
 
 def math_rms(args: list[Term], engine: EngineProto) -> Term | None:
     """Root mean square of a list of numbers."""
-    if _unground(args):
+    inputs = _input_only(args)
+    if _unground(inputs):
         return None
-    nums = [_num_val(a) for a in args]
+    nums = [_num_val(a) for a in inputs]
     mean_sq = sum(x ** 2 for x in nums) / len(nums)
     return _num_result(_math.sqrt(mean_sq))
 
@@ -722,12 +734,13 @@ def func_concat(args: list[Term], engine: EngineProto) -> Term | None:
 
 def func_substring(args: list[Term], engine: EngineProto) -> Term | None:
     """func:substring(str, start, length?) → substring."""
-    if _unground(args):
+    inputs = _input_only(args)
+    if _unground(inputs):
         return None
-    s = _str_val(args[0])
-    start = int(_num_val(args[1])) - 1  # XPath is 1-indexed
-    if len(args) > 2:
-        length = int(_num_val(args[2]))
+    s = _str_val(inputs[0])
+    start = int(_num_val(inputs[1])) - 1  # XPath is 1-indexed
+    if len(inputs) > 2:
+        length = int(_num_val(inputs[2]))
         return Literal(s[start:start + length])
     return Literal(s[start:])
 
@@ -1745,12 +1758,14 @@ def math_negation(args: list[Term], engine: EngineProto) -> Term | None:
 def math_max(args: list[Term], engine: EngineProto) -> Term | None:
     inputs = _expand_if_list(args, engine)
     if _unground(inputs): return None
-    return _num_result(max(_num_val(a) for a in inputs))
+    # Return the actual winning term to preserve its datatype (avoids xsd:double mismatch)
+    return max(inputs, key=lambda a: _num_val(a))
 
 def math_min(args: list[Term], engine: EngineProto) -> Term | None:
     inputs = _expand_if_list(args, engine)
     if _unground(inputs): return None
-    return _num_result(min(_num_val(a) for a in inputs))
+    # Return the actual winning term to preserve its datatype
+    return min(inputs, key=lambda a: _num_val(a))
 
 def math_notLessThan(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
@@ -1809,8 +1824,9 @@ def math_radians(args: list[Term], engine: EngineProto) -> Term | None:
     return _num_result(_py_math.radians(_num_val(args[0])))
 
 def math_memberCount(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    return _int_result(len(_extract_list(args, engine)))
+    inputs = _input_only(args)
+    if _unground(inputs): return None
+    return _int_result(len(_extract_list(inputs, engine)))
 
 # --- String: missing builtins ---
 
@@ -2538,8 +2554,9 @@ def graph_list(args: list[Term], engine: EngineProto) -> Term | None:
 # --- E: missing builtins ---
 
 def e_avg(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    return math_avg(args, engine)
+    inputs = _input_only(args)
+    if _unground(inputs): return None
+    return math_avg(inputs, engine)
 
 def e_before(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
@@ -2738,8 +2755,9 @@ def e_reverse(args: list[Term], engine: EngineProto) -> Term | None:
     return list_reverse(args, engine)
 
 def e_rms(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    return math_rms(args, engine)
+    inputs = _input_only(args)
+    if _unground(inputs): return None
+    return math_rms(inputs, engine)
 
 def e_roc(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
@@ -2762,12 +2780,13 @@ def e_sort(args: list[Term], engine: EngineProto) -> Term | None:
     return list_sort(args, engine)
 
 def e_std(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    head = args[0]
+    inputs = _input_only(args)
+    if _unground(inputs): return None
+    head = inputs[0]
     if isinstance(head, Existential) and engine is not None:
         items = engine._expand_list(head)
         return math_std(items, engine)
-    return math_std(args, engine)
+    return math_std(inputs, engine)
 
 def e_stringEscape(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None

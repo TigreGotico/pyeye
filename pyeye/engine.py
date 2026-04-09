@@ -915,7 +915,18 @@ class Engine:
         self._tabling_cache: dict[str, list[Binding]] = {}
         raw = self._backward_chain_triple(query, {})
         # Resolve Variable chains in results (from standardize-apart renaming)
-        return [self._resolve_binding_chains(b) for b in raw]
+        resolved = [self._resolve_binding_chains(b) for b in raw]
+        # Deduplicate: keep only the query variables, discard renamed internals
+        query_vars = {t.name for t in (query.subject, query.predicate, query.object)
+                      if isinstance(t, Variable)}
+        seen: set[tuple] = set()
+        unique: list[Binding] = []
+        for b in resolved:
+            key = tuple(sorted((k, str(v)) for k, v in b.items() if k in query_vars))
+            if key not in seen:
+                seen.add(key)
+                unique.append({k: v for k, v in b.items() if k in query_vars})
+        return unique
 
     def _resolve_binding_chains(self, binding: Binding) -> Binding:
         """Follow Variable→Variable chains in a binding to ground values."""
