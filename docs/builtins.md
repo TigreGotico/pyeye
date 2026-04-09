@@ -1,657 +1,961 @@
 # Builtins Reference
 
-**Source:** `BUILTIN_REGISTRY` — `pyeye/builtins.py`
+pyeye ships with 280+ built-in functions organized into namespaces. Each builtin is a callable registered under a canonical IRI; in N3 you reference it by its prefixed name.
 
-pyeye's built-in functions are registered under **canonical W3C swap namespaces** as the primary keys.
+All examples below assume appropriate `@prefix` declarations at the top of the N3 document.
 
-### Canonical W3C `swap:` namespaces
+---
+
+## Namespace prefixes
 
 ```n3
 @prefix math:   <http://www.w3.org/2000/10/swap/math#> .
 @prefix string: <http://www.w3.org/2000/10/swap/string#> .
 @prefix list:   <http://www.w3.org/2000/10/swap/list#> .
 @prefix log:    <http://www.w3.org/2000/10/swap/log#> .
+@prefix time:   <http://www.w3.org/2000/10/swap/time#> .
 @prefix crypto: <http://www.w3.org/2000/10/swap/crypto#> .
 @prefix graph:  <http://www.w3.org/2000/10/swap/graph#> .
-@prefix time:   <http://www.w3.org/2000/10/swap/time#> .
 @prefix reason: <http://www.w3.org/2000/10/swap/reason#> .
+@prefix e:      <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
 ```
-
-### `e:` namespace (eulersharp — EYE-specific builtins only)
-
-```
-@prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
-```
-
-The `e:` namespace is retained **only** for builtins that are genuinely unique to EYE/eyeling and have no canonical swap equivalent (e.g. `e:calculate`, `e:tactic`, `e:sigmoid`, `e:binaryEntropy`, `e:derive`, `e:becomes`, `e:closure`, etc.).
-
-All builtins that have a canonical swap equivalent are registered **only** under the canonical name: `math:greaterThan`, `log:skolem`, `string:contains`, `list:in`, etc.
 
 ---
 
-## How Builtins Work
+## How builtins work in rules
 
-Builtins appear as the **predicate** in a triple pattern inside a rule body:
+Builtins appear as the predicate of a triple in a rule body. There are two calling patterns:
 
-```n3
-{ SUBJECT math:builtinName OBJECT } => { HEAD } .
-```
+### Filter builtins (no output variable)
 
-The **subject** provides input(s), the **object** either receives a result or acts as a comparison target.
-
-### Pattern: filter (boolean test)
+The builtin tests a condition. If it returns `false` or `None`, the rule body fails for that binding.
 
 ```n3
-{ ?Price math:greaterThan "30" } => { :item :expensive true } .
+# ?V must be greater than 10 for the rule to fire
+{ ?Item :price ?V . ?V math:greaterThan 10 }
+    => { ?Item :expensive true } .
 ```
 
-If `?Price` is bound and greater than 30, the body matches and the head is derived.
+### Computation builtins (output variable)
 
-### Pattern: compute (result bound to variable)
+The builtin computes a result. The subject is a list of inputs; the object is the output variable.
 
 ```n3
-{ ?A math:plus ?B ?Sum } => { :result :total ?Sum } .
+# Multiply ?Price by 0.9, store result in ?Sale
+{ ?Item :price ?Price . (?Price 0.9) math:product ?Sale }
+    => { ?Item :salePrice ?Sale } .
 ```
 
-`?Sum` receives the computed value (A + B). The head uses it.
+### Why does my builtin return None?
 
-### Unground arguments
-
-If any argument is an unbound variable when the engine evaluates the builtin, evaluation is **skipped** — the engine moves on and may retry later when variables are grounded.
-
-### Builtins in body only
-
-Builtins appear in the **body** of a rule (before `=>`). They evaluate conditions or compute values for use in the head. They do not create facts by themselves.
+If any *input* argument is still an unbound variable when the builtin is called, it returns `None` and the body pattern fails for that binding. Make sure all input variables are bound by earlier patterns in the rule body. The output variable (last argument) may be unbound — that is normal.
 
 ---
 
-## Math Builtins
+## math: — arithmetic and comparisons
 
-**44 functions** for numeric operations. Registered under `math:` (`http://www.w3.org/2000/10/swap/math#`).
+Namespace: `http://www.w3.org/2000/10/swap/math#`
 
-Source: `pyeye/builtins.py` (functions `math_*`)
+### Comparison filters (no output)
 
-### Comparisons
+These return a boolean. When the boolean is `false`, the rule body fails.
 
-| Builtin | What it does | Example body pattern |
-|---|---|---|
-| `math:equalTo` | Are two numbers equal? | `?X math:equalTo "5"` |
-| `math:notEqualTo` | Are two numbers different? | `?X math:notEqualTo ?Y` |
-| `math:lessThan` | Is first smaller? | `?X math:lessThan "100"` |
-| `math:greaterThan` | Is first larger? | `?X math:greaterThan "30"` |
-| `math:notLessThan` | Is first ≥ second? | `?X math:notLessThan "0"` |
-| `math:notGreaterThan` | Is first ≤ second? | `?X math:notGreaterThan "100"` |
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `math:equalTo` | `?A math:equalTo ?B` | A == B (numeric) |
+| `math:notEqualTo` | `?A math:notEqualTo ?B` | A != B (numeric) |
+| `math:lessThan` | `?A math:lessThan ?B` | A < B |
+| `math:greaterThan` | `?A math:greaterThan ?B` | A > B |
+| `math:notLessThan` | `?A math:notLessThan ?B` | A >= B |
+| `math:notGreaterThan` | `?A math:notGreaterThan ?B` | A <= B |
 
-### Arithmetic
-
-| Builtin | What it does | Example body pattern |
-|---|---|---|
-| `math:plus` | Add | `?A math:plus ?B ?Sum` |
-| `math:minus` | Subtract | `?A math:minus ?B ?Diff` |
-| `math:times` | Multiply | `?A math:times ?B ?Product` |
-| `math:divide` | Divide (skips if divisor=0) | `?A math:divide ?B ?Quotient` |
-| `math:sum` | Sum of list | `(2 3 4) math:sum ?S` → S=9 |
-| `math:product` | Product of list | `(2 3 4) math:product ?P` → P=24 |
-| `math:difference` | First minus second | `?A math:difference ?B ?D` |
-| `math:quotient` | First divided by second | `?A math:quotient ?B ?Q` |
-| `math:integerQuotient` | Integer division | `7 math:integerQuotient 3 ?Q` → Q=2 |
-| `math:remainder` | Modulo | `7 math:remainder 3 ?R` → R=1 |
-| `math:absoluteValue` | Absolute value | `"-5" math:absoluteValue ?A` → A=5 |
-| `math:negation` | Negate | `"5" math:negation ?N` → N=-5 |
-| `math:max` | Maximum of list | `(3 1 4 1 5) math:max ?M` → M=5 |
-| `math:min` | Minimum of list | `(3 1 4 1 5) math:min ?M` → M=1 |
-
-### Rounding
-
-| Builtin | What it does | Example |
-|---|---|---|
-| `math:floor` | Round down | `"3.7" math:floor ?F` → F=3 |
-| `math:ceiling` | Round up | `"3.2" math:ceiling ?C` → C=4 |
-| `math:rounded` | Round to nearest integer | `"3.5" math:rounded ?R` → R=4 |
-| `math:roundedTo` | Round to N decimal places | `"3.14159" math:roundedTo "2" ?R` → R=3.14 |
-
-### Exponential and Logarithm
-
-| Builtin | What it does | Example |
-|---|---|---|
-| `math:exponentiation` | Power | `"2" math:exponentiation "3" ?R` → R=8 |
-| `math:logarithm` | Natural log | `?X math:logarithm ?L` → L=ln(X) |
-
-### Trigonometry
-
-| Builtin | What it does | Example |
-|---|---|---|
-| `math:sin` | Sine (radians) | `?X math:sin ?S` |
-| `math:cos` | Cosine (radians) | `?X math:cos ?C` |
-| `math:tan` | Tangent (radians) | `?X math:tan ?T` |
-| `math:asin` | Arcsine | `?X math:asin ?A` |
-| `math:acos` | Arccosine | `?X math:acos ?A` |
-| `math:atan` | Arctangent | `?X math:atan ?A` |
-| `math:atan2` | Arctangent of Y/X | `(?Y ?X) math:atan2 ?A` |
-| `math:sinh` | Hyperbolic sine | `?X math:sinh ?S` |
-| `math:cosh` | Hyperbolic cosine | `?X math:cosh ?C` |
-| `math:tanh` | Hyperbolic tangent | `?X math:tanh ?T` |
-| `math:asinh` | Inverse hyperbolic sine | `?X math:asinh ?A` |
-| `math:acosh` | Inverse hyperbolic cosine | `?X math:acosh ?A` |
-| `math:atanh` | Inverse hyperbolic tangent | `?X math:atanh ?A` |
-| `math:degrees` | Radians to degrees | `?R math:degrees ?D` |
-| `math:radians` | Degrees to radians | `?D math:radians ?R` |
-
-### Statistics
-
-| Builtin | What it does | Example |
-|---|---|---|
-| `math:avg` | Average of list | `(2 4 6) math:avg ?A` → A=4 |
-| `math:std` | Standard deviation | `(2 4 4 4 5 5 7 9) math:std ?S` |
-| `math:rms` | Root mean square | `(3 4) math:rms ?R` |
-| `math:pcc` | Pearson correlation | interleaved pairs |
-| `math:memberCount` | Count list elements | `(a b c) math:memberCount ?N` → N=3 |
-
-### Example: Discount Calculator
+Examples:
 
 ```n3
-@prefix : <http://shop.org/> .
+{ ?P :age ?A . ?A math:greaterThan 17 } => { ?P :isAdult true } .
+{ ?X :score ?S . ?S math:lessThan 60 } => { ?X :status :failing } .
+```
+
+### Arithmetic (two operands, one result)
+
+These use the list subject syntax: `(?A ?B) math:op ?Result`.
+
+| Builtin | Syntax | Result |
+|---------|--------|--------|
+| `math:plus` | `(?A ?B) math:plus ?C` | A + B |
+| `math:minus` | `(?A ?B) math:minus ?C` | A - B |
+| `math:times` | `(?A ?B) math:times ?C` | A * B |
+| `math:divide` | `(?A ?B) math:divide ?C` | A / B |
+| `math:difference` | `(?A ?B) math:difference ?C` | A - B (also supports ISO date subtraction → fractional years) |
+| `math:quotient` | `(?A ?B) math:quotient ?C` | A / B (floating point) |
+| `math:integerQuotient` | `(?A ?B) math:integerQuotient ?C` | A // B (integer division) |
+| `math:remainder` | `(?A ?B) math:remainder ?C` | A % B |
+| `math:exponentiation` | `(?A ?B) math:exponentiation ?C` | A ** B |
+| `math:atan2` | `(?Y ?X) math:atan2 ?Angle` | atan2(Y, X) |
+| `math:roundedTo` | `(?V ?N) math:roundedTo ?R` | round(V, N decimal places) |
+
+### Arithmetic (variadic — list of any length)
+
+These accept a list of any number of values.
+
+| Builtin | Syntax | Result |
+|---------|--------|--------|
+| `math:sum` | `(?A ?B ?C ...) math:sum ?Total` | Sum of all elements |
+| `math:product` | `(?A ?B ?C ...) math:product ?P` | Product of all elements |
+| `math:max` | `(?A ?B ?C ...) math:max ?M` | Maximum |
+| `math:min` | `(?A ?B ?C ...) math:min ?M` | Minimum |
+| `math:avg` | `(?A ?B ?C ...) math:avg ?Mean` | Arithmetic mean |
+| `math:std` | `(?A ?B ?C ...) math:std ?SD` | Sample standard deviation |
+| `math:rms` | `(?A ?B ?C ...) math:rms ?R` | Root mean square |
+| `math:memberCount` | `(?A ?B ...) math:memberCount ?N` | Count of arguments |
+| `math:pcc` | `(?x1 ?y1 ?x2 ?y2 ...) math:pcc ?R` | Pearson correlation coefficient (interleaved x/y pairs) |
+
+### Unary math
+
+| Builtin | Syntax | Result |
+|---------|--------|--------|
+| `math:floor` | `?V math:floor ?N` | floor(V) → integer |
+| `math:ceiling` | `?V math:ceiling ?N` | ceil(V) → integer |
+| `math:rounded` | `?V math:rounded ?N` | round(V) → integer |
+| `math:absoluteValue` | `?V math:absoluteValue ?A` | abs(V) |
+| `math:negation` | `?V math:negation ?N` | -V |
+| `math:logarithm` | `?V math:logarithm ?L` | ln(V) (natural log) |
+| `math:sin` | `?V math:sin ?R` | sin(V) (radians) |
+| `math:cos` | `?V math:cos ?R` | cos(V) (radians) |
+| `math:tan` | `?V math:tan ?R` | tan(V) (radians) |
+| `math:asin` | `?V math:asin ?R` | asin(V) |
+| `math:acos` | `?V math:acos ?R` | acos(V) |
+| `math:atan` | `?V math:atan ?R` | atan(V) |
+| `math:sinh` | `?V math:sinh ?R` | sinh(V) |
+| `math:cosh` | `?V math:cosh ?R` | cosh(V) |
+| `math:tanh` | `?V math:tanh ?R` | tanh(V) |
+| `math:acosh` | `?V math:acosh ?R` | acosh(V) |
+| `math:asinh` | `?V math:asinh ?R` | asinh(V) |
+| `math:atanh` | `?V math:atanh ?R` | atanh(V) |
+| `math:degrees` | `?V math:degrees ?D` | radians → degrees |
+| `math:radians` | `?V math:radians ?R` | degrees → radians |
+
+### Date arithmetic
+
+`math:difference` can subtract ISO 8601 date strings and returns fractional years:
+
+```n3
+# Age in years from birthdate
+{ ?P :birthDate ?D . ("2024-01-15" ?D) math:difference ?Age }
+    => { ?P :age ?Age } .
+```
+
+### Examples
+
+```n3
+# 10% discount
+{ ?I :price ?P . (?P 0.9) math:product ?Sale }
+    => { ?I :salePrice ?Sale } .
+
+# VAT
+{ ?I :price ?P . (?P 1.2) math:product ?WithVAT }
+    => { ?I :priceWithVAT ?WithVAT } .
+
+# Total of three components
+{ ?O :partA ?A ; :partB ?B ; :partC ?C . (?A ?B ?C) math:sum ?Total }
+    => { ?O :totalWeight ?Total } .
+
+# Exponential growth
+{ ?Pop :size ?N . (?N 1.05) math:product ?Next }
+    => { ?Pop :nextYear ?Next } .
+```
+
+---
+
+## string: — text manipulation
+
+Namespace: `http://www.w3.org/2000/10/swap/string#`
+
+### Equality and comparison
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `string:equal` | `?A string:equal ?B` | A == B (string comparison) |
+| `string:equalIgnoringCase` | `?A string:equalIgnoringCase ?B` | Case-insensitive equality |
+| `string:notEqualIgnoringCase` | `?A string:notEqualIgnoringCase ?B` | Case-insensitive inequality |
+| `string:lessThan` | `?A string:lessThan ?B` | Lexicographic A < B |
+| `string:greaterThan` | `?A string:greaterThan ?B` | Lexicographic A > B |
+| `string:notLessThan` | `?A string:notLessThan ?B` | A >= B (lexicographic) |
+| `string:notGreaterThan` | `?A string:notGreaterThan ?B` | A <= B (lexicographic) |
+
+### Search and matching
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `string:contains` | `?Haystack string:contains ?Needle` | True if Needle is a substring of Haystack |
+| `string:containsIgnoringCase` | `?H string:containsIgnoringCase ?N` | Case-insensitive substring check |
+| `string:containsRoughly` | `?H string:containsRoughly ?N` | Approximate match (case-insensitive + small edit distance) |
+| `string:notContainsRoughly` | `?H string:notContainsRoughly ?N` | Negation of containsRoughly |
+| `string:startsWith` | `?S string:startsWith ?Prefix` | True if S starts with Prefix |
+| `string:endsWith` | `?S string:endsWith ?Suffix` | True if S ends with Suffix |
+| `string:matches` | `?S string:matches ?Pattern` | True if regex Pattern matches anywhere in S |
+| `string:notMatches` | `?S string:notMatches ?Pattern` | Negation of matches |
+| `string:scrape` | `(?S ?Pattern) string:scrape ?Match` | Return first regex match in S |
+| `string:scrapeAll` | `(?S ?Pattern) string:scrapeAll ?Matches` | Return all matches joined by space |
+| `string:search` | `(?S ?Pattern) string:search ?Match` | Alias for scrape |
+
+### Transformation
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `string:concatenation` | `(?A ?B ?C ...) string:concatenation ?R` | Concatenate all strings |
+| `string:replace` | `(?S ?Pattern ?Repl) string:replace ?R` | Replace first regex match |
+| `string:replaceAll` | `(?S ?Pattern ?Repl) string:replaceAll ?R` | Replace all regex matches |
+| `string:substring` | `(?S ?Start ?Length) string:substring ?Sub` | Substring (0-based start, optional length) |
+| `string:length` | `?S string:length ?N` | String length |
+| `string:upperCase` | `?S string:upperCase ?U` | Convert to uppercase |
+| `string:lowerCase` | `?S string:lowerCase ?L` | Convert to lowercase |
+| `string:capitalize` | `?S string:capitalize ?C` | Capitalize first letter |
+| `string:format` | `(?Fmt ?A ?B ...) string:format ?R` | printf-style formatting (`%s`, `%d`, etc.) |
+| `string:join` | `(?Sep ?List) string:join ?R` | Join list elements with separator |
+| `string:stringReverse` | `?S string:stringReverse ?R` | Reverse a string |
+| `string:stringEscape` | `?S string:stringEscape ?E` | Unicode-escape a string |
+| `string:charAt` | `(?S ?Index) string:charAt ?C` | Character at 0-based index |
+| `string:setCharAt` | `(?S ?Index ?Char) string:setCharAt ?R` | Replace character at 0-based index |
+
+### Examples
+
+```n3
+# Concatenate first and last name
+{ ?P :first ?F . ?P :last ?L . (?F " " ?L) string:concatenation ?Full }
+    => { ?P :fullName ?Full } .
+
+# Match email pattern
+{ ?U :email ?E . ?E string:matches "@example\\.com$" }
+    => { ?U :isInternal true } .
+
+# Normalize to uppercase
+{ ?Code :raw ?R . ?R string:upperCase ?U }
+    => { ?Code :normalized ?U } .
+
+# Extract number from string "price:99"
+{ ?I :rawData ?D . (?D "price:(\\d+)") string:scrape ?NumStr }
+    => { ?I :priceStr ?NumStr } .
+```
+
+---
+
+## list: — RDF list operations
+
+Namespace: `http://www.w3.org/2000/10/swap/list#`
+
+RDF lists are linked structures (like Python linked lists). The builtins work on the list head (the blank node returned by N3 list syntax).
+
+### Membership
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `list:in` | `?Item list:in ?List` | True if Item is in the list. **Both args must be bound.** |
+| `list:member` | `?List list:member ?Item` | Alias with args reversed |
+| `list:notMember` | `(?List ?Item) list:notMember true` | True if Item is NOT in the list |
+| `list:isList` | `?L list:isList true` | True if ?L is a valid RDF list |
+
+### Access
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `list:length` | `?L list:length ?N` | Number of elements |
+| `list:select` | `(?L ?Index) list:select ?Elem` | Element at 1-based index |
+| `list:memberAt` | `(?L ?Index) list:memberAt ?Elem` | Element at 0-based index |
+| `list:first` | `?L list:first ?Elem` | First element |
+| `list:last` | `?L list:last ?Elem` | Last element |
+| `list:car` | `?L list:car ?Elem` | First element (Lisp convention) |
+| `list:cdr` | `?L list:cdr ?Rest` | Rest of list (Lisp convention) |
+| `list:rest` | `?L list:rest ?Rest` | Rest of list |
+| `list:firstRest` | `?L list:firstRest (?F ?R)` | Decompose into (first, rest) |
+
+### Construction and transformation
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `list:append` | `(?L1 ?L2 ...) list:append ?Combined` | Concatenate multiple lists |
+| `list:reverse` | `?L list:reverse ?Rev` | Reverse a list |
+| `list:sort` | `?L list:sort ?Sorted` | Lexicographic sort |
+| `list:unique` | `?L list:unique ?Unique` | Remove duplicates (preserves order) |
+| `list:removeDuplicates` | `?L list:removeDuplicates ?R` | Alias for unique |
+| `list:removeAt` | `(?L ?Index) list:removeAt ?R` | Remove element at 0-based index |
+| `list:remove` | `?L list:remove ?R` | Remove and return remaining store triples |
+| `list:intersection` | `(?L1 ?L2) list:intersection ?R` | Elements common to both lists |
+| `list:permutation` | `?L list:permutation ?P` | Random shuffle of elements |
+| `list:map` | `?L list:map ?R` | Identity map (returns same list) |
+
+### Set comparisons
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `list:setEqualTo` | `(?L1 ?L2) list:setEqualTo true` | Same elements (ignoring order and duplicates) |
+| `list:setNotEqualTo` | `(?L1 ?L2) list:setNotEqualTo true` | Not set-equal |
+| `list:multisetEqualTo` | `(?L1 ?L2) list:multisetEqualTo true` | Same elements with same multiplicity |
+| `list:multisetNotEqualTo` | `(?L1 ?L2) list:multisetNotEqualTo true` | Not multiset-equal |
+
+### Iteration
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `list:iterate` | `?L list:iterate ?Pair` | Yields `(index item)` pairs for each element. Returns `MultiResult` — the engine expands one binding per element. |
+
+`list:iterate` example:
+
+```n3
+{ :colors :items ?L . ?L list:iterate ?Pair .
+  ?Pair list:car ?Idx . ?Pair list:cdr ?ItemList .
+  ?ItemList list:car ?Item }
+    => { :colors :item ?Item . :colors :at ?Idx :item ?Item } .
+```
+
+### Important: `list:in` is a filter, not a generator
+
+Both the item and the list must be bound before calling `list:in`. It checks membership, it does not enumerate elements:
+
+```n3
+# Wrong — ?Item is unbound, so list:in cannot enumerate
+{ :myList list:in ?Item } => { :result :has ?Item } .
+
+# Right — use list:iterate to enumerate
+{ :myList a :Container . :myList :elements ?L .
+  ?L list:iterate ?Pair .
+  ?Pair list:car ?Idx . ?Pair list:cdr ?Rest . ?Rest list:car ?Item }
+    => { :result :has ?Item } .
+
+# Or: check membership when item is already bound
+{ ?P :hobbies ?L . :reading list:in ?L }
+    => { ?P :isReader true } .
+```
+
+### `list:select` is 1-based
+
+```n3
+{ ?L list:select 1 ?First }   # first element
+{ ?L list:select 2 ?Second }  # second element
+```
+
+### Examples
+
+```n3
+# Count elements
+{ ?G :members ?L . ?L list:length ?N }
+    => { ?G :memberCount ?N } .
+
+# Get first element
+{ :queue :items ?L . ?L list:first ?Head }
+    => { :queue :nextItem ?Head } .
+
+# Membership check (both args bound)
+{ ?U :role ?R . (:admin :superuser) list:in ?R }  # Wrong! list is bound, R is bound, but this is backward
+```
+
+Wait — `list:in` takes `(item list)` syntax: `item list:in list`. So:
+
+```n3
+# Check if user's role is in the allowed set
+{ ?U :role ?R . ?R list:in (:admin :superuser) }
+    => { ?U :hasAccess true } .
+
+# Append two lists
+{ :A :items ?L1 . :B :items ?L2 . (?L1 ?L2) list:append ?Combined }
+    => { :merged :items ?Combined } .
+```
+
+---
+
+## log: — logic and meta-operations
+
+Namespace: `http://www.w3.org/2000/10/swap/log#`
+
+The `log:` namespace contains logical operations, negation, aggregation, identifier generation, and meta-operations on the store.
+
+### Equality
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `log:equalTo` | `?A log:equalTo ?B` | True if A and B are the same term |
+| `log:notEqualTo` | `?A log:notEqualTo ?B` | True if A and B are different terms |
+
+Unlike `math:equalTo`, `log:equalTo` compares terms structurally — it works on IRIs, blank nodes, and literals, not just numbers.
+
+```n3
+# Ensure two items are different before comparing
+{ ?A :fingerprint ?H . ?B :fingerprint ?H . ?A log:notEqualTo ?B }
+    => { ?A :duplicateOf ?B } .
+```
+
+### `log:onNegativeSurface` — negation as failure
+
+```n3
+{ ?Svc a :Service .
+  _:neg log:onNegativeSurface { ?Svc :timeout ?Any } }
+    => { ?Svc :timeout :defaultTimeout } .
+```
+
+The rule fires only when `?Svc :timeout ?Any` cannot be matched. Each negative surface blank node must be unique within the rule. See [N3 Syntax — Negation](n3-syntax.md#negation) for details.
+
+### `log:collectAllIn` — aggregate all matching values into a list
+
+This is pyeye's primary aggregation builtin. It collects all values of a template expression for all bindings of a pattern, and returns them as an RDF list.
+
+**Calling convention:**
+
+```n3
+(?Template { body pattern } ?OutputList) log:collectAllIn ?Scope .
+```
+
+- `?Template` — the term to collect (evaluated for each binding)
+- `{ body pattern }` — a formula whose variables are matched against the store
+- `?OutputList` — the resulting RDF list (output variable)
+- `?Scope` — usually a variable or placeholder
+
+Example — collect all salaries for a department:
+
+```n3
+{ ?Dept a :Department .
+  (?Salary { ?E :dept ?Dept . ?E :salary ?Salary } ?SalList)
+      log:collectAllIn ?Dept .
+  ?SalList math:sum ?Total }
+    => { ?Dept :totalSalary ?Total } .
+```
+
+Example — count members:
+
+```n3
+{ ?G a :Group .
+  (1 { ?M :member ?G } ?Members) log:collectAllIn ?G .
+  ?Members list:length ?N }
+    => { ?G :memberCount ?N } .
+```
+
+### `log:skolem` — deterministic identifier generation
+
+Generates a blank node (existential) from a list of key terms. The same inputs always produce the same blank node within a reasoning run.
+
+```n3
+{ ?P :worksAt ?C . (?P ?C) log:skolem ?Employment }
+    => { ?Employment a :Employment ; :employee ?P ; :employer ?C } .
+```
+
+Use this to create synthetic identifiers from composite keys — for example, modelling a many-to-many relationship as a reified node.
+
+**Do not use `log:uuid` in forward-chaining rule bodies.** UUID generation is non-deterministic; the engine would create a new UUID every pass and never reach fixpoint. Generate UUIDs in Python and inject them as facts before reasoning.
+
+### `log:table` — memoization directive
+
+```n3
+[] log:table :reachable .
+```
+
+Declares `:reachable` as a tabled predicate for backward chaining. Prevents infinite loops in recursive backward rules. Has no effect on forward chaining.
+
+### `log:forAllIn` — proof-by-cases
+
+Checks that all possible cases (declared with `log:allPossibleCases`) are covered by rules. Advanced use — see EYE documentation for full semantics.
+
+### `log:dtlit` — construct a typed literal
+
+```n3
+{ ?P :rawValue ?V .
+  (?V "http://www.w3.org/2001/XMLSchema#integer") log:dtlit ?Typed }
+    => { ?P :value ?Typed } .
+```
+
+The second argument is the datatype IRI as a string.
+
+### `log:langlit` — construct a language-tagged literal
+
+```n3
+{ ?P :rawLabel ?L . (?L "en") log:langlit ?Tagged }
+    => { ?P :label ?Tagged } .
+```
+
+### IRI manipulation
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `log:localName` | `?IRI log:localName ?Local` | Fragment or last path segment of an IRI |
+| `log:namespace` | `?IRI log:namespace ?NS` | Everything before the local name |
+| `log:uri` | `?Node log:uri ?Str` | Serialize a node to its IRI string |
+| `log:n3String` | `?Term log:n3String ?Str` | Serialize any term to N3 string |
+| `log:localN3String` | `?Term log:localN3String ?Str` | N3 string using registered prefixes |
+| `log:rawType` | `?Term log:rawType ?Type` | Term type IRI (log:URI, log:Literal, etc.) |
+
+```n3
+# Extract "Person" from <http://example.org/ns#Person>
+{ :alice a ?Class . ?Class log:localName ?Name }
+    => { :alice :className ?Name } .
+```
+
+### Type checking
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `log:bound` | `?Term log:bound true` | True if ?Term is a ground (non-variable) term |
+| `log:isBuiltin` | `?IRI log:isBuiltin true` | True if IRI is a registered builtin |
+| `log:parsedAsN3` | `?Str log:parsedAsN3 true` | True if the string parses as valid N3 |
+
+### Inference control
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `log:implies` | `?Formula log:implies ?Head` | Check formula implies head |
+| `log:impliesAnswer` | `?Pred log:impliesAnswer ?Head` | Mark predicate as answer producer |
+| `log:isImpliedBy` | `?Conc log:isImpliedBy ?Prem` | Check conclusion is implied by premise |
+| `log:impliedBy` | `?Conc log:impliedBy ?Prem` | Alias for isImpliedBy |
+| `log:inferences` | `?X log:inferences ?N` | Count of derived triples so far |
+
+### Graph operations
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `log:includes` | `?Scope log:includes ?Pattern` | True if pattern is found in store |
+| `log:notIncludes` | `?Scope log:notIncludes ?Pattern` | Negation of includes |
+| `log:includesNotBind` | `?Scope log:includesNotBind ?Pattern` | Non-binding inclusion check |
+| `log:content` | `?X log:content ?Triples` | Return all triples in the store |
+| `log:query` | `?Formula log:query ?Results` | Sub-query against the store |
+| `log:conjunction` | `?X log:conjunction ?Y` | Conjunction of formulas |
+| `log:conclusion` | `?X log:conclusion ?Y` | Conclusion of a formula |
+| `log:graph` | `?X log:graph ?Y` | Graph metadata |
+
+### Miscellaneous
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `log:uuid` | `?X log:uuid ?UUID` | Generate a UUID string. **Do not use in forward-chaining rule bodies.** |
+| `log:outputString` | `?Str log:outputString ?Str` | Mark a string for output |
+| `log:copy` | `?Term log:copy ?Copy` | Deep copy a term |
+| `log:becomes` | `?Old log:becomes ?New` | Retract old triples, assert new |
+| `log:version` | `?X log:version ?V` | Return pyeye version string |
+| `log:trace` | `?X log:trace true` | Print args to stderr (debug) |
+| `log:ask` | `?URL log:ask ?Body` | HTTP GET request, returns body (max 10KB, SSRF-protected) |
+| `log:shell` | `?Cmd log:shell ?Out` | Run a safe allowlisted shell command, return stdout |
+| `log:hasPrefix` | `(?URI ?Prefix) log:hasPrefix true` | True if URI starts with Prefix |
+| `log:allPossibleCases` | `(?Var) log:allPossibleCases ?Cases` | Declare case list for proof-by-cases |
+| `log:forAllIn` | `(?Conds) log:forAllIn ?Scope` | Check all cases are covered |
+| `log:ifThenElseIn` | `(?Cond ?Then ?Else) log:ifThenElseIn ?Scope` | Conditional evaluation |
+| `log:dcg` | `?Pred log:dcg ?Rule` | DCG rule validation |
+| `log:repeat` | `?X log:repeat ?Y` | Always succeeds (repeat) |
+| `log:satisfiable` | `?Formula log:satisfiable true` | Check satisfiability |
+| `log:semantics` | `?X log:semantics true` | Semantic check (always true) |
+| `log:triple` | `?X log:triple ?Info` | Triple metadata |
+| `log:isomorphic` | `(?G1 ?G2) log:isomorphic true` | Check graph isomorphism |
+| `log:notIsomorphic` | `(?G1 ?G2) log:notIsomorphic true` | Negation |
+| `log:prefix` | `?X log:prefix ?P` | Prefix lookup |
+| `log:phrase` | `?X log:phrase ?P` | DCG phrase |
+
+---
+
+## time: — date and time
+
+Namespace: `http://www.w3.org/2000/10/swap/time#`
+
+All time builtins work with ISO 8601 datetime strings like `"2024-01-15T10:30:00"`.
+
+### Current time
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `time:now` | `?X time:now ?Timestamp` | Current time as ISO 8601 string |
+| `time:localTime` | `?X time:localTime ?Timestamp` | Current local time with timezone |
+| `time:in-seconds` | `?X time:in-seconds ?Secs` | Current Unix timestamp (float) |
+
+### Component extraction
+
+All of these take a datetime string as subject and return an integer (or float for seconds).
+
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `time:year` | `?DT time:year ?Y` | 4-digit year |
+| `time:month` | `?DT time:month ?M` | Month (1–12) |
+| `time:day` | `?DT time:day ?D` | Day of month (1–31) |
+| `time:hour` | `?DT time:hour ?H` | Hour (0–23) |
+| `time:minute` | `?DT time:minute ?Min` | Minute (0–59) |
+| `time:second` | `?DT time:second ?S` | Second (float) |
+| `time:hours` | `?DT time:hours ?H` | Alias for hour |
+| `time:minutes` | `?DT time:minutes ?Min` | Alias for minute |
+| `time:seconds` | `?DT time:seconds ?S` | Alias for second |
+| `time:timeZone` | `?DT time:timeZone ?TZ` | Timezone string (e.g. `+02:00` or `Z`) |
+
+### Examples
+
+```n3
+@prefix time: <http://www.w3.org/2000/10/swap/time#> .
 @prefix math: <http://www.w3.org/2000/10/swap/math#> .
 
-:widget :price 50 ; :discount "0.1" .
+# Tag events with the current timestamp
+{ ?Event a :IncomingEvent . _:t time:now ?TS }
+    => { ?Event :receivedAt ?TS } .
 
-{ ?Item :price ?P . ?Item :discount ?D .
-  "1" math:minus ?D ?Factor .
-  ?P math:times ?Factor ?Final }
-    => { ?Item :finalPrice ?Final } .
+# Extract year from a stored date
+{ ?Doc :published ?DT . ?DT time:year ?Y }
+    => { ?Doc :publishYear ?Y } .
+
+# Check if event is in business hours
+{ ?E :scheduledAt ?DT . ?DT time:hour ?H .
+  ?H math:notLessThan 9 . ?H math:lessThan 17 }
+    => { ?E :duringBusinessHours true } .
 ```
-
-Result: `:widget :finalPrice 45.0 .`
 
 ---
 
-## String Builtins
+## crypto: — content hashing
 
-**30+ functions** for text operations. Registered under `string:` (`http://www.w3.org/2000/10/swap/string#`).
+Namespace: `http://www.w3.org/2000/10/swap/crypto#`
 
-Source: `pyeye/builtins.py` (functions `string_*` and `func_*`)
+All hash builtins take a string subject and return a hex-encoded hash string as the object.
 
-### Core String Operations
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `crypto:md5` | `?Str crypto:md5 ?Hash` | MD5 hash (hex string) |
+| `crypto:sha` | `?Str crypto:sha ?Hash` | SHA-1 hash (hex, deprecated) |
+| `crypto:sha256` | `?Str crypto:sha256 ?Hash` | SHA-256 hash (hex) |
+| `crypto:sha512` | `?Str crypto:sha512 ?Hash` | SHA-512 hash (hex) |
 
-| Builtin | What it does | Example |
-|---|---|---|
-| `string:concatenation` | Join strings | `("Hello" " " "World") string:concatenation ?R` → R="Hello World" |
-| `string:length` | Character count | `?Text string:length ?N` |
-| `string:contains` | Contains substring? | `?Text string:contains "error"` |
-| `string:startsWith` | Starts with prefix? | `?Text string:startsWith "Dr."` |
-| `string:endsWith` | Ends with suffix? | `?Email string:endsWith "@corp.org"` |
-| `string:equal` | Strings identical? | `?A string:equal ?B` |
-| `string:matches` | Regex match | `?Text string:matches "^[A-Z].*"` |
-| `string:notMatches` | Regex non-match | `?Text string:notMatches "^[0-9]"` |
-| `string:replace` | Regex replace first | `?Text string:replace ("old" "new") ?R` |
-| `string:replaceAll` | Regex replace all | `?Text string:replaceAll ("a" "b") ?R` |
-| `string:substring` | Extract substring | `"hello" string:substring ("1" "3") ?R` → R="ell" |
-| `string:join` | Join list with separator | `("a" "b" "c") string:join "," ?R` → R="a,b,c" |
-| `string:format` | Format string | `"%s is %d" string:format (:alice 30) ?R` |
-| `string:scrape` | Regex first match | `?Text string:scrape "([0-9]+)" ?R` |
-| `string:scrapeAll` | All regex matches | `?Text string:scrapeAll "[0-9]+" ?R` |
-| `string:search` | Find position | `?Text string:search "pattern" ?Pos` |
-| `string:stringReverse` | Reverse string | `"hello" string:stringReverse ?R` → R="olleh" |
-| `string:stringEscape` | Escape special chars | `?Text string:stringEscape ?R` |
-| `string:capitalize` | Capitalize first letter | `"hello" string:capitalize ?R` → R="Hello" |
-| `string:upperCase` | To uppercase | `"hello" string:upperCase ?R` → R="HELLO" |
-| `string:lowerCase` | To lowercase | `"HELLO" string:lowerCase ?R` → R="hello" |
-| `string:charAt` | Character at 0-based index | `"hello" string:charAt (0 ?C)` → C="h" |
-| `string:setCharAt` | Replace character at index | `"hello" string:setCharAt (1 "a" ?R)` → R="hallo" |
-
-### Case-Insensitive Comparisons
-
-| Builtin | What it does |
-|---|---|
-| `string:equalIgnoringCase` | Equal regardless of case |
-| `string:notEqualIgnoringCase` | Not equal regardless of case |
-| `string:containsIgnoringCase` | Contains substring (case-insensitive) |
-| `string:containsRoughly` | Contains (rough match, case-insensitive) |
-| `string:notContainsRoughly` | Does not contain (rough match) |
-
-### String Ordering
-
-| Builtin | What it does |
-|---|---|
-| `string:lessThan` | String lexicographic less-than |
-| `string:greaterThan` | String lexicographic greater-than |
-| `string:notLessThan` | String lexicographic ≥ |
-| `string:notGreaterThan` | String lexicographic ≤ |
-
-### XPath-Style String Functions
-
-Registered under the `func:` namespace (`http://www.w3.org/2007/XPath-functions#`):
-
-| Builtin | What it does | Example |
-|---|---|---|
-| `func:concat` | Concatenate strings | `func:concat("Hello" " " "World") ?R` |
-| `func:string-length` | String length | `func:string-length("hello") ?R` → R=5 |
-| `func:upper-case` | Uppercase | `func:upper-case("hello") ?R` → R="HELLO" |
-| `func:lower-case` | Lowercase | `func:lower-case("HELLO") ?R` → R="hello" |
-| `func:substring-before` | Text before delimiter | `func:substring-before("a:b" ":") ?R` → R="a" |
-| `func:substring-after` | Text after delimiter | `func:substring-after("a:b" ":") ?R` → R="b" |
-| `func:translate` | Character substitution | `func:translate("abc" "abc" "xyz") ?R` → R="xyz" |
-| `func:normalize-space` | Normalize whitespace | `func:normalize-space("  hi  ") ?R` → R="hi" |
-| `func:tokenize` | Split string into list | `func:tokenize("a b c" " ") ?R` |
-
-### XPath Predicate Comparisons
-
-Registered under `pred:` (`http://www.w3.org/2007/XPath-functions/pred#`):
-
-| Builtin | What it does |
-|---|---|
-| `pred:less-than` | Lexicographic less-than |
-| `pred:greater-than` | Lexicographic greater-than |
-
-### Example: Email Routing
+### Examples
 
 ```n3
-@prefix : <http://users.org/> .
-@prefix string: <http://www.w3.org/2000/10/swap/string#> .
+@prefix crypto: <http://www.w3.org/2000/10/swap/crypto#> .
 
-:alice :email "alice@corp.org" .
-:bob   :email "bob@gmail.com" .
+# Content fingerprint
+{ ?Doc :content ?C . ?C crypto:sha256 ?Hash }
+    => { ?Doc :fingerprint ?Hash } .
 
-{ ?User :email ?E . ?E string:endsWith "@corp.org" }
-    => { ?User :isInternal true } .
+# Duplicate detection
+{ ?A :fingerprint ?H . ?B :fingerprint ?H . ?A log:notEqualTo ?B }
+    => { ?A :duplicateOf ?B } .
 
-{ ?User :email ?E . ?E string:matches ".*@.*\\..*" }
-    => { ?User :emailValid true } .
+# MD5 for legacy systems
+{ ?File :data ?D . ?D crypto:md5 ?Checksum }
+    => { ?File :md5 ?Checksum } .
 ```
 
 ---
 
-## List Builtins
+## graph: — named graph operations
 
-**27+ functions** for working with RDF lists (`rdf:first` / `rdf:rest` chains). Registered under `list:` (`http://www.w3.org/2000/10/swap/list#`).
+Namespace: `http://www.w3.org/2000/10/swap/graph#`
 
-Source: `pyeye/builtins.py` (functions `list_*`)
+These builtins operate on named graphs (TriG-style).
 
-Lists in N3 are written as `(item1 item2 item3)`.
-
-| Builtin | What it does | Example |
-|---|---|---|
-| `list:in` | Is item in list? | `:apple list:in (:apple :banana)` |
-| `list:length` | How many items? | `(:a :b :c) list:length ?N` → N=3 |
-| `list:car` | First element | `_:list list:car ?First` |
-| `list:cdr` | Tail (rest) | `_:list list:cdr ?Rest` |
-| `list:first` | First element | `_:list list:first ?First` |
-| `list:rest` | Tail (rest) | `_:list list:rest ?Rest` |
-| `list:last` | Last element | `_:list list:last ?Last` |
-| `list:select` | Nth element (1-indexed) | `_:list list:select "2" ?Item` |
-| `list:memberAt` | Element at index | `_:list list:memberAt "0" ?Item` |
-| `list:member` | Is item a member? | `:x list:member _:list` |
-| `list:notMember` | Is item not a member? | `:x list:notMember _:list` |
-| `list:append` | Append two lists | `(?L1 ?L2) list:append ?Result` |
-| `list:remove` | Remove element | `(?Item ?List) list:remove ?Result` |
-| `list:removeAt` | Remove at index | `(?List ?N) list:removeAt ?Result` |
-| `list:removeDuplicates` | Deduplicate | `_:list list:removeDuplicates ?Result` |
-| `list:reverse` | Reverse list | `_:list list:reverse ?Result` |
-| `list:sort` | Sort list | `_:list list:sort ?Sorted` |
-| `list:unique` | List of unique values | `_:list list:unique ?Result` |
-| `list:permutation` | Generate permutations | `_:list list:permutation ?Perm` |
-| `list:iterate` | Iterate with index | `_:list list:iterate (?Idx ?Item)` |
-| `list:map` | Map function over list | complex |
-| `list:isList` | Is this a list? | `?X list:isList ?R` |
-| `list:firstRest` | Decompose into first+rest | `_:list list:firstRest (?F ?R)` |
-| `list:intersection` | List intersection | `(?L1 ?L2) list:intersection ?Result` |
-| `list:setEqualTo` | Sets equal? | `(?L1 ?L2) list:setEqualTo ?R` |
-| `list:setNotEqualTo` | Sets not equal? | `(?L1 ?L2) list:setNotEqualTo ?R` |
-| `list:multisetEqualTo` | Multisets equal? | `(?L1 ?L2) list:multisetEqualTo ?R` |
-| `list:multisetNotEqualTo` | Multisets not equal? | `(?L1 ?L2) list:multisetNotEqualTo ?R` |
-
-### Example: Shopping Cart
-
-```n3
-@prefix : <http://shop.org/> .
-@prefix list: <http://www.w3.org/2000/10/swap/list#> .
-
-:order1 :items (:apple :banana :milk) .
-
-{ ?Order :items ?Items . :apple list:in ?Items }
-    => { ?Order :hasApples true } .
-
-{ ?Order :items ?Items . ?Items list:length ?N }
-    => { ?Order :itemCount ?N } .
-```
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `graph:member` | `(?S ?P ?O) graph:member ?Graph` | True if triple (S P O) is in the graph |
+| `graph:length` | `?Graph graph:length ?N` | Number of triples in the graph |
+| `graph:difference` | `(?G1 ?G2) graph:difference ?Triples` | Triples in G1 but not G2 |
+| `graph:intersection` | `(?G1 ?G2) graph:intersection ?Triples` | Triples in both G1 and G2 |
+| `graph:union` | `(?G1 ?G2) graph:union ?Triples` | All triples from G1 and G2 |
+| `graph:statement` | `(?S ?P ?O) graph:statement ?Triple` | Construct a triple term |
+| `graph:renameBlanks` | `?G graph:renameBlanks ?G2` | Return graph with fresh blank node names |
+| `graph:notMember` | `(?S ?P ?O) graph:notMember ?Graph` | Negation of member |
+| `graph:list` | `?G graph:list ?List` | Return triples as a list |
 
 ---
 
-## Log / Meta Builtins
+## reason: — proof metadata
 
-**~50 functions** for engine operations, term manipulation, and meta-reasoning. Registered under `log:` (`http://www.w3.org/2000/10/swap/log#`).
+Namespace: `http://www.w3.org/2000/10/swap/reason#`
 
-Source: `pyeye/builtins.py` (functions `log_*`)
+These builtins annotate proof traces. They are primarily used internally by pyeye's proof system and in conjunction with `explain=True`.
 
-| Builtin | What it does | Example |
-|---|---|---|
-| `log:equalTo` | Are two terms identical (same IRI/value)? | `?A log:equalTo ?B` |
-| `log:notEqualTo` | Are two terms different? | `?A log:notEqualTo ?B` |
-| `log:skolem` | Generate a unique skolem ID | `?Entity log:skolem ?ID` → ID="_:sk-1" |
-| `log:uuid` | Generate a UUID | `log:uuid ?U` → U="550e8400-..." |
-| `log:outputString` | Mark term for output | `?Msg log:outputString ?Out` |
-| `log:content` | All triples in the store | `log:content ?All` |
-| `log:n3String` | Convert term to N3 text | `:foo log:n3String ?S` → S=":foo" |
-| `log:localN3String` | Serialize term using local/relative names | `?T log:localN3String ?S` |
-| `log:implies` | Does premise imply conclusion? | `?A log:implies ?B` |
-| `log:impliesAnswer` | Marks rule as producing answer triples (stub) | — |
-| `log:isImpliedBy` | Backward implication (stub) | `?B log:isImpliedBy ?A` |
-| `log:impliedBy` | Alias for `log:isImpliedBy` (eyeling spelling) | — |
-| `log:forAllIn` | Collect all bindings for variable | returns store triples |
-| `log:collectAllIn` | Collect all matching triples | returns store triples |
-| `log:ask` | HTTP GET (SSRF-protected) | `"http://ex.org/data" log:ask ?Body` |
-| `log:shell` | Execute safe command, return stdout | `"echo hi" log:shell ?Out` |
-| `log:bound` | Is term bound? | `?X log:bound ?R` |
-| `log:call` | Call a formula as a goal | `?Formula log:call ?R` |
-| `log:callNotBind` | Call without binding variables (stub) | — |
-| `log:callWithCleanup` | Call with cleanup action (stub) | — |
-| `log:callWithCut` | Call with cut semantics (stub) | — |
-| `log:callWithDisjunction` | Disjunctive call (stub) | — |
-| `log:callWithOptional` | Optional call (stub) | — |
-| `log:copy` | Copy term | `?T log:copy ?Copy` |
-| `log:dtlit` | Create datatype literal | `(?Val ?Type) log:dtlit ?L` |
-| `log:langlit` | Create language literal | `(?Val ?Lang) log:langlit ?L` |
-| `log:localName` | Local name from IRI | `:foo log:localName ?N` → N="foo" |
-| `log:namespace` | Namespace from IRI | `:foo log:namespace ?NS` |
-| `log:rawType` | Get term type | `?X log:rawType ?T` → T="Literal" |
-| `log:repeat` | Repeat N times | `"3" log:repeat ?I` → yields 0,1,2 |
-| `log:satisfiable` | Is formula satisfiable? | complex |
-| `log:triple` | Construct a triple | `(?S ?P ?O) log:triple ?T` |
-| `log:version` | pyeye version string | `log:version ?V` |
-| `log:conclusion` | Formula conclusion | complex |
-| `log:conjunction` | Formula conjunction | complex |
-| `log:graph` | Graph operations | complex |
-| `log:hasPrefix` | Does IRI have prefix? | `?IRI log:hasPrefix ?NS` |
-| `log:includes` | Formula includes triple? | `?F log:includes ?T` |
-| `log:includesNotBind` | Includes check without binding (stub) | — |
-| `log:notIncludes` | Formula doesn't include triple? | `?F log:notIncludes ?T` |
-| `log:isBuiltin` | Is IRI a builtin? | `?P log:isBuiltin ?R` |
-| `log:isomorphic` | Are two formulas isomorphic? | `?F1 log:isomorphic ?F2` |
-| `log:notIsomorphic` | Are two formulas not isomorphic? | — |
-| `log:parsedAsN3` | Parse string as N3 | `?Text log:parsedAsN3 ?F` |
-| `log:becomes` | Retract old, assert new | `(?OldT ?NewT) log:becomes ?R` |
-| `log:trace` | Log to stderr for debugging | `?Msg log:trace ?R` |
-| `log:uri` | IRI as string | `?IRI log:uri ?S` |
-| `log:allPossibleCases` | Collect all solutions (stub) | — |
-| `log:dcg` | Definite Clause Grammar invocation (stub) | — |
-| `log:ifThenElseIn` | Conditional reasoning in graph (stub) | — |
-| `log:inferences` | Count of derived triples so far | `log:inferences ?N` |
-| `log:query` | Execute a query formula (stub) | — |
-| `log:table` | Tabling/memoisation directive (stub; always true) | `log:table ?P` |
+| Builtin | Description |
+|---------|-------------|
+| `reason:because` | Proof justification link |
+| `reason:binding` | Variable binding in a proof step |
+| `reason:boundTo` | Binding relationship |
+| `reason:component` | Proof component |
+| `reason:evidence` | Evidence for a conclusion |
+| `reason:gives` | Rule application result |
+| `reason:rule` | Rule reference |
+| `reason:source` | Source of a fact or rule |
+| `reason:variable` | Variable in a proof |
 
-### Unique ID Generator Example
-
-```n3
-@prefix : <http://tickets.org/> .
-@prefix log: <http://www.w3.org/2000/10/swap/log#> .
-
-:issue1 :reported true .
-:issue2 :reported true .
-
-{ ?Issue :reported true . ?Issue log:skolem ?ID }
-    => { ?Issue :ticketId ?ID } .
-```
-
-Each issue gets a different unique ID: `:issue1 :ticketId _:sk-1 .` etc.
+These are rarely used directly. Enable proof output with `explain=True` in `execute()` and inspect `result.explains`.
 
 ---
 
-## Type Builtins
+## e: — EYE extensions
 
-**4 functions** for type checking and conversion. Registered under `log:` (W3C swap).
+Namespace: `http://eulersharp.sourceforge.net/2003/03swap/log-rules#`
 
-Source: `pyeye/builtins.py` (functions `type_*`)
+The `e:` namespace contains extensions specific to the EYE reasoner that have no canonical W3C SWAP equivalent.
 
-| Builtin | What it does | Example |
-|---|---|---|
-| `log:isLiteral` | Is this a Literal (not IRI)? | `"hello" log:isLiteral ?R` → R=true |
-| `log:isNumeric` | Is this a numeric value? | `42 log:isNumeric ?R` → R=true |
-| `log:str` | Convert term to plain string | `:foo log:str ?S` → S=":foo" |
-| `log:iri` | Convert string to NamedNode | `"http://x.org/a" log:iri ?R` → R=\<http://x.org/a\> |
+### Evaluation
 
----
+| Builtin | Syntax | Description |
+|---------|--------|-------------|
+| `e:calculate` | `?Expr e:calculate ?Result` | Evaluate a safe Python expression (ast.literal_eval) |
+| `e:derive` | `(?FnName ?A ?B ...) e:derive ?Result` | Call a registered Python function by name |
+| `e:shell` | `?Cmd e:shell ?Output` | Run allowlisted shell command, return stdout |
+| `e:exec` | `?Cmd e:exec ?ExitCode` | Run allowlisted shell command, return exit code |
+| `e:fileString` | `?Path e:fileString ?Content` | Read file content as string |
+| `e:closure` | `?GraphID e:closure ?GraphID` | Compute deductive closure of a named graph |
+| `e:becomes` | `(?OldS ?OldP ?OldO ?NewS ?NewP ?NewO) e:becomes ?New` | Retract old, assert new |
+| `e:transaction` | `?Triples e:transaction ?Result` | Atomic assert (simplified) |
 
-## Crypto Builtins
+`e:calculate` uses Python's `ast.literal_eval`, which only allows literals (strings, numbers, booleans, tuples, lists, dicts). No arbitrary code execution.
 
-**4 hash functions.** Registered under `crypto:` (`http://www.w3.org/2000/10/swap/crypto#`).
-
-Source: `pyeye/builtins.py` (functions `crypto_*`)
-
-| Builtin | What it does | Example |
-|---|---|---|
-| `crypto:md5` | MD5 hash | `"hello" crypto:md5 ?H` → H="5d41402abc4b..." |
-| `crypto:sha` | SHA-1 hash | `"hello" crypto:sha ?H` |
-| `crypto:sha256` | SHA-256 hash | `"hello" crypto:sha256 ?H` → H="2cf24dba..." |
-| `crypto:sha512` | SHA-512 hash | `"hello" crypto:sha512 ?H` |
-
-Also available under `e:`: `e:hmac-sha` for HMAC computation (EYE-specific, no canonical equivalent).
-
----
-
-## Time Builtins
-
-**13 functions** for dates and clocks. Registered under `time:` (`http://www.w3.org/2000/10/swap/time#`).
-
-Source: `pyeye/builtins.py` (functions `time_*`)
-
-| Builtin | What it does | Example |
-|---|---|---|
-| `time:now` | Current date and time | `time:now ?Now` → Now="2026-04-06T12:00:00" |
-| `time:localTime` | Current local time as ISO | `time:localTime ?T` |
-| `time:in-seconds` | Unix timestamp | `time:in-seconds ?T` |
-| `time:year` | Extract year | `"2026-04-06" time:year ?Y` → Y=2026 |
-| `time:month` | Extract month | `"2026-04-06" time:month ?M` → M=4 |
-| `time:day` | Extract day | `"2026-04-06" time:day ?D` → D=6 |
-| `time:hours` | Extract hours (plural form) | `"2026-04-06T12:30:00" time:hours ?H` → H=12 |
-| `time:minutes` | Extract minutes (plural form) | `"2026-04-06T12:30:00" time:minutes ?M` → M=30 |
-| `time:seconds` | Extract seconds (plural form) | `"2026-04-06T12:30:45" time:seconds ?S` → S=45 |
-| `time:hour` | Extract hours (eyeling form) | `"T12:30:00" time:hour ?H` → H=12 |
-| `time:minute` | Extract minutes (eyeling form) | `"T12:30:00" time:minute ?M` → M=30 |
-| `time:second` | Extract seconds as float (eyeling form) | `"T12:30:45" time:second ?S` → S=45.0 |
-| `time:timeZone` | Extract timezone offset | `"2026-04-06T12:00:00+02:00" time:timeZone ?Z` → Z="+02:00" |
-
----
-
-## Graph Builtins
-
-**9 functions** for named graph operations. Registered under `graph:` (`http://www.w3.org/2000/10/swap/graph#`).
-
-Source: `pyeye/builtins.py` (functions `graph_*`)
-
-| Builtin | What it does | Example |
-|---|---|---|
-| `graph:member` | Is triple in graph? | `:a graph:member :graph1` |
-| `graph:notMember` | Is triple not in graph? | `:a graph:notMember :graph1` |
-| `graph:length` | Number of triples in graph | `:g graph:length ?N` |
-| `graph:difference` | Triples in A but not B | `(:g1 :g2) graph:difference ?D` |
-| `graph:intersection` | Triples common to both | `(:g1 :g2) graph:intersection ?I` |
-| `graph:union` | All triples from both | `(:g1 :g2) graph:union ?U` |
-| `graph:statement` | Construct a triple | `(:s :p :o) graph:statement ?T` |
-| `graph:renameBlanks` | Rename blank nodes in graph | `?G graph:renameBlanks ?Result` |
-| `graph:list` | List all triples in graph | `:g graph:list ?L` |
-
----
-
-## Reason Builtins
-
-Registered under `reason:` (`http://www.w3.org/2000/10/swap/reason#`).
-
-| Builtin | What it does |
-|---|---|
-| `reason:because` | Evidence for a conclusion |
-| `reason:binding` | Variable binding record |
-| `reason:boundTo` | A variable is bound to a value |
-| `reason:component` | Component of a proof |
-| `reason:evidence` | Evidence chain |
-| `reason:gives` | Rule gives conclusion |
-| `reason:rule` | Reference to a rule |
-| `reason:source` | Source of a triple |
-| `reason:variable` | Variable reference |
-
----
-
-## E: (EYE-specific) Builtins
-
-**Builtins unique to EYE/eyeling** with no canonical W3C swap equivalent. Registered under `e:` (`http://eulersharp.sourceforge.net/2003/03swap/log-rules#`).
-
-Source: `pyeye/builtins.py` (functions `e_*`)
-
-### Safe Execution
-
-| Builtin | What it does |
-|---|---|
-| `e:calculate` | Evaluate safe expression — uses `ast.literal_eval` (no `eval()`) |
-| `e:exec` | Execute safe command, return exit code |
-
-**Command allowlist** for `e:exec` and `e:shell` — only these commands are permitted:
-
-```
-echo, date, uname, whoami, hostname, id, uptime,
-cat, head, tail, wc, ls, find, stat, file, md5sum, sha256sum,
-curl, wget, ping, dig, nslookup,
-grep, awk, sed, sort, uniq, tr, cut,
-bc, expr, df, free, ps
-```
-
-Shell injection is prevented by using `subprocess.run(..., shell=False)`. Commands not in the allowlist are silently rejected.
-
-### Dynamic Rules
-
-| Builtin | What it does |
-|---|---|
-| `e:findall` | Collect all store triples |
-| `e:closure` | Check if formula is deductively closed |
-| `e:derive` | Call a registered Python function by name |
-| `e:becomes` | Retract old triple, assert new one |
-
-### Control Flow
-
-| Builtin | What it does |
-|---|---|
-| `e:call` | Call formula as goal |
-| `e:callNotBind` | Call goal without binding |
-| `e:callWithCleanup` | Call goal with cleanup handler |
-| `e:callWithCut` | Call goal with cut (stop on first solution) |
-| `e:callWithDisjunction` | Call either of two goals |
-| `e:callWithOptional` | Call optional goal |
-| `e:fail` | Always fails (forces backtracking) |
-| `e:true` | Always succeeds |
-| `e:optional` | Optional goal |
-| `e:ignore` | Ignore result of goal |
-| `e:whenGround` | Only proceed when argument is ground |
-
-### Misc Advanced
-
-| Builtin | What it does |
-|---|---|
-| `e:before` | Is first term before second? |
-| `e:biconditional` | Biconditional logic |
-| `e:binaryEntropy` | Binary entropy calculation |
-| `e:boolean` | Boolean coercion |
-| `e:cartesianProduct` | Cartesian product of lists |
-| `e:compoundTerm` | Construct compound term |
-| `e:conditional` | If-then-else |
-| `e:cov` | Covariance |
-| `e:csvTuple` | CSV row to list |
-| `e:epsilon` | Machine epsilon |
-| `e:F` | Boolean false |
-| `e:T` | Boolean true |
-| `e:fileString` | Read file as string |
-| `e:finalize` | Finalization hook |
-| `e:graphCopy` | Copy a graph |
-| `e:graphDifference` | Graph difference |
-| `e:graphIntersection` | Graph intersection |
-| `e:graphList` | List of graphs |
-| `e:graphMember` | Graph membership |
-| `e:graphPair` | Graph pair operations |
-| `e:label` | Label a variable |
-| `e:labelvars` | Label multiple variables |
-| `e:match` | Pattern match |
-| `e:notLabel` | Negate label |
-| `e:numeral` | Number → numeral string |
-| `e:propertyChainExtension` | Property chain |
-| `e:random` | Random number |
-| `e:relabel` | Relabel variables |
-| `e:roc` | ROC curve |
-| `e:sigmoid` | Sigmoid function |
-| `e:stringSplit` | Split string |
-| `e:subsequence` | List subsequence |
-| `e:tactic` | Reasoning tactic hint |
-| `e:transpose` | Transpose matrix |
-| `e:tripleList` | List of triples |
-| `e:tuple` | Tuple construction |
-| `e:wwwFormEncode` | URL-encode a string |
-
-### Variable Binding Helpers (var: namespace)
-
-Registered under `var:` (`http://www.w3.org/2000/10/swap/var#`):
-
-| Builtin | What it does |
-|---|---|
-| `var:all` | Collect all values |
-| `var:qe` | Quantifier-elimination helper |
-| `var:v` | Variable access |
-| `var:x` | Extended variable access |
-
----
-
-## Registering Custom Builtins
-
-### Method 1: Pass to `execute()`
-
-```python
-from pyeye import execute
-from pyeye.term import Literal, Variable
-
-def my_double(args, engine):
-    """Double a number. Skip if not ground."""
-    if any(isinstance(a, Variable) for a in args):
-        return None  # not ready yet
-    return Literal(str(float(args[0].value) * 2))
-
-result = execute(
-    data_strings=["@prefix : <http://ex.org/> .\n:item :value 21 ."],
-    rule_strings=["@prefix : <http://ex.org/> .\n"
-                  "@prefix ex: <http://ex.org/builtins#> .\n"
-                  "{ ?I :value ?V . ?V ex:myDouble ?D } => { ?I :doubled ?D } ."],
-    builtins={"http://ex.org/builtins#myDouble": my_double},
-)
-```
-
-The custom registry is **merged** with the default builtins, so all 240 standard functions remain available.
-
-### Method 2: `e:derive` — Call by Name
-
-Register a Python function and call it by name from N3:
+`e:derive` lets you call registered Python functions from N3:
 
 ```python
 from pyeye.builtins import register_derive_function
 from pyeye.term import Literal
 
-def triple_it(args, engine):
-    return Literal(str(float(args[0].value) * 3))
+def celsius_to_f(args, engine):
+    c = float(args[0].value)
+    return Literal(str(c * 9/5 + 32))
 
-register_derive_function("triple", triple_it)
+register_derive_function("c_to_f", celsius_to_f)
 ```
-
-Then in N3:
 
 ```n3
 @prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
-{ ?Item :value ?V } => { ?Item :tripled ?T . (?V "triple") e:derive ?T } .
+
+{ ?R :celsius ?C . ("c_to_f" ?C) e:derive ?F }
+    => { ?R :fahrenheit ?F } .
 ```
 
-### Builtin Function Signature
+### Math extensions
+
+| Builtin | Description |
+|---------|-------------|
+| `e:avg` | Average (alias for math:avg) |
+| `e:max` | Maximum (alias for math:max) |
+| `e:min` | Minimum (alias for math:min) |
+| `e:std` | Standard deviation |
+| `e:rms` | Root mean square |
+| `e:pcc` | Pearson correlation coefficient |
+| `e:roc` | Receiver operating characteristic (simplified) |
+| `e:binaryEntropy` | Binary entropy H(p) |
+| `e:sigmoid` | Sigmoid function 1/(1+e^-x) |
+| `e:epsilon` | Very small constant (1e-10) |
+| `e:random` | Random float in [0,1] — **do not use in FC rules** |
+
+### String extensions
+
+| Builtin | Description |
+|---------|-------------|
+| `e:format` | printf-style format |
+| `e:match` | Regex match → first match string |
+| `e:stringEscape` | Unicode escape |
+| `e:stringReverse` | Reverse string |
+| `e:stringSplit` | Split string by regex pattern |
+| `e:subsequence` | Check if one string contains another |
+| `e:wwwFormEncode` | URL-encode a string |
+| `e:csvTuple` | Join args as CSV string |
+| `e:label` | Return label string |
+| `e:notLabel` | True if labels are different |
+
+### List extensions
+
+| Builtin | Description |
+|---------|-------------|
+| `e:firstRest` | Alias for list:firstRest |
+| `e:reverse` | Alias for list:reverse |
+| `e:sort` | Alias for list:sort |
+| `e:unique` | Alias for list:unique |
+| `e:length` | List length |
+| `e:cartesianProduct` | Cartesian product (simplified) |
+| `e:multisetEqualTo` | Multiset equality |
+| `e:multisetNotEqualTo` | Multiset inequality |
+| `e:tripleList` | Triple as list |
+
+### Logic/control
+
+| Builtin | Description |
+|---------|-------------|
+| `e:T` | Always returns true |
+| `e:F` | Always returns false (fails) |
+| `e:true` | Always returns true |
+| `e:fail` | Always returns None (fails) |
+| `e:ignore` | Always returns true (ignore) |
+| `e:boolean` | Parse "true"/"false" string to boolean |
+| `e:conditional` | Conditional (simplified) |
+| `e:biconditional` | Biconditional |
+| `e:before` | True if first string is lexicographically before second |
+| `e:whenGround` | Return arg if ground, else fail |
+| `e:optional` | Return arg if ground |
+| `e:call` | Alias for log:call |
+| `e:finalize` | Finalization hook (always succeeds) |
+| `e:tactic` | Set reasoning tactic (limited-answer N) |
+| `e:prefix` | Register a prefix for output |
+| `e:trace` | Print to stderr (debug) |
+| `e:hmac-sha` | HMAC-SHA256 digest |
+| `e:sha` | SHA-1 hash |
+| `e:skolem` | Alias for log:skolem |
+
+### Graph extensions
+
+| Builtin | Description |
+|---------|-------------|
+| `e:graphCopy` | Copy a graph |
+| `e:graphDifference` | Graph difference |
+| `e:graphIntersection` | Graph intersection |
+| `e:graphList` | Graph as list |
+| `e:graphMember` | Check graph membership |
+| `e:graphPair` | Graph pair |
+| `e:compoundTerm` | Compound term |
+| `e:tuple` | Tuple |
+| `e:labelvars` | Label variables |
+| `e:relabel` | Relabel |
+| `e:transpose` | Transpose |
+| `e:numeral` | Convert to numeric |
+| `e:propertyChainExtension` | Property chain check |
+
+---
+
+## Special builtins in depth
+
+### `log:onNegativeSurface` — negation as failure
+
+```n3
+{ ?X a :Config .
+  _:neg log:onNegativeSurface { ?X :value ?Any } }
+    => { ?X :hasMissingValue true } .
+```
+
+The enclosed formula must not be provable for the rule to fire. Each blank node label must be unique within a rule. Multiple negative surfaces in the same rule require different blank node labels:
+
+```n3
+{ ?Svc a :Service .
+  _:n1 log:onNegativeSurface { ?Svc :host ?H } .
+  _:n2 log:onNegativeSurface { ?Svc :port ?P } }
+    => { ?Svc :misconfigured true } .
+```
+
+### `log:collectAllIn` — aggregation
+
+Collects all values of a template for all bindings of a pattern. The result is an RDF list that can be passed to `list:length`, `math:sum`, etc.
+
+```n3
+# Count employees per department
+{ ?Dept a :Department .
+  (1 { ?E :dept ?Dept } ?Members) log:collectAllIn ?Dept .
+  ?Members list:length ?N }
+    => { ?Dept :headcount ?N } .
+
+# Sum salaries
+{ ?Dept a :Department .
+  (?Sal { ?E :dept ?Dept . ?E :salary ?Sal } ?Sals) log:collectAllIn ?Dept .
+  ?Sals math:sum ?Total }
+    => { ?Dept :totalSalary ?Total } .
+```
+
+The pattern can reference variables bound earlier in the rule body:
+
+```n3
+# Group by company, count employees
+{ ?Co a :Company .
+  (1 { ?P :worksFor ?Co } ?Staff) log:collectAllIn ?Co .
+  ?Staff list:length ?N }
+    => { ?Co :staffSize ?N } .
+```
+
+### `log:skolem` — deterministic blank nodes
+
+Creates a stable blank node from a composite key. The same combination of inputs always produces the same blank node identifier within a run. Use it to model many-to-many relationships as reified nodes:
+
+```n3
+# Create a stable Employment node for each (person, company) pair
+{ ?P :worksAt ?C . (?P ?C) log:skolem ?Emp }
+    => { ?Emp a :Employment ;
+              :employee ?P ;
+              :employer ?C } .
+```
+
+Without arguments, `log:skolem` generates a fresh unique blank node each time — do not use this in forward-chaining rules because the engine will create a new node every pass and never reach fixpoint.
+
+### `log:table` — memoization
+
+```n3
+[] log:table :reachable .
+{ ?X :reachable ?Y } <= { ?X :link ?Y } .
+{ ?X :reachable ?Y } <= { ?X :reachable ?Z . ?Z :reachable ?Y } .
+```
+
+Marks `:reachable` for memoization during backward chaining. Without this, a recursive rule would loop indefinitely when the goal cannot be proved. `log:table` enables cycle detection by tracking which goals are currently on the call stack.
+
+---
+
+## Custom builtins
+
+You can register your own Python functions as N3 builtins:
 
 ```python
-def my_builtin(args: list[Term], engine: Engine) -> Term | list[Triple] | None:
-    """
-    args:   list of resolved argument Terms (subject and object, list-expanded)
-    engine: the Engine instance (access engine.store for lookups)
+from pyeye import execute
+from pyeye.term import Variable, Literal, NamedNode
+from pyeye.builtins import MultiResult
 
-    Return:
-        Term         → result value (used as object in head or comparison)
-        list[Triple] → triples to assert directly
-        None         → skip (arguments not ready or condition failed)
-    """
+def celsius_to_fahrenheit(args, engine):
+    # args[-1] is the output variable (appended by the engine)
+    # args[:-1] are the input values
+    if isinstance(args[0], Variable):
+        return None   # input not bound yet — skip
+    c = float(args[0].value)
+    return Literal(str(c * 9/5 + 32))
+
+result = execute(
+    data_strings=["""
+        @prefix : <http://example.org/> .
+        @prefix fn: <http://example.org/fn#> .
+        :reading1 :celsius "22" .
+        :reading2 :celsius "37" .
+    """],
+    rule_strings=["""
+        @prefix : <http://example.org/> .
+        @prefix fn: <http://example.org/fn#> .
+        { ?R :celsius ?C . ?C fn:celsiusToF ?F }
+            => { ?R :fahrenheit ?F } .
+    """],
+    builtins={"http://example.org/fn#celsiusToF": celsius_to_fahrenheit},
+)
 ```
+
+### Builtin protocol
+
+A builtin is a callable with signature:
+
+```python
+def my_builtin(args: list[Term], engine: EngineProto) -> Term | list[Triple] | MultiResult | None:
+    ...
+```
+
+Return values:
+
+| Return type | Effect |
+|-------------|--------|
+| `Term` | Function result — bound to the output variable |
+| `list[Triple]` | Predicate result — each triple is added to the store |
+| `MultiResult(results)` | Generative — the engine creates one binding per element |
+| `None` | Fail — the body pattern does not match for this binding |
+
+The engine appends the object of the builtin triple as the last element of `args`. If it is still a `Variable`, it is the unbound output slot. You should return a value to bind it, not `None`.
+
+To check whether inputs are ground before computing:
+
+```python
+from pyeye.term import Variable
+
+def my_fn(args, engine):
+    # Check all input args (everything except the last output variable)
+    input_args = args[:-1] if len(args) >= 2 and isinstance(args[-1], Variable) else args
+    if any(isinstance(a, Variable) for a in input_args):
+        return None  # unbound inputs — skip
+    # ... compute result
+```
+
+### `MultiResult` — generating multiple bindings
+
+When a builtin should yield multiple results (like a SQL `IN` clause), return `MultiResult`:
+
+```python
+from pyeye.builtins import MultiResult
+from pyeye.term import Literal
+
+def generate_options(args, engine):
+    # Yields multiple values for the output variable
+    options = ["option_a", "option_b", "option_c"]
+    return MultiResult([Literal(o) for o in options])
+```
+
+The engine will fork the current binding once per element in `results`.

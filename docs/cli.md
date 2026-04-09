@@ -2,227 +2,336 @@
 
 The `pyeye` command runs N3 reasoning from the terminal without writing any Python code.
 
-`main` — `pyeye/cli.py:13`
+---
 
 ## Synopsis
 
 ```bash
-pyeye [options]
+pyeye [OPTIONS]
 ```
 
-## The Two Files You Need
-
-### Data file (`--n3`)
-
-Contains facts in N3/Turtle or TriG format:
-
-```turtle
-@prefix : <http://my-family.org/> .
-
-:alice :parent :bob .
-:bob   :parent :carol .
-```
-
-### Rule file (`--query`)
-
-Contains rules in N3 format:
-
-```n3
-@prefix : <http://my-family.org/> .
-
-{ ?X :parent ?Y } => { ?Y :child ?X } .
-{ ?X :parent ?Y . ?Y :parent ?Z } => { ?X :grandparent ?Z } .
-```
+All output goes to **stdout**. Statistics and errors go to **stderr**.
 
 ---
 
-## All Flags
-
-### Input
-
-| Flag | Description | Example |
-| :--- | :--- | :--- |
-| `--n3 <path\|url>` | Load facts from N3/Turtle/TriG file or HTTP URL. Repeatable. | `--n3 people.ttl --n3 places.ttl` |
-| `--query <path\|url>` | Load rules from N3 file or HTTP URL. Repeatable. | `--query family.n3 --query business.n3` |
-| `--cache-dir <dir>` | Cache directory for remote files. HTTP URLs are fetched once and stored as SHA-256 named files. | `--cache-dir /tmp/pyeye-cache` |
-
-### Output
-
-| Flag | Description |
-| :--- | :--- |
-| *(none)* | Default: show only newly derived facts |
-| `--pass` | Show original facts + derived facts (deductive closure) |
-| `--pass-all` | Show facts + rules + derived facts |
-| `--nope` | Skip reasoning; re-emit data only (useful for validating/normalizing N3 files) |
-| `--explain` | Include proof explanations in output |
-| `--explain-format n3\|dot\|html` | Format for proof output (default: `n3`). Use `html` for browser view; `dot` for Graphviz. |
-
-### Entailment
-
-| Flag | Description |
-| :--- | :--- |
-| `--entail` | Apply RDFS entailment before user rules: derives implicit triples from `rdfs:subClassOf`, `rdfs:subPropertyOf`, `rdfs:domain`, `rdfs:range` |
-| `--entail-owl` | Apply OWL 2 RL entailment (superset of `--entail`): also handles transitive/symmetric/functional properties, `owl:sameAs`, class constructors, property chains |
-
-### Control
-
-| Flag | Description | Example |
-| :--- | :--- | :--- |
-| `--max-inferences <N>` | Hard cap on total inference steps. Stops reasoning after N steps regardless of fixpoint. | `--max-inferences 1000` |
-| `--tactic limited-answer <N>` | Stop after deriving N triples. | `--tactic limited-answer 10` |
-| `--no-forward` | Skip forward chaining. Use with `--query-goal` for pure backward chaining. | |
-| `--query-goal <S,P,O>` | Backward-chain from a goal triple. Comma-separated subject, predicate, object (use `?Name` for variables). | `--query-goal http://ex.org/bob,http://ex.org/child,?X` |
-| `--not-entail-triple <S,P,O>` | Check that this triple (comma-separated IRIs) is NOT entailed. Sets exit flag if found. | `--not-entail-triple http://x/a,http://x/p,http://x/b` |
-
-### Display
-
-| Flag | Description | Example |
-| :--- | :--- | :--- |
-| `--prefix P=URL` | Register prefix shortcut for output formatting. | `--prefix ex=http://example.org/` |
-| `--statistics` | Print timing and step count to stderr after reasoning. | `# steps=42 derived=12 time=3.7ms` |
-| `--quiet` | Suppress all stderr output. | |
-| `--help` | Show help message. | |
-
-**Output mode summary:**
-
-```
-No flag:      Only newly derived facts
---pass:       Input facts + derived facts
---pass-all:   Input facts + rules + derived facts
---nope:       Input facts only (no reasoning)
-```
-
----
-
-## Exit Codes
-
-| Code | Meaning |
-| :--- | :--- |
-| `0` | Reasoning completed (including `--not-entail-triple` check) |
-| `1` | Error (file not found, parse error, blocked URL, etc.) |
-
-Error messages go to stderr:
-
-```
-pyeye: error: at line 1 of <>:
-Bad syntax (expected directive or statement) at ^ in:
-"b''^b'=> {:a :b :c} .\n'"
-```
-
----
-
-## Stdout vs Stderr
-
-| Stream | Content |
-| :--- | :--- |
-| **stdout** | N3 output (the derived or pass-through facts) |
-| **stderr** | Error messages and `--statistics` output |
-
-This separation lets you pipe N3 output while still seeing statistics and errors on the terminal.
-
----
-
-## Examples
-
-### Example 1: Derive new facts
+## Basic usage
 
 ```bash
+# Derive new facts from data and rules
 pyeye --n3 data.ttl --query rules.n3
+
+# Show input + derived (deductive closure)
+pyeye --n3 data.ttl --query rules.n3 --pass
+
+# Apply RDFS entailment
+pyeye --n3 data.ttl --query rules.n3 --entail
+
+# Apply OWL 2 RL entailment (superset of RDFS)
+pyeye --n3 data.ttl --query rules.n3 --entail-owl
+
+# Print statistics to stderr
+pyeye --n3 data.ttl --query rules.n3 --statistics
+
+# Proof trace in HTML
+pyeye --n3 data.ttl --query rules.n3 --explain --explain-format html > proof.html
 ```
 
-### Example 2: Show everything including input facts
+---
+
+## Input flags
+
+### `--n3 FILE`
+
+Load a data file (N3 or Turtle). Repeatable — each `--n3` flag adds another file.
+
+```bash
+pyeye --n3 facts1.ttl --n3 facts2.ttl --query rules.n3
+```
+
+Both local file paths and `http://`/`https://` URLs are accepted. Remote files are fetched over the network. SSRF protection is active: URLs targeting private IP ranges are rejected.
+
+### `--query FILE`
+
+Load a rule file (N3). Repeatable. Rule files may also contain data triples — everything is parsed and loaded.
+
+```bash
+pyeye --n3 data.ttl --query rules1.n3 --query rules2.n3
+```
+
+---
+
+## Output modes
+
+### `--pass`
+
+Output the deductive closure: input facts plus derived triples. Without this flag, only derived triples are printed.
 
 ```bash
 pyeye --n3 data.ttl --query rules.n3 --pass
 ```
 
-### Example 3: RDFS entailment
+### `--pass-all`
+
+Output input facts, rules, and derived triples.
 
 ```bash
-pyeye --n3 data.ttl --query rules.n3 --entail --pass --statistics
+pyeye --n3 data.ttl --query rules.n3 --pass-all
 ```
 
-### Example 4: OWL 2 RL entailment
+### `--nope`
+
+No reasoning — parse and output the input facts only, with no derivation.
 
 ```bash
-pyeye --n3 ontology.ttl --query rules.n3 --entail-owl --pass
+pyeye --n3 data.ttl --nope
 ```
 
-### Example 5: Validate data without reasoning
+Useful for validating that a file parses correctly.
+
+---
+
+## Reasoning control
+
+### `--entail`
+
+Apply RDFS entailment rules before user rules. Derives implicit triples from `rdfs:subClassOf`, `rdfs:subPropertyOf`, `rdfs:domain`, and `rdfs:range` declarations.
 
 ```bash
-pyeye --n3 messy-data.ttl --nope
+pyeye --n3 ontology.ttl --n3 data.ttl --query rules.n3 --entail
 ```
 
-Loads and re-emits the data. Useful for checking if N3/Turtle files parse correctly.
+### `--entail-owl`
 
-### Example 6: Proof traces as HTML
+Apply OWL 2 RL entailment (includes RDFS). Adds reasoning for `owl:sameAs`, `owl:inverseOf`, transitive/symmetric/functional properties, class expressions, and property chains.
 
 ```bash
+pyeye --n3 owl_data.ttl --query rules.n3 --entail-owl
+```
+
+### `--no-forward`
+
+Skip forward chaining; use only backward chaining (requires `--query-goal`).
+
+```bash
+pyeye --n3 data.ttl --query rules.n3 --no-forward --query-goal "http://ex.org/a,http://ex.org/p,?X"
+```
+
+### `--max-inferences N`
+
+Hard cap on the number of forward-chaining rule firings. The engine stops after N steps even if fixpoint has not been reached.
+
+```bash
+pyeye --n3 data.ttl --query rules.n3 --max-inferences 10000
+```
+
+### `--tactic NAME VALUE`
+
+Set a reasoning tactic. Currently supported:
+
+| Tactic | Description |
+|--------|-------------|
+| `limited-answer N` | Stop after N new derivations |
+
+```bash
+pyeye --n3 data.ttl --query rules.n3 --tactic limited-answer 100
+```
+
+### `--query-goal TRIPLE`
+
+Backward-chain from a specific goal triple. The triple is specified as a comma-separated `S,P,O` string. Use `?X` for variable positions.
+
+```bash
+pyeye --n3 data.ttl --query rules.n3 --query-goal "http://ex.org/bob,http://ex.org/child,?X"
+```
+
+Results are printed as N3 triples.
+
+---
+
+## Proof and explanation
+
+### `--explain`
+
+Generate proof traces for each derived triple. Output format is controlled by `--explain-format`.
+
+```bash
+pyeye --n3 data.ttl --query rules.n3 --explain
+```
+
+### `--explain-format FORMAT`
+
+Format for proof output. Only meaningful with `--explain`. Choices:
+
+| Format | Output |
+|--------|--------|
+| `n3` | N3 proof triples (default) |
+| `dot` | Graphviz DOT string |
+| `html` | Collapsible HTML proof tree |
+
+```bash
+# HTML proof tree, redirected to file
 pyeye --n3 data.ttl --query rules.n3 --explain --explain-format html > proof.html
+
+# DOT for rendering with graphviz
+pyeye --n3 data.ttl --query rules.n3 --explain --explain-format dot | dot -Tpng > proof.png
 ```
 
-### Example 7: Backward chaining from a goal
+---
+
+## Checking non-entailment
+
+### `--not-entail`
+
+Check that no entailment occurred at all. If any triple was derived, `not_entail_failed` is set (currently informational only — the CLI does not change its exit code based on this).
+
+### `--not-entail-triple S,P,O`
+
+Check that a specific triple was NOT derived. The triple is specified as a comma-separated `S,P,O` string of full IRIs.
 
 ```bash
-pyeye --n3 data.ttl --query rules.n3 --query-goal http://ex.org/bob,http://ex.org/child,?X
+pyeye --n3 data.ttl --query rules.n3 --not-entail-triple \
+    "http://ex.org/alice,http://ex.org/forbidden,http://ex.org/bob"
 ```
 
-Find all bindings for `?X` satisfying `:bob :child ?X`.
+---
 
-### Example 8: Not-entail check
+## Output and format
+
+### `--prefix P=URL`
+
+Register a prefix for output serialization. Repeatable.
 
 ```bash
 pyeye --n3 data.ttl --query rules.n3 \
-  --not-entail-triple http://ex.org/a,http://ex.org/forbidden,http://ex.org/b
+    --prefix ":=http://example.org/" \
+    --prefix "xsd:=http://www.w3.org/2001/XMLSchema#"
 ```
 
-Verifies that the specific triple is NOT derivable.
+The prefixes are used to abbreviate IRIs in the output N3.
 
-### Example 9: Cache remote files
+---
+
+## Caching
+
+### `--cache-dir DIR`
+
+Cache directory for remotely fetched N3 files. When set, HTTP/HTTPS URIs are fetched once and stored locally; subsequent runs use the cached version.
 
 ```bash
-pyeye --n3 http://example.org/data.ttl \
-      --query http://example.org/rules.n3 \
-      --cache-dir /tmp/cache
+pyeye --n3 http://example.org/data.ttl --cache-dir ./.pyeye-cache
 ```
 
-### Example 10: Limit derivations
+---
+
+## Diagnostics
+
+### `--statistics`
+
+Print reasoning statistics to stderr after the run.
 
 ```bash
-pyeye --n3 big-data.ttl --query rules.n3 --tactic limited-answer 10
+pyeye --n3 data.ttl --query rules.n3 --statistics
+# stderr: # steps=42 derived=12 time=3.7ms
 ```
 
-Stops after deriving the first 10 new facts.
+### `--quiet`
 
-### Example 11: Step cap
+Suppress all stderr output (including statistics).
 
 ```bash
-pyeye --n3 data.ttl --query rules.n3 --max-inferences 1000
+pyeye --n3 data.ttl --query rules.n3 --statistics --quiet
+# no stderr output
 ```
 
-### Example 12: Multiple data and rule files
+---
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Error (parse error, file not found, etc.) |
+
+Errors are printed to stderr in the form `pyeye: error: <message>`.
+
+---
+
+## Examples
+
+### Derive facts from files
 
 ```bash
-pyeye --n3 people.ttl --n3 places.ttl --query family.n3 --query location.n3 --pass
+pyeye --n3 family.ttl --query ancestry_rules.n3
 ```
 
-### Example 13: Custom output prefixes
+### Full deductive closure
 
 ```bash
-pyeye --n3 data.ttl --query rules.n3 --prefix ex=http://example.org/
+pyeye --n3 family.ttl --query ancestry_rules.n3 --pass
 ```
 
-Makes output use `ex:alice` instead of full IRIs.
-
-### Example 14: Capture statistics only
+### RDFS reasoning
 
 ```bash
-pyeye --n3 data.ttl --query rules.n3 --statistics 2>&1 >/dev/null
+pyeye --n3 ontology.owl --n3 instances.ttl --entail
 ```
 
-### Example 15: Pipe N3 output
+### OWL 2 RL reasoning
 
 ```bash
-pyeye --n3 data.ttl --query rules.n3 --pass | grep ":child"
+pyeye --n3 wine.owl --n3 instances.ttl --entail-owl --pass
+```
+
+### Backward chaining query
+
+```bash
+pyeye --n3 graph.ttl --query graph_rules.n3 \
+    --query-goal "http://example.org/a,http://example.org/reachable,?X"
+```
+
+### Proof trace
+
+```bash
+pyeye --n3 data.ttl --query rules.n3 --explain --explain-format html > proof.html
+open proof.html
+```
+
+### Cap the run time and steps
+
+```bash
+pyeye --n3 data.ttl --query recursive_rules.n3 \
+    --max-inferences 50000 \
+    --statistics
+```
+
+### Multiple inputs
+
+```bash
+pyeye \
+    --n3 base_facts.ttl \
+    --n3 domain_data.ttl \
+    --query core_rules.n3 \
+    --query extension_rules.n3 \
+    --entail \
+    --pass \
+    --statistics
+```
+
+### Remote files with caching
+
+```bash
+pyeye \
+    --n3 http://example.org/shared_ontology.ttl \
+    --n3 local_data.ttl \
+    --cache-dir /tmp/pyeye-cache \
+    --query rules.n3
+```
+
+### Check a constraint is not violated
+
+```bash
+# Derive, then verify :alice :forbidden :bob was NOT derived
+pyeye --n3 data.ttl --query rules.n3 \
+    --not-entail-triple "http://ex.org/alice,http://ex.org/forbidden,http://ex.org/bob" \
+    --statistics
 ```

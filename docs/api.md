@@ -1,696 +1,857 @@
 # API Reference
 
-Every public function, class, and method in pyeye. If you are new here, start with the [Getting Started guide](getting-started.md) first.
+Complete reference for pyeye's public Python API. Start with [Getting Started](getting-started.md) if you are new.
 
 ---
 
-## `execute()` — The One Function You Need
-
-`execute` — `pyeye/entry.py:34`
-
-The main entry point. Pass facts and rules, get derived facts back.
+## Quick imports
 
 ```python
-from pyeye import execute
+# High-level API (most common)
+from pyeye import execute, NamedNode, Variable, Triple, Literal
+
+# Direct engine access
+from pyeye.engine import Engine, ReasoningTimeoutError
+from pyeye.parser import parse_n3
+from pyeye.output import N3Writer
+from pyeye.term import Existential, Formula, TripleTerm, PathTerm, Quad
+from pyeye.store import TripleStore
+from pyeye.builtins import MultiResult, register_derive_function
+```
+
+---
+
+## `execute()` — the main entry point
+
+```python
+from pyeye.entry import execute
 
 result = execute(
-    data_strings=["@prefix : <http://ex.org/> .\n:alice :parent :bob ."],
-    rule_strings=["@prefix : <http://ex.org/> .\n{?X :parent ?Y} => {?Y :child ?X} ."],
+    data_paths=None,
+    data_strings=None,
+    rule_paths=None,
+    rule_strings=None,
+    builtins=None,
+    explain=False,
+    max_steps=-1,
+    limit_answers=-1,
+    timeout_seconds=30.0,
+    prefixes=None,
+    nope=False,
+    pass_mode=False,
+    pass_all=False,
+    djiti_debug=False,
+    query=None,
+    forward=True,
+    entail=False,
+    entail_owl=False,
+    not_entail=None,
+    cache_dir=None,
+    explain_format="n3",
 )
-
-print(result.triples)
-# :bob :child :alice .
 ```
 
 ### Parameters
 
-| Parameter | Type | Default | What it does |
-| :--- | :--- | :--- | :--- |
-| `data_paths` | `list[str] \| None` | `None` | Load facts from N3/Turtle/TriG files (local paths or HTTP URLs) |
-| `data_strings` | `list[str] \| None` | `None` | Load facts from inline N3 strings |
-| `rule_paths` | `list[str] \| None` | `None` | Load rules from N3 files (local paths or HTTP URLs) |
-| `rule_strings` | `list[str] \| None` | `None` | Load rules from inline N3 strings |
-| `builtins` | `dict \| None` | `None` | Custom builtin registry, merged with the default 240 |
-| `explain` | `bool` | `False` | Collect proof explanations for each derived triple |
-| `explain_format` | `"n3" \| "dot" \| "html"` | `"n3"` | Output format for proof traces |
-| `max_steps` | `int` | `-1` | Hard cap on inference steps (`-1` = unlimited) |
-| `limit_answers` | `int` | `-1` | Stop after N derived triples (`-1` = unlimited) |
-| `prefixes` | `dict \| None` | `None` | Additional prefix shortcuts for N3 output |
-| `nope` | `bool` | `False` | Skip reasoning; just load and re-emit data |
-| `pass_mode` | `bool` | `False` | Include input facts in output alongside derived triples |
-| `pass_all` | `bool` | `False` | Include input facts, rules, and derived triples in output |
-| `djiti_debug` | `bool` | `False` | Log DJITI pattern ordering to `engine._djiti_log` |
-| `query` | `Triple \| None` | `None` | Backward-chain from this goal triple |
-| `forward` | `bool` | `True` | Run forward chaining before backward chaining |
-| `entail` | `bool` | `False` | Apply RDFS entailment (subClassOf, subPropertyOf, domain, range) before user rules |
-| `entail_owl` | `bool` | `False` | Apply OWL 2 RL entailment (superset of RDFS; adds transitive/symmetric/functional properties, class constructors, sameAs, etc.) |
-| `not_entail` | `Triple \| None` | `None` | Check that this triple is NOT entailed; sets `stats["not_entail_failed"]` |
-| `cache_dir` | `str \| None` | `None` | Cache directory for remote N3 files; HTTP URLs are fetched and stored as SHA-256 named files |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `data_paths` | `list[str] \| None` | `None` | Paths to N3/Turtle data files. File paths and `http://`/`https://` URLs are both accepted. |
+| `data_strings` | `list[str] \| None` | `None` | Inline N3/Turtle data strings. |
+| `rule_paths` | `list[str] \| None` | `None` | Paths to N3 rule files (may also contain data triples). |
+| `rule_strings` | `list[str] \| None` | `None` | Inline N3 rule strings. |
+| `builtins` | `dict[str, Builtin] \| None` | `None` | Custom builtins merged with the default registry. Keys are full IRIs. |
+| `explain` | `bool` | `False` | If `True`, collect proof trees for each derived triple. |
+| `max_steps` | `int` | `-1` | Hard cap on forward-chaining rule firings. `-1` means unlimited. |
+| `limit_answers` | `int` | `-1` | Stop after this many new derivations. `-1` means unlimited. |
+| `timeout_seconds` | `float \| None` | `30.0` | Wall-clock deadline for forward chaining. Raises `ReasoningTimeoutError` if exceeded. `None` disables the guard. |
+| `prefixes` | `dict[str, str] \| None` | `None` | Additional prefix mappings for output N3 serialization. |
+| `nope` | `bool` | `False` | Skip all reasoning; just parse and return the input facts. |
+| `pass_mode` | `bool` | `False` | Include input facts in the output (deductive closure = input + derived). |
+| `pass_all` | `bool` | `False` | Include input facts, rules, and derived triples in the output. |
+| `djiti_debug` | `bool` | `False` | Log DJITI join-ordering decisions for each rule application. |
+| `query` | `Triple \| None` | `None` | Backward-chain from this triple pattern. Variables in the pattern are bound by the engine. Results go in `Result.query_answers`. |
+| `forward` | `bool` | `True` | If `False`, skip forward chaining (backward-only mode). |
+| `entail` | `bool` | `False` | Apply RDFS entailment rules before user rules. Derives triples from `rdfs:subClassOf`, `rdfs:subPropertyOf`, `rdfs:domain`, `rdfs:range`. |
+| `entail_owl` | `bool` | `False` | Apply OWL 2 RL entailment (implies `entail=True`). Adds `owl:sameAs`, `owl:inverseOf`, transitive/symmetric/functional property reasoning, class expressions. |
+| `not_entail` | `Triple \| None` | `None` | If set, check that this triple is NOT entailed. Sets `result.stats["not_entail_failed"]` to `True` if the triple was derived. |
+| `cache_dir` | `str \| None` | `None` | Directory for caching fetched remote N3 files. |
+| `explain_format` | `"n3" \| "dot" \| "html"` | `"n3"` | Format for proof traces when `explain=True`. `"n3"` returns raw proof objects; `"dot"` returns a Graphviz DOT string; `"html"` returns a collapsible HTML page. |
 
-### Return value — `Result`
-
-`Result` — `pyeye/entry.py:26`
+### Return value: `Result`
 
 ```python
 @dataclass
 class Result:
-    triples: str        # N3 text of derived (or all) triples
-    stats: dict         # Performance and status information
-    explains: list      # Proof trees (empty when explain=False)
-    query_answers: list # Variable bindings from backward chaining
+    triples: str              # N3 text of derived (or all) triples
+    stats: dict               # reasoning statistics
+    explains: list | str      # proof traces (depends on explain_format)
+    query_answers: list       # backward-chaining query results
 ```
 
-The `stats` dict always contains:
+#### `result.triples`
+
+A string containing the N3 serialization of the output triples. What "output" means depends on the mode:
+
+- Default: only rule-derived triples (facts the engine figured out)
+- `pass_mode=True`: input facts + derived triples
+- `pass_all=True`: input facts + rules + derived triples
+- `nope=True`: input facts only (no reasoning)
+
+#### `result.stats`
 
 ```python
 {
-    "steps": 5,               # Total inference steps taken
-    "derived": 3,             # Triples in result output
-    "time_ms": 1.2,           # Total wall-clock time in milliseconds
-    "not_entail_failed": False # True if the not_entail triple WAS found
+    "steps": 42,               # number of rule firings
+    "derived": 12,             # number of new triples added
+    "time_ms": 3.7,            # wall-clock time in milliseconds
+    "not_entail_failed": False # True if not_entail triple WAS derived (check failed)
 }
 ```
 
-When `explain=True` and `explain_format="n3"`, `result.explains` is a `list[ProofTree]`. When `explain_format` is `"dot"` or `"html"`, it is a serialized string.
+#### `result.explains`
 
-### Common patterns
+Proof traces. Only populated when `explain=True`. Content depends on `explain_format`:
 
-**Derive new facts only (default):**
+- `"n3"` — list of `ProofTree` objects (internal representation)
+- `"dot"` — Graphviz DOT string representing the full proof forest
+- `"html"` — HTML string with collapsible proof tree, suitable for browser rendering
 
-```python
-r = execute(
-    data_strings=["@prefix : <http://ex.org/> .\n:a :p :b ."],
-    rule_strings=["@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} ."],
-)
-# r.triples = ":a :q :b .\n"
-```
+#### `result.query_answers`
 
-**Show everything (input + derived):**
+List of binding dicts from backward chaining. Only populated when `query=` is set.
 
 ```python
-r = execute(
-    data_strings=["@prefix : <http://ex.org/> .\n:a :p :b ."],
-    rule_strings=["@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} ."],
-    pass_mode=True,
+result = execute(
+    data_strings=["@prefix : <http://example.org/> . :alice :parent :bob ."],
+    rule_strings=["@prefix : <http://example.org/> . { ?X :parent ?Y } => { ?Y :child ?X } ."],
+    query=Triple(
+        NamedNode("http://example.org/bob"),
+        NamedNode("http://example.org/child"),
+        Variable("Who"),
+    ),
 )
-# r.triples includes both ":a :p :b ." and ":a :q :b ."
+
+for binding in result.query_answers:
+    print(binding["Who"].value)  # http://example.org/alice
 ```
 
-**RDFS entailment before user rules:**
+Each element of `query_answers` is a `dict[str, Term]` mapping variable name (without `?`) to a bound term.
 
-```python
-r = execute(
-    data_strings=[
-        """
-        @prefix : <http://ex.org/> .
-        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-        @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-        :Cat rdfs:subClassOf :Animal .
-        :fluffy rdf:type :Cat .
-        """,
-    ],
-    rule_strings=[
-        """
-        @prefix : <http://ex.org/> .
-        @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-        { ?X rdf:type :Animal } => { ?X :isAlive true } .
-        """,
-    ],
-    entail=True,
-)
-# RDFS derives :fluffy rdf:type :Animal
-# Then user rule derives :fluffy :isAlive true
-```
-
-**OWL 2 RL entailment:**
-
-```python
-r = execute(
-    data_strings=[
-        """
-        @prefix : <http://ex.org/> .
-        @prefix owl: <http://www.w3.org/2002/07/owl#> .
-        :knows a owl:SymmetricProperty .
-        :alice :knows :bob .
-        """,
-    ],
-    rule_strings=[],
-    entail_owl=True,
-)
-# OWL derives :bob :knows :alice (symmetric property)
-```
-
-**Backward chaining from a goal:**
+### Examples
 
 ```python
 from pyeye import execute
 from pyeye.term import NamedNode, Variable, Triple
 
-r = execute(
-    data_strings=["@prefix : <http://ex.org/> .\n:alice :parent :bob ."],
-    rule_strings=["@prefix : <http://ex.org/> .\n{?X :parent ?Y} => {?Y :child ?X} ."],
+# Basic reasoning
+result = execute(
+    data_strings=["@prefix : <http://ex.org/> . :a :b :c ."],
+    rule_strings=["@prefix : <http://ex.org/> . { ?X :b ?Y } => { ?Y :backlink ?X } ."],
+)
+print(result.triples)
+
+# RDFS entailment
+result = execute(
+    data_strings=["""
+        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        @prefix : <http://ex.org/> .
+        :Dog rdfs:subClassOf :Animal .
+        :rex a :Dog .
+    """],
+    entail=True,
+    pass_mode=True,
+)
+# result.triples includes :rex a :Animal .
+
+# Backward chaining query
+result = execute(
+    data_strings=["@prefix : <http://ex.org/> . :a :link :b . :b :link :c ."],
+    rule_strings=["""
+        @prefix : <http://ex.org/> .
+        { ?X :reachable ?Y } <= { ?X :link ?Y } .
+        { ?X :reachable ?Y } <= { ?X :reachable ?Z . ?Z :reachable ?Y } .
+    """],
     query=Triple(
-        NamedNode("http://ex.org/bob"),
-        NamedNode("http://ex.org/child"),
-        Variable("X"),
-    ),
-)
-# r.query_answers = [{"X": NamedNode("http://ex.org/alice")}]
-```
-
-**Proof traces:**
-
-```python
-r = execute(
-    data_strings=["@prefix : <http://ex.org/> .\n:a :p :b ."],
-    rule_strings=["@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} ."],
-    explain=True,
-    explain_format="dot",  # or "n3" or "html"
-)
-# r.explains → DOT string for Graphviz (or ProofTree list for "n3")
-```
-
-**Not-entail check:**
-
-```python
-r = execute(
-    data_strings=["@prefix : <http://ex.org/> .\n:a :p :b ."],
-    rule_strings=["@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} ."],
-    not_entail=Triple(
         NamedNode("http://ex.org/a"),
-        NamedNode("http://ex.org/notDerived"),
-        NamedNode("http://ex.org/x"),
+        NamedNode("http://ex.org/reachable"),
+        Variable("Dest"),
     ),
 )
-# r.stats["not_entail_failed"] is False (triple was NOT derived — check passed)
-```
+for b in result.query_answers:
+    print(b["Dest"])
 
-**Load data from HTTP with caching:**
+# Proof trace (HTML)
+result = execute(
+    data_strings=["@prefix : <http://ex.org/> . :a :p :b ."],
+    rule_strings=["@prefix : <http://ex.org/> . { ?X :p ?Y } => { ?Y :q ?X } ."],
+    explain=True,
+    explain_format="html",
+)
+with open("proof.html", "w") as f:
+    f.write(result.explains)
 
-```python
-r = execute(
-    data_paths=["http://example.org/data.ttl"],
-    rule_paths=["http://example.org/rules.n3"],
-    cache_dir="/tmp/pyeye-cache",
+# Not-entail check
+result = execute(
+    data_strings=["@prefix : <http://ex.org/> . :a :p :b ."],
+    rule_strings=["@prefix : <http://ex.org/> . { ?X :p ?Y } => { ?Y :q ?X } ."],
+    not_entail=Triple(
+        NamedNode("http://ex.org/b"),
+        NamedNode("http://ex.org/q"),
+        NamedNode("http://ex.org/a"),
+    ),
+)
+if result.stats["not_entail_failed"]:
+    print("Triple WAS derived — check failed")
+
+# Custom builtins
+from pyeye.term import Literal
+
+def my_fn(args, engine):
+    if isinstance(args[0], Variable):
+        return None
+    return Literal(args[0].value.upper())
+
+result = execute(
+    data_strings=["@prefix : <http://ex.org/> . :x :val \"hello\" ."],
+    rule_strings=["""
+        @prefix : <http://ex.org/> .
+        @prefix fn: <http://example.org/fn#> .
+        { ?I :val ?V . ?V fn:upper ?U } => { ?I :upper ?U } .
+    """],
+    builtins={"http://example.org/fn#upper": my_fn},
 )
 ```
 
 ---
 
-## Term Types
+## `Engine` — direct engine access
 
-`pyeye/term.py`
-
-Everything in pyeye is built from **terms**. All term types are frozen dataclasses (hashable, usable as dict keys).
-
-### `NamedNode` — An IRI
-
-`NamedNode` — `pyeye/term.py:36`
-
-```python
-from pyeye import NamedNode
-
-person = NamedNode("http://example.org/people/alice")
-```
-
-Represents an IRI (Internationalized Resource Identifier) — the unique name for a resource.
-
-### `Literal` — A Value
-
-`Literal` — `pyeye/term.py:44`
-
-```python
-from pyeye import Literal, NamedNode
-
-name    = Literal("Alice")
-age     = Literal("30", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#integer"))
-bonjour = Literal("bonjour", language="fr")
-```
-
-A `Literal` cannot have both `datatype` and `language` set simultaneously.
-
-### `Variable` — A Placeholder
-
-`Variable` — `pyeye/term.py:65`
-
-```python
-from pyeye import Variable
-
-x = Variable("X")    # Written ?X in N3 text
-```
-
-### `Existential` — A Blank Node
-
-`Existential` — `pyeye/term.py:74`
-
-```python
-from pyeye import Existential
-
-anon = Existential("genid-1")    # Written _:genid-1 in N3
-```
-
-### `Formula` — A Conjunction of Triples
-
-`Formula` — `pyeye/term.py:83`
-
-```python
-from pyeye import Formula, Triple, NamedNode, Variable
-
-body = Formula((
-    Triple(Variable("X"), NamedNode("http://ex.org/parent"), Variable("Y")),
-))
-# Represents: { ?X :parent ?Y }
-```
-
-### `Triple` — A Fact
-
-`Triple` — `pyeye/term.py:184` (approximate; see actual file)
-
-```python
-from pyeye import Triple, NamedNode
-
-fact = Triple(
-    NamedNode("http://example.org/alice"),
-    NamedNode("http://example.org/knows"),
-    NamedNode("http://example.org/bob"),
-)
-# Represents: :alice :knows :bob .
-```
-
-| Method | Returns | Source |
-| :--- | :--- | :--- |
-| `is_ground()` | `bool` — True if triple has no variables | `Triple.is_ground` — `pyeye/term.py` |
-
-### `TripleTerm` — A Reified Triple
-
-`TripleTerm` — `pyeye/term.py:100`
-
-A triple used as subject or object: `<< S P O >>`.
-
-```python
-from pyeye import TripleTerm, NamedNode
-
-tt = TripleTerm(
-    NamedNode("http://ex.org/alice"),
-    NamedNode("http://ex.org/knows"),
-    NamedNode("http://ex.org/bob"),
-)
-# Used as: << :alice :knows :bob >> :wasSaidBy :charlie .
-```
-
-### `FormulaTerm` — A Formula as a Term
-
-`FormulaTerm` — `pyeye/term.py:125` (approximate)
-
-`(| Functor Args |)` — a formula embedded inside another triple.
-
-```python
-from pyeye import FormulaTerm, NamedNode, Literal
-
-ft = FormulaTerm(
-    NamedNode("http://ex.org/says"),
-    (NamedNode("http://ex.org/alice"), Literal("hello")),
-)
-```
-
-### `PathTerm` — A Chained Path
-
-`PathTerm` — `pyeye/term.py:148` (approximate)
-
-`:a ! :p ! :q` or `:a ^ :p` — chained path expressions.
-
-### `Quad` — A Named-Graph Triple
-
-`Quad` — `pyeye/term.py:233` (approximate)
-
-```python
-from pyeye import Quad, NamedNode
-
-q = Quad(
-    NamedNode("http://ex.org/a"),
-    NamedNode("http://ex.org/p"),
-    NamedNode("http://ex.org/b"),
-    NamedNode("http://ex.org/graph1"),
-)
-```
-
-### `NegativeSurface` — BLOGIC Negation
-
-`NegativeSurface` — `pyeye/term.py:210` (approximate)
-
-`log:onNegativeSurface { ... }` — the body only matches if the enclosed formula does NOT match the store.
-
-### `SetTerm` — An Unordered Collection
-
-`SetTerm` — `pyeye/__init__.py` (exported)
-
-`($ a b c $)` — a set of terms. Treated as an ordered list internally in the current implementation.
-
----
-
-## `Engine` — Low-Level Control
-
-`Engine` — `pyeye/engine.py:29`
-
-Direct access to the reasoning engine. Use `execute()` for most cases; use `Engine` when you need incremental loading or step-by-step control.
+For fine-grained control, use the `Engine` class directly:
 
 ```python
 from pyeye.engine import Engine
-from pyeye.parser import Rule
-from pyeye.term import NamedNode, Variable, Triple, Formula
+from pyeye.parser import parse_n3, Rule
+from pyeye.term import NamedNode, Literal, Triple
 
 engine = Engine(
-    builtins=None,       # custom builtin registry (optional)
-    max_steps=100,       # hard step cap (-1 = unlimited)
-    limit_answers=10,    # stop after N derivations (-1 = unlimited)
-    djiti_debug=False,   # log DJITI pattern ordering
-    explain=False,       # record proof traces
+    builtins=None,
+    max_steps=-1,
+    limit_answers=-1,
+    djiti_debug=False,
+    explain=False,
+    timeout_seconds=30.0,
 )
+```
+
+### Constructor parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `builtins` | `dict[str, Builtin] \| None` | `None` | Custom builtins merged into the default registry |
+| `max_steps` | `int` | `-1` | Step cap (-1 = unlimited) |
+| `limit_answers` | `int` | `-1` | Answer cap (-1 = unlimited) |
+| `djiti_debug` | `bool` | `False` | Log DJITI ordering decisions |
+| `explain` | `bool` | `False` | Collect proof trees |
+| `timeout_seconds` | `float \| None` | `30.0` | Wall-clock timeout; `None` to disable |
+
+### Methods
+
+#### `engine.add_triple(triple: Triple) -> bool`
+
+Add a fact triple to the store. Returns `True` if the triple was genuinely new (not already in the store). If rules have already been loaded, this also triggers incremental re-evaluation of rules that could derive new facts from the new triple.
+
+```python
+engine.add_triple(Triple(
+    NamedNode("http://ex.org/alice"),
+    NamedNode("http://ex.org/age"),
+    Literal("30", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#integer")),
+))
+```
+
+#### `engine.add_rule(rule: Rule) -> None`
+
+Add a forward or backward rule.
+
+```python
+doc = parse_n3("{ ?X :p ?Y } => { ?Y :q ?X } .")
+for rule in doc.rules:
+    engine.add_rule(rule)
+```
+
+#### `engine.run() -> None`
+
+Run forward chaining to fixpoint (or until `max_steps` / `limit_answers` / `timeout_seconds` is reached). Call this after loading all data and rules.
+
+#### `engine.backward_chain(query: Triple) -> list[dict]`
+
+Run backward chaining from a goal triple. Returns a list of binding dicts, one per solution.
+
+```python
+bindings = engine.backward_chain(Triple(
+    NamedNode("http://ex.org/alice"),
+    NamedNode("http://ex.org/reachable"),
+    Variable("Dest"),
+))
+for b in bindings:
+    print(b["Dest"])
+```
+
+#### `engine.snapshot_initial() -> None`
+
+Record the current store size as the baseline. Call after loading data but before adding rules, so that input facts are not counted as "derived."
+
+### Properties and attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `engine.store` | `TripleStore` | The underlying triple store |
+| `engine.derived_triples` | `list[Triple]` | Triples derived by rules (not input facts) |
+| `engine.step_count` | `int` | Total number of rule firings so far |
+| `engine._rules` | `list[Rule]` | Loaded rules (read-only by convention) |
+| `engine._proof_trees` | `list[ProofTree]` | Proof trees (populated when `explain=True`) |
+
+### Complete example
+
+```python
+from pyeye.engine import Engine
+from pyeye.parser import parse_n3
+from pyeye.term import NamedNode, Literal, Variable, Triple
+from pyeye.output import N3Writer
+
+BASE = "http://example.org/"
+XSD = "http://www.w3.org/2001/XMLSchema#"
+
+engine = Engine(timeout_seconds=60.0)
 
 # Add facts
 engine.add_triple(Triple(
-    NamedNode("http://ex.org/alice"),
-    NamedNode("http://ex.org/parent"),
-    NamedNode("http://ex.org/bob"),
+    NamedNode(BASE + "alice"),
+    NamedNode(BASE + "age"),
+    Literal("70", datatype=NamedNode(XSD + "integer")),
+))
+engine.add_triple(Triple(
+    NamedNode(BASE + "bob"),
+    NamedNode(BASE + "age"),
+    Literal("45", datatype=NamedNode(XSD + "integer")),
 ))
 
-# Add rules
-engine.add_rule(Rule(
-    body=Formula((Triple(Variable("X"), NamedNode("http://ex.org/parent"), Variable("Y")),)),
-    head=Formula((Triple(Variable("Y"), NamedNode("http://ex.org/child"), Variable("X")),)),
-))
+engine.snapshot_initial()
 
-# Run forward chaining
+# Load rules
+doc = parse_n3("""
+    @prefix : <http://example.org/> .
+    @prefix math: <http://www.w3.org/2000/10/swap/math#> .
+    { ?P :age ?A . ?A math:greaterThan 65 } => { ?P :isSenior true } .
+""")
+for rule in doc.rules:
+    engine.add_rule(rule)
+
 engine.run()
 
-# Access results
-print(engine.derived_triples)   # list[Triple] — only rule-derived triples
-print(engine.step_count)        # int — total inference steps
-print(len(engine.store))        # int — total triples in store
+# Query store
+for t in engine.store.match(predicate=NamedNode(BASE + "isSenior")):
+    print(t.subject.value, "is a senior")
+
+# Serialize derived triples
+writer = N3Writer({"": BASE, "xsd": XSD})
+print(writer.write_triples(engine.derived_triples))
+
+# Stats
+print(f"Steps: {engine.step_count}, Derived: {len(engine.derived_triples)}")
+```
+
+### Incremental reasoning
+
+The engine supports adding facts after `run()` has been called. Each `add_triple()` call triggers incremental re-evaluation of rules that might fire for the new triple:
+
+```python
+engine = Engine()
+doc = parse_n3(rules_n3)
+for rule in doc.rules:
+    engine.add_rule(rule)
+engine.snapshot_initial()
+engine.run()
+
+prev_count = len(engine.derived_triples)
+
+# Add a new fact — engine incrementally re-evaluates
+engine.add_triple(Triple(sensor_node, temp_pred, Literal("36")))
+
+# Get only the new derivations
+new_derivations = engine.derived_triples[prev_count:]
+```
+
+For stream processing, you can also call `engine.run()` again after adding batches of new facts:
+
+```python
+for batch in incoming_stream:
+    for triple in batch:
+        engine.add_triple(triple)
+    engine.run()
+    process(engine.derived_triples[prev_count:])
+    prev_count = len(engine.derived_triples)
+```
+
+---
+
+## `TripleStore` — the fact store
+
+The triple store holds all facts (input and derived). It maintains indexes by predicate, subject, and object for fast pattern matching.
+
+```python
+from pyeye.store import TripleStore
+from pyeye.term import NamedNode, Triple
+
+store = TripleStore()
+store.add(Triple(NamedNode("http://ex.org/a"), NamedNode("http://ex.org/p"), NamedNode("http://ex.org/b")))
 ```
 
 ### Methods
 
-| Method | Signature | Description | Source |
-| :--- | :--- | :--- | :--- |
-| `add_triple(t)` | `(Triple) -> bool` | Add a fact. Returns `True` if new. When rules are loaded, triggers incremental re-evaluation. | `Engine.add_triple` — `pyeye/engine.py:68` |
-| `add_rule(r)` | `(Rule) -> None` | Add a rule for the next `run()` | `Engine.add_rule` — `pyeye/engine.py:65` |
-| `snapshot_initial()` | `() -> None` | Mark current store size as baseline (input facts vs derived) | `Engine.snapshot_initial` — `pyeye/engine.py:146` |
-| `run()` | `() -> None` | Forward-chain to fixpoint or limit | `Engine.run` — `pyeye/engine.py:152` |
-| `backward_chain(query)` | `(Triple) -> list[dict]` | Goal-directed reasoning; returns list of variable binding dicts | `Engine.backward_chain` — `pyeye/engine.py:533` |
+#### `store.add(triple: Triple) -> bool`
 
-### Properties
+Add a triple. Returns `True` if new, `False` if already present.
 
-| Property | Type | Description | Source |
-| :--- | :--- | :--- | :--- |
-| `store` | `TripleStore` | The triple store (read/write) | `Engine.store` — `pyeye/engine.py:40` |
-| `derived_triples` | `list[Triple]` | Only rule-derived triples (excludes input facts) | `Engine.derived_triples` — `pyeye/engine.py:665` |
-| `step_count` | `int` | Total inference steps taken | `Engine.step_count` — `pyeye/engine.py:670` |
+#### `store.match(subject=None, predicate=None, object=None, graph=None) -> Iterator[Triple]`
 
----
-
-## Unification
-
-`pyeye/unify.py`
-
-The engine matches rule body patterns against facts using unification. You can call these functions directly for custom pattern matching.
+Pattern-match triples. Any argument that is `None` acts as a wildcard:
 
 ```python
-from pyeye.unify import unify, apply_binding, apply_binding_to_triple
-from pyeye.term import Variable, NamedNode, Triple
+# All triples
+for t in store.match():
+    print(t)
 
-pattern = Triple(Variable("X"), NamedNode("http://ex.org/parent"), NamedNode("http://ex.org/bob"))
-fact    = Triple(NamedNode("http://ex.org/alice"), NamedNode("http://ex.org/parent"), NamedNode("http://ex.org/bob"))
+# All triples with a specific predicate
+for t in store.match(predicate=NamedNode("http://ex.org/age")):
+    print(t.subject, t.object)
 
-binding = unify(pattern, fact)
-# binding = {"X": NamedNode("http://ex.org/alice")}
-```
-
-| Function | Signature | Description | Source |
-| :--- | :--- | :--- | :--- |
-| `unify` | `(pattern, candidate, binding={}) -> dict \| None` | Match pattern against candidate, extending binding. Returns `None` on failure. | `unify` — `pyeye/unify.py:48` |
-| `apply_binding` | `(term, binding) -> Term` | Replace variables in term with bound values | `apply_binding` — `pyeye/unify.py:119` |
-| `apply_binding_to_triple` | `(triple, binding) -> Triple` | Replace variables in all three positions | `apply_binding_to_triple` — `pyeye/unify.py:151` |
-| `term_contains_var` | `(term, var_name) -> bool` | Occurs check helper | `term_contains_var` — `pyeye/unify.py:70` |
-
-Unification enforces the **occurs check**: a variable cannot be bound to a term that contains itself.
-
----
-
-## `TripleStore` — Where Facts Live
-
-`TripleStore` — `pyeye/store.py:27`
-
-An in-memory triple/quad store indexed by predicate, subject, and object for fast lookups.
-
-```python
-from pyeye.store import TripleStore
-from pyeye.term import Triple, NamedNode, Literal, Quad
-
-store = TripleStore()
-
-# Add triples to the default graph
-store.add(Triple(NamedNode("alice"), NamedNode("knows"), NamedNode("bob")))
-store.add(Triple(NamedNode("alice"), NamedNode("knows"), NamedNode("carol")))
-
-# Add triples to a named graph
-store.add_quad(Quad(
-    NamedNode("alice"), NamedNode("age"), Literal("30"),
-    NamedNode("graph1"),
+# All triples with a specific subject and predicate
+results = list(store.match(
+    subject=NamedNode("http://ex.org/alice"),
+    predicate=NamedNode("http://ex.org/age"),
 ))
-
-# Pattern match (None = wildcard)
-for t in store.match(predicate=NamedNode("knows")):
-    print(t)
-
-# Named graph match
-for t in store.match(graph=NamedNode("graph1")):
-    print(t)
-
-print(len(store))    # total triples + quads
 ```
 
-| Method | Signature | Description | Source |
-| :--- | :--- | :--- | :--- |
-| `add(triple)` | `(Triple) -> bool` | Add to default graph. `True` if new. | `TripleStore.add` — `pyeye/store.py:50` |
-| `add_quad(quad)` | `(Quad) -> bool` | Add to named graph. `True` if new. | `TripleStore.add_quad` — `pyeye/store.py:62` |
-| `contains(triple)` | `(Triple) -> bool` | Check membership in default graph. | `TripleStore.contains` — `pyeye/store.py:75` |
-| `match(s, p, o, graph)` | `(Term\|None, ...) -> Iterator[Triple\|Quad]` | Pattern match. `None` = wildcard. Uses predicate/subject/object indexes when bound. | `TripleStore.match` — `pyeye/store.py:100` |
-| `retract(triple)` | `(Triple) -> bool` | Remove from default graph. `True` if found. | `TripleStore.retract` — `pyeye/store.py:79` |
-| `retract_all(s, p, o)` | `(...) -> int` | Remove all matching triples. Returns count. | `TripleStore.retract_all` — `pyeye/store.py:94` |
-| `__len__()` | `() -> int` | Total triples + quads. | `TripleStore.__len__` — `pyeye/store.py` |
-| `__iter__()` | `() -> Iterator[Triple]` | Iterate default graph triples. | `TripleStore.__iter__` — `pyeye/store.py` |
-| `triples()` | `() -> frozenset[Triple]` | Snapshot of default graph. | `TripleStore.triples` — `pyeye/store.py` |
-| `quads()` | `() -> frozenset[Quad]` | Snapshot of named graph quads. | `TripleStore.quads` — `pyeye/store.py` |
+#### `store.contains(triple: Triple) -> bool`
+
+Check if a triple is in the store.
+
+#### `store.retract(triple: Triple) -> bool`
+
+Remove a triple. Returns `True` if it was present.
+
+#### `store.retract_all(subject=None, predicate=None, object=None) -> int`
+
+Remove all triples matching the pattern. Returns the number removed.
+
+#### `store.add_quad(quad: Quad) -> bool`
+
+Add a named-graph quad (triple + graph context).
+
+#### `__len__(store)` and `__iter__(store)`
+
+```python
+print(len(store))           # number of triples
+for triple in store:        # iterate all triples
+    print(triple)
+```
 
 ---
 
-## Parsing
+## Term types
 
-`pyeye/parser.py`
+All term types are frozen dataclasses and are hashable. They live in `pyeye.term`.
 
-`execute()` handles parsing internally. Call these directly only when you need to parse N3 text without running reasoning.
+### `NamedNode`
+
+An IRI (global identifier).
 
 ```python
-from pyeye import parse_n3, parse_rules
+from pyeye.term import NamedNode
 
-doc = parse_n3("@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?Y :q ?X} .")
-print(doc.rules)     # list[Rule]
-print(doc.triples)   # list[Triple]
-print(doc.quads)     # list[Quad]
-print(doc.prefixes)  # dict[str, str]
+nn = NamedNode("http://example.org/alice")
+nn.value  # "http://example.org/alice"
+str(nn)   # "http://example.org/alice"
 ```
 
-`ParseError` is raised on malformed N3.
+### `Literal`
 
-| Function | Signature | Description | Source |
-| :--- | :--- | :--- | :--- |
-| `parse_n3(text, source)` | `(str, str) -> ParsedDocument` | Parse N3/TriG including rules | `parse_n3` — `pyeye/parser.py:660` |
-| `parse_rules(text, source)` | `(str, str) -> list[Rule]` | Extract rules only | `parse_rules` — `pyeye/parser.py:665` |
-| `load_data_file(path)` | `(str \| Path) -> ParsedDocument` | Load data via rdflib | `load_data_file` — `pyeye/parser.py:634` |
-| `load_data_string(text)` | `(str) -> ParsedDocument` | Parse data string via rdflib | `load_data_string` — `pyeye/parser.py:645` |
-
----
-
-## Proof Traces
-
-`pyeye/proof.py`
-
-When `explain=True` is passed to `execute()`, every derivation is recorded as a `ProofStep` and assembled into a `ProofTree`.
+An RDF literal — a string value with optional datatype or language tag.
 
 ```python
-from pyeye import execute
-from pyeye.proof import serialize_n3, serialize_dot, serialize_html
+from pyeye.term import Literal, NamedNode
 
-r = execute(
-    data_strings=["@prefix : <http://ex.org/> .\n:a :p :b ."],
-    rule_strings=["@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} ."],
-    explain=True,
+# Plain string
+Literal("hello")
+
+# Typed literal
+Literal("42", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#integer"))
+Literal("3.14", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#double"))
+Literal("true", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#boolean"))
+
+# Language-tagged
+Literal("Alice", language="en")
+Literal("アリス", language="ja")
+
+# Access fields
+lit = Literal("42", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#integer"))
+lit.value     # "42"
+lit.datatype  # NamedNode("http://www.w3.org/2001/XMLSchema#integer")
+lit.language  # None
+```
+
+A Literal cannot have both `datatype` and `language`.
+
+### `Variable`
+
+A pattern variable (unbound slot in rules and queries).
+
+```python
+from pyeye.term import Variable
+
+v = Variable("X")
+v.name   # "X"
+str(v)   # "?X"
+```
+
+### `Existential`
+
+A blank node (anonymous resource, existential variable).
+
+```python
+from pyeye.term import Existential
+
+bn = Existential("node1")
+bn.name  # "node1"
+str(bn)  # "_:node1"
+```
+
+### `Triple`
+
+A subject-predicate-object triple. Used both as a fact in the store and as a pattern in rule bodies.
+
+```python
+from pyeye.term import Triple, NamedNode, Literal, Variable
+
+# Ground triple (fact)
+t = Triple(
+    NamedNode("http://ex.org/alice"),
+    NamedNode("http://ex.org/age"),
+    Literal("30"),
 )
-# r.explains is list[ProofTree] when explain_format="n3" (default)
+t.subject    # NamedNode(...)
+t.predicate  # NamedNode(...)
+t.object     # Literal(...)
+t.is_ground()  # True
 
-# Serialize manually:
-n3_text   = serialize_n3(r.explains)
-dot_text  = serialize_dot(r.explains)
-html_text = serialize_html(r.explains)
+# Pattern triple (for queries)
+p = Triple(
+    Variable("Person"),
+    NamedNode("http://ex.org/age"),
+    Variable("Age"),
+)
+p.is_ground()  # False
 ```
 
-| Class / Function | Description | Source |
-| :--- | :--- | :--- |
-| `ProofStep` | Single derivation step: `conclusion`, `premise`, `rule`, `chaining`, `source` | `ProofStep` — `pyeye/proof.py:21` |
-| `ProofTree` | Tree of steps: `root`, `children`, `rule`, `chaining` | `ProofTree` — `pyeye/proof.py:35` |
-| `serialize_n3(trees)` | Serialize proofs to N3 triples | `serialize_n3` — `pyeye/proof.py:54` |
-| `serialize_dot(trees)` | Serialize proofs to DOT (Graphviz) | `serialize_dot` — `pyeye/proof.py:127` |
-| `serialize_html(trees)` | Serialize proofs to collapsible HTML | `serialize_html` — `pyeye/proof.py:168` |
+### `Formula`
 
----
-
-## RDFS Entailment
-
-`apply_rdfs_entailment` — `pyeye/rdfs.py:28`
-
-Applies RDFS inference rules to derive implicit triples:
-
-- **subClassOf**: if A subClassOf B and X type A, then X type B
-- **subPropertyOf**: if P subPropertyOf Q and A P B, then A Q B
-- **domain**: if P domain D and A P B, then A type D
-- **range**: if P range R and A P B, then B type R
+A conjunction of triples — used in rule bodies and heads.
 
 ```python
-from pyeye.rdfs import apply_rdfs_entailment
-from pyeye.store import TripleStore
+from pyeye.term import Formula, Triple, NamedNode, Variable
 
-store = TripleStore()
-# ... add triples ...
-count = apply_rdfs_entailment(store)
-# count = number of new triples derived
+f = Formula(triples=(
+    Triple(Variable("X"), NamedNode("http://ex.org/p"), Variable("Y")),
+    Triple(Variable("Y"), NamedNode("http://ex.org/q"), Variable("Z")),
+))
 ```
 
----
+### `TripleTerm`
 
-## OWL 2 RL Entailment
-
-`apply_owl_rl_entailment` — `pyeye/owl.py:81`
-
-Applies OWL 2 RL entailment rules (a superset of RDFS):
-
-- **Individual equality**: `owl:sameAs` inference
-- **Property characteristics**: transitive, symmetric, functional, inverse-functional, inverse-of
-- **Class constructors**: intersectionOf, unionOf, someValuesFrom, allValuesFrom, hasValue, oneOf
-- **Property chains**: `owl:propertyChainAxiom`
+An RDF-star reified triple — a triple that itself acts as a subject or object.
 
 ```python
-from pyeye.owl import apply_owl_rl_entailment
-from pyeye.store import TripleStore
+from pyeye.term import TripleTerm, NamedNode
 
-store = TripleStore()
-# ... add OWL axioms and data triples ...
-count = apply_owl_rl_entailment(store)
-# count = number of new triples derived
+tt = TripleTerm(
+    subject=NamedNode("http://ex.org/alice"),
+    predicate=NamedNode("http://ex.org/knows"),
+    object=NamedNode("http://ex.org/bob"),
+)
+str(tt)  # "<<http://ex.org/alice http://ex.org/knows http://ex.org/bob>>"
 ```
 
-This is also accessible through `execute(entail_owl=True)`, which runs both OWL 2 RL and RDFS entailment.
+In N3: `<< :alice :knows :bob >> :source :survey .`
+
+### `PathTerm`
+
+A chained path expression: `:a ! :p ! :q` (forward) or `:a ^ :p` (reverse).
+
+```python
+from pyeye.term import PathTerm, NamedNode
+
+path = PathTerm(
+    subject=NamedNode("http://ex.org/alice"),
+    terms=(NamedNode("http://ex.org/parent"), NamedNode("http://ex.org/name")),
+    directions=("forward", "forward"),
+)
+```
+
+### `Quad`
+
+A named-graph triple (subject, predicate, object, graph).
+
+```python
+from pyeye.term import Quad, NamedNode
+
+q = Quad(
+    subject=NamedNode("http://ex.org/alice"),
+    predicate=NamedNode("http://ex.org/age"),
+    object=Literal("30"),
+    graph=NamedNode("http://ex.org/graph/people"),
+)
+```
+
+### `NegativeSurface`
+
+Internal representation of a `log:onNegativeSurface` directive.
+
+```python
+from pyeye.term import NegativeSurface, Formula, Triple, NamedNode, Variable
+
+ns = NegativeSurface(formula=Formula(triples=(
+    Triple(Variable("X"), NamedNode("http://ex.org/timeout"), Variable("Any")),
+)))
+```
 
 ---
 
-## Output — Writing N3 Text
+## `parse_n3()` — parse N3 text
 
-`N3Writer` — `pyeye/output.py:9`
+```python
+from pyeye.parser import parse_n3, ParsedDocument
+
+doc: ParsedDocument = parse_n3(
+    text: str,
+    source: str = "<string>",
+)
+```
+
+Returns a `ParsedDocument` with:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `doc.triples` | `list[Triple]` | Ground fact triples |
+| `doc.quads` | `list[Quad]` | Named-graph quads |
+| `doc.rules` | `list[Rule]` | Parsed rules (forward and backward) |
+| `doc.prefixes` | `dict[str, str]` | Prefix declarations from the document |
+
+```python
+from pyeye.parser import parse_n3
+
+doc = parse_n3("""
+    @prefix : <http://example.org/> .
+    :alice :age 30 .
+    { ?X :age ?A . ?A math:greaterThan 18 } => { ?X :isAdult true } .
+""")
+
+print(len(doc.triples))  # 1
+print(len(doc.rules))    # 1
+print(doc.prefixes)      # {'': 'http://example.org/'}
+```
+
+`ParseError` is raised on invalid N3 syntax.
+
+### `Rule`
+
+```python
+from pyeye.parser import Rule
+
+rule = Rule(
+    body=Formula(...),      # body patterns
+    head=Formula(...),      # head triples to derive
+    source="<string>",      # for error messages
+    is_backward=False,      # True for <= rules
+    for_some=(),            # @forSome variable names
+)
+```
+
+---
+
+## `N3Writer` — serialize triples to N3
 
 ```python
 from pyeye.output import N3Writer
-from pyeye.term import NamedNode, Triple
 
-w = N3Writer({"ex": "http://example.org/"})
-text = w.write_triples([
-    Triple(NamedNode("http://example.org/alice"),
-           NamedNode("http://example.org/knows"),
-           NamedNode("http://example.org/bob")),
-])
-print(text)
-# @prefix ex: <http://example.org/> .
-#
-# ex:alice ex:knows ex:bob .
+writer = N3Writer(prefixes={"": "http://example.org/", "xsd": "http://www.w3.org/2001/XMLSchema#"})
+
+triples_text = writer.write_triples(list_of_triples)   # str
+quads_text   = writer.write_quads(list_of_quads)       # str
 ```
 
-| Method | Description | Source |
-| :--- | :--- | :--- |
-| `write_triples(triples) -> str` | Serialize triples to N3, sorted by (subject, predicate, object) | `N3Writer.write_triples` — `pyeye/output.py:25` |
-| `write_quads(quads) -> str` | Serialize quads to TriG text with named graphs | `N3Writer.write_quads` — `pyeye/output.py:50` |
+The writer uses the provided prefix map to abbreviate IRIs. If no prefix map is given, full IRIs are written.
+
+```python
+from pyeye.output import N3Writer
+from pyeye.term import Triple, NamedNode, Literal
+
+writer = N3Writer({"": "http://example.org/"})
+triples = [
+    Triple(NamedNode("http://example.org/alice"), NamedNode("http://example.org/age"), Literal("30")),
+]
+print(writer.write_triples(triples))
+# :alice :age "30" .
+```
 
 ---
 
-## Builtins
+## `ReasoningTimeoutError`
 
-`BUILTIN_REGISTRY` — `pyeye/builtins.py:2321`
-
-See [builtins.md](builtins.md) for the full list with examples.
+Raised by `engine.run()` when the wall-clock timeout is exceeded.
 
 ```python
-from pyeye import BUILTIN_REGISTRY
-
-print(len(BUILTIN_REGISTRY))    # 240
-
-for iri in sorted(BUILTIN_REGISTRY):
-    print(iri)
-```
-
-### Registering custom builtins
-
-**Method 1 — pass to `execute()`:**
-
-```python
+from pyeye.engine import ReasoningTimeoutError
 from pyeye import execute
-from pyeye.term import Literal, Variable
 
-def my_double(args, engine):
-    if any(isinstance(a, Variable) for a in args):
-        return None  # not ground yet — skip
-    return Literal(str(float(args[0].value) * 2))
-
-result = execute(
-    data_strings=["@prefix : <http://ex.org/> .\n:item :value 21 ."],
-    rule_strings=[
-        "@prefix : <http://ex.org/> .\n"
-        "@prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .\n"
-        "{ ?I :value ?V . ?V e:myDouble ?D } => { ?I :doubled ?D } ."
-    ],
-    builtins={
-        "http://eulersharp.sourceforge.net/2003/03swap/log-rules#myDouble": my_double
-    },
-)
-# All 240 standard builtins remain available.
+try:
+    result = execute(
+        data_strings=[data],
+        rule_strings=[recursive_rules],
+        timeout_seconds=10.0,
+    )
+except ReasoningTimeoutError as e:
+    print(f"Reasoning timed out: {e}")
+    # Handle partial results or abort
 ```
 
-**Method 2 — `e:derive` by name:**
+Set `timeout_seconds=None` to disable the guard entirely — only do this if you are certain the rules terminate.
+
+---
+
+## Custom builtins protocol
+
+### `Builtin` type
+
+```python
+from pyeye.builtins import Builtin
+
+# A builtin is any callable matching this signature:
+def my_builtin(args: list[Term], engine: EngineProto) -> Term | list[Triple] | MultiResult | None:
+    ...
+```
+
+### `MultiResult`
+
+Returned by generative builtins that produce multiple results from one call.
+
+```python
+from pyeye.builtins import MultiResult
+from pyeye.term import Literal
+
+def generate_colors(args, engine):
+    return MultiResult([Literal("red"), Literal("green"), Literal("blue")])
+```
+
+The engine forks the current binding once per element — equivalent to a SQL `IN` or Prolog disjunction.
+
+### `register_derive_function()`
+
+Register a Python function for use with `e:derive`:
 
 ```python
 from pyeye.builtins import register_derive_function
 from pyeye.term import Literal
 
-def triple_it(args, engine):
-    return Literal(str(float(args[0].value) * 3))
+def square(args, engine):
+    n = float(args[0].value)
+    return Literal(str(n * n))
 
-register_derive_function("triple", triple_it)
+register_derive_function("square", square)
 ```
 
-Then in N3:
+In N3:
 
 ```n3
-{ ?Item :value ?V . (?V "triple") e:derive ?T } => { ?Item :tripled ?T } .
+@prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
+
+{ ?X :value ?V . ("square" ?V) e:derive ?Sq }
+    => { ?X :squared ?Sq } .
 ```
 
-### Builtin function signature
+---
+
+## Complete workflow example
 
 ```python
-def my_builtin(args: list[Term], engine: Engine) -> Term | list[Triple] | None:
-    """
-    args:   list of resolved argument Terms (subject and object, list-expanded)
-    engine: the Engine instance (access engine.store for lookups)
+from pyeye import execute, ReasoningTimeoutError
+from pyeye.term import NamedNode, Variable, Triple, Literal
+from pyeye.engine import Engine
+from pyeye.parser import parse_n3
+from pyeye.output import N3Writer
 
-    Return:
-        Term         → result value (bound to object variable in head)
-        list[Triple] → triples to assert directly
-        None         → skip (arguments not ground, or condition not met)
-    """
+BASE = "http://shop.org/"
+MATH = "http://www.w3.org/2000/10/swap/math#"
+
+# --- 1. High-level: execute() ---
+
+result = execute(
+    data_strings=[f"""
+        @prefix : <{BASE}> .
+        :widget :price 120 ; :category :electronics .
+        :gadget :price 40  ; :category :electronics .
+    """],
+    rule_strings=[f"""
+        @prefix : <{BASE}> .
+        @prefix math: <{MATH}> .
+        {{?P :category :electronics . ?P :price ?V . ?V math:greaterThan 100}}
+            => {{?P :tier :premium}} .
+        {{?P :tier :premium . ?P :price ?V . (?V 0.9) math:product ?Sale}}
+            => {{?P :salePrice ?Sale}} .
+    """],
+    pass_mode=True,
+    timeout_seconds=30.0,
+)
+
+print(result.triples)
+print(result.stats)
+
+# --- 2. Low-level: Engine ---
+
+engine = Engine(explain=True)
+
+doc = parse_n3(f"""
+    @prefix : <{BASE}> .
+    :widget :price 120 .
+""")
+for t in doc.triples:
+    engine.add_triple(t)
+
+engine.snapshot_initial()
+
+rules_doc = parse_n3(f"""
+    @prefix : <{BASE}> .
+    @prefix math: <{MATH}> .
+    {{?I :price ?P . ?P math:greaterThan 100}} => {{?I :premium true}} .
+""")
+for rule in rules_doc.rules:
+    engine.add_rule(rule)
+
+try:
+    engine.run()
+except ReasoningTimeoutError:
+    print("Timeout!")
+
+writer = N3Writer({"": BASE})
+print(writer.write_triples(engine.derived_triples))
+print(f"Steps: {engine.step_count}")
+
+# --- 3. Incremental: add facts after run ---
+
+engine.add_triple(Triple(
+    NamedNode(BASE + "gizmo"),
+    NamedNode(BASE + "price"),
+    Literal("200"),
+))
+# Incremental re-evaluation fires automatically
+print(writer.write_triples(engine.derived_triples))
 ```

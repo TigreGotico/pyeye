@@ -1,378 +1,543 @@
 # N3 Syntax Guide
 
-This guide covers the N3 (Notation 3) text format that pyeye uses to write facts and rules. No prior knowledge of RDF, logic, or Semantic Web is assumed.
-
-All parsing is implemented in `Parser` — `pyeye/parser.py:168`.
+This guide covers the N3 (Notation 3) text format that pyeye uses to write facts and rules. No prior knowledge of RDF, logic programming, or the Semantic Web is assumed.
 
 ---
 
-## The Absolute Basics
+## Overview
 
-### A single fact
+N3 is a text format for writing graphs of statements. It extends the simpler Turtle format (which itself extends the even simpler N-Triples format). In pyeye you will use N3 for:
 
-```n3
-:alice :knows :bob .
-```
+- **Data files** — facts that you load with `data_strings=` or `data_paths=`
+- **Rule files** — `{ body } => { head }` rules loaded with `rule_strings=` or `rule_paths=`
 
-Every fact has three parts:
+The same file can contain both facts and rules.
 
-| Part | Name | Meaning |
-| :--- | :--- | :--- |
-| `:alice` | **Subject** | Who the fact is about |
-| `:knows` | **Predicate** | What the fact says |
-| `:bob` | **Object** | The value or target |
+---
 
-The `.` ends the statement. Missing it is the most common parse error.
+## Triples: subject predicate object
 
-### Defining shortcuts with `@prefix`
-
-`Parser._do_prefix()` — `pyeye/parser.py:203`
-
-Writing full web addresses everywhere is tedious:
+The fundamental unit of N3 is a **triple**: a statement with exactly three parts.
 
 ```n3
-<http://example.org/people/alice> <http://example.org/relations/knows> <http://example.org/people/bob> .
+<http://example.org/alice> <http://example.org/age> "30" .
 ```
 
-Instead, define a prefix shortcut:
+This is verbose. N3 provides two abbreviation mechanisms:
+
+### Prefix declarations
+
+```n3
+@prefix : <http://example.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:alice :age "30"^^xsd:integer .
+```
+
+`@prefix name: <IRI> .` declares that `name:` is an abbreviation for the IRI. `:` (colon with nothing before it) is the default prefix — typically your application namespace.
+
+### Predicate-subject shorthand
+
+Turtle and N3 let you group multiple predicates for the same subject using `;`, and multiple objects for the same predicate using `,`:
 
 ```n3
 @prefix : <http://example.org/> .
 
-:alice :knows :bob .
-# Expands to: <http://example.org/alice> <http://example.org/knows> <http://example.org/bob> .
-```
-
-Multiple prefixes:
-
-```n3
-@prefix person: <http://example.org/people/> .
-@prefix rel:    <http://example.org/relations/> .
-
-person:alice rel:knows person:bob .
-```
-
-### Semicolons and commas
-
-```n3
-# Semicolon: same subject, different predicates
 :alice :age 30 ;
        :name "Alice" ;
-       :city "Lisbon" .
+       :parent :bob .
 
-# Comma: same subject and predicate, different objects
-:alice :knows :bob, :carol, :dave .
+:alice :likes :cats , :dogs .
 ```
+
+This is equivalent to four separate triples.
 
 ---
 
-## Rules
+## IRIs and prefixed names
 
-`Parser._do_formula_top()` — `pyeye/parser.py:257`
-
-### Basic rule
+An **IRI** (Internationalized Resource Identifier) is a global name. In N3 syntax, IRIs go in angle brackets:
 
 ```n3
-{ ?X :parent ?Y } => { ?Y :child ?X } .
+<http://example.org/alice>
+<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>
 ```
 
-- The `{ }` before `=>` is the **body** — the pattern to look for
-- The `{ }` after `=>` is the **head** — the new fact to create
-- `?X` and `?Y` are **variables** that match any value
-
-### Multiple body conditions
+With a `@prefix` declaration, `prefix:localname` expands to the full IRI:
 
 ```n3
-{ ?X :parent ?Y . ?Y :parent ?Z } => { ?X :grandparent ?Z } .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+:alice rdf:type :Person .
+# same as: <http://example.org/alice> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://example.org/Person>
 ```
 
-The `.` between body patterns means "both must be true." The shared variable `?Y` acts as a bridge.
-
-### Reversed rules (`<=`)
-
-```n3
-{ ?Y :child ?X } <= { ?X :parent ?Y } .
-```
-
-Identical to `{ ?X :parent ?Y } => { ?Y :child ?X } .` — just written in reverse. Both forms are supported.
-
----
-
-## Variables
-
-`Parser._item()` — `pyeye/parser.py:311`
-
-Variables are written as `?` followed by a name:
-
-```n3
-?X   ?Person   ?someVar   ?camelCase
-```
-
-- Variable names are case-sensitive: `?X` ≠ `?x`
-- The same variable name in a rule body must match the same value everywhere it appears
-- Variables in the head get their values from the body match
-
----
-
-## Literals
-
-### Strings
-
-```n3
-:alice :name "Alice" .
-:book :description '''Multi-line
-text''' .
-```
-
-Triple-quoted strings (`'''` or `"""`) span multiple lines.
-
-### Numbers
-
-```n3
-:alice :age 30 .
-:pi :value 3.14 .
-:avogadro :value 6.022e23 .
-```
-
-### Language tags
-
-```n3
-:greeting :text "Hello"@en .
-:greeting :text "Olá"@pt .
-```
-
-### Datatype literals
-
-```n3
-:event :date "2025-03-15"^^<http://www.w3.org/2001/XMLSchema#date> .
-```
-
----
-
-## Blank Nodes
-
-`Parser._bnode()` — `pyeye/parser.py:460`
-
-### Anonymous blank node
-
-```n3
-:alice :knows [] .
-```
-
-`[]` means "some unnamed thing." The engine creates a unique ID for it.
-
-### Blank node with properties
-
-```n3
-:alice :livesIn [ :city "Lisbon" ; :country "Portugal" ] .
-```
-
-### Named blank node
-
-```n3
-_:b1 :p :o .
-```
-
----
-
-## RDF Lists
-
-`Parser._rdf_list()` — `pyeye/parser.py:478`
-
-```n3
-:alice :favorites (:pizza :sushi :tacos) .
-```
-
-Parentheses create an ordered RDF list (`rdf:first` / `rdf:rest` chain). An empty list:
-
-```n3
-:bob :favorites () .
-```
-
----
-
-## Type Declaration Shorthand
+The shorthand `a` is built-in for `rdf:type`:
 
 ```n3
 :alice a :Person .
 ```
 
-`a` is shorthand for `rdf:type`. Equivalent to `:alice rdf:type :Person .`
+---
+
+## Literals (values)
+
+Literals represent actual data values, not resources.
+
+### Strings
+
+```n3
+:alice :name "Alice Smith" .
+:doc   :description "Multi-line\nstring" .
+```
+
+### Language-tagged strings
+
+```n3
+:alice :name "Alice"@en .
+:alice :name "アリス"@ja .
+```
+
+### Typed literals
+
+```n3
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:item :count 42 .                              # bare integer
+:item :price 9.99 .                            # bare decimal
+:item :flag true .                             # boolean
+:item :count "42"^^xsd:integer .               # explicit type
+:item :created "2024-01-15"^^xsd:date .        # date
+:item :timestamp "2024-01-15T10:30:00" .       # datetime string
+```
+
+Bare integers, decimals, and `true`/`false` are shorthand for the XSD typed equivalents. When you pass numbers to builtins like `math:greaterThan`, pyeye handles both bare numbers and typed literals.
 
 ---
 
-## Comments
+## Rules: `{ body } => { head }`
+
+A forward rule fires when all patterns in the body match the store simultaneously. It then adds all triples in the head to the store.
 
 ```n3
-# Full-line comment
-:alice :name "Alice" .  # Inline comment
-```
+@prefix : <http://example.org/> .
 
----
-
-## Extended Syntax
-
-### Triple Terms — Reifying a Triple
-
-`Parser._triple_term()` — `pyeye/parser.py:511`
-
-```n3
-<< :alice :knows :bob >> :wasSaidBy :charlie .
-```
-
-The `<< S P O >>` syntax treats a triple as a value that can be the subject or object of another triple.
-
-### Formula Terms
-
-`Parser._formula_term()` — `pyeye/parser.py:521`
-
-```n3
-:alice :thinks (| :says :alice "hello" |) .
-```
-
-The `(| Functor Args |)` syntax embeds a formula inside another triple.
-
-### `has`, `is`, `of` Sugar
-
-`Parser._verb_obj_list()` — `pyeye/parser.py:270`
-
-```n3
-:Alice :parent has :Bob .       # Same as: :Alice :parent :Bob .
-:Alice :name is "Alice" .       # Same as: :Alice :name "Alice" .
-:Bob :child of :Alice .         # Same as: :Alice :child :Bob .  (swaps S and O)
-```
-
-`has` and `is` are skipped during parsing. `of` **swaps** subject and object.
-
-### Path Expressions
-
-`Parser._path_expression()` — `pyeye/parser.py:567`
-
-```n3
-:a ! :p ! :q :target .       # Forward chain: follow :p then :q from :a
-:a ^ :parent :target .        # Reverse path: find who is parent of :a
-```
-
-`!` traverses forward along the predicate. `^` traverses in reverse.
-
-### Set Syntax
-
-`Parser._set_term()` — `pyeye/parser.py:534`
-
-```n3
-:Alice :likes ($ :pizza :sushi :tacos $) .
-```
-
-Sets use `($ ... $)` syntax. Treated as ordered lists internally.
-
-### BLOGIC Negative Surfaces
-
-Detected in `Engine._match_triples_iter` — `pyeye/engine.py:334`
-
-```n3
-@prefix log: <http://www.w3.org/2000/10/swap/log#> .
-
-:S log:onNegativeSurface { :a :p :b } .
-```
-
-A negative surface fires its enclosing rule **only if** the enclosed formula does NOT match the store. Example:
-
-```n3
-{ ?Person :age ?A . ?A e:greaterThan "17" .
-  _:neg log:onNegativeSurface { ?Person :hasLicense true } }
-    => { ?Person :cannotDrive true } .
-```
-
-Derives `:cannotDrive` for anyone over 17 who does NOT have a license in the store.
-
-### TriG Named Graphs
-
-`Parser._do_graph()` — `pyeye/parser.py:241`
-
-```n3
-@prefix : <http://ex.org/> .
-
-GRAPH :g1 {
-    :alice :name "Alice" .
-    :bob   :name "Bob" .
-}
-
-GRAPH :g2 {
-    :carol :name "Carol" .
-}
-```
-
-`GRAPH <id> { ... }` stores triples in a named graph. Access via `TripleStore.match(graph=...)`.
-
----
-
-## Quick Reference Card
-
-| Syntax | Meaning |
-| :--- | :--- |
-| `:foo` | Prefixed name |
-| `<http://...>` | Full IRI |
-| `?X` | Variable |
-| `"text"` | String literal |
-| `42` / `3.14` | Integer / decimal |
-| `"text"@en` | Language-tagged literal |
-| `"text"^^<type>` | Datatype literal |
-| `[]` | Anonymous blank node |
-| `_:name` | Named blank node |
-| `(a b c)` | Ordered RDF list |
-| `a` | `rdf:type` shorthand |
-| `;` | Same subject, new predicate |
-| `,` | Same subject + predicate, new object |
-| `.` | End of statement |
-| `# ...` | Comment |
-| `{ ... } => { ... }` | Rule (forward) |
-| `{ ... } <= { ... }` | Rule (reversed) |
-| `@prefix p: <url>` | Prefix declaration |
-| `<< S P O >>` | Triple term (reified triple) |
-| `(| Functor Args |)` | Formula term |
-| `! :p` | Forward path |
-| `^ :p` | Reverse path |
-| `has` / `is` | Syntactic sugar (no-op) |
-| `of` | Property inversion |
-| `($ a b $)` | Set syntax |
-| `log:onNegativeSurface` | BLOGIC negation |
-| `GRAPH <g> { ... }` | Named graph (TriG) |
-
----
-
-## Complete Example
-
-```n3
-@prefix : <http://my-ontology.org/> .
-@prefix log: <http://www.w3.org/2000/10/swap/log#> .
-@prefix e: <http://eulersharp.sourceforge.net/2003/03swap/log-rules#> .
-
-# === DATA ===
-:alice :parent :bob .
-:bob   :parent :carol .
-:bob   :sibling :dave .
-:alice :age 65 .
-
-# Negation: alice does NOT have a driver's license
-_:neg log:onNegativeSurface { :alice :hasLicense true } .
-
-# === RULES ===
 { ?X :parent ?Y } => { ?Y :child ?X } .
-{ ?X :parent ?Y . ?Y :parent ?Z } => { ?X :grandparent ?Z } .
-{ ?X :sibling ?Y . ?Y :parent ?Z } => { ?X :auntOrUncleOf ?Z } .
-
-# Age-based rule with negation
-{ ?X :age ?A . ?A e:greaterThan "60" .
-  _:neg log:onNegativeSurface { ?X :hasLicense true } }
-    => { ?X :needsRide true } .
 ```
 
-Derived facts:
+The body can have multiple patterns joined by `.`:
 
 ```n3
-:bob :child :alice .
-:carol :child :bob .
-:alice :grandparent :carol .
-:dave :auntOrUncleOf :carol .
-:alice :needsRide true .
+{ ?X :parent ?Y . ?Y :parent ?Z } => { ?X :grandparent ?Z } .
+```
+
+This fires once for every pair of (X, Z) such that there is a Y connecting them. With facts `:alice :parent :bob .` and `:bob :parent :carol .`, the rule produces `:alice :grandparent :carol .`
+
+The head can also have multiple triples:
+
+```n3
+{ ?P :price ?V . ?V math:greaterThan 100 }
+    => { ?P :expensive true . ?P :requiresApproval true } .
+```
+
+---
+
+## Variables: `?Name`
+
+Variables start with `?`. They are *pattern variables*: during matching, the engine tries every possible binding of each variable to a term in the store.
+
+```n3
+{ ?X :parent ?Y . ?Y :parent ?Z } => { ?X :grandparent ?Z } .
+```
+
+Variables are scoped to a single rule. The same variable name in two different rules is independent.
+
+Variable names are case-sensitive. By convention, start them with an uppercase letter (`?X`, `?Person`, `?Amount`) but lowercase works too.
+
+---
+
+## Blank nodes: `_:name`
+
+Blank nodes are anonymous resources — nodes with no global IRI. They are like local variables for data.
+
+```n3
+@prefix : <http://example.org/> .
+
+# A blank node as subject
+_:order1 :item :widget ; :qty 3 .
+
+# Anonymous blank node with []
+[] :item :gadget ; :qty 1 .
+```
+
+In rule bodies, blank nodes act as existential quantifiers: "there exists some _:n such that ...". In rule heads, blank nodes generate fresh anonymous nodes in the output.
+
+**Important gotcha:** Do not reuse blank node labels across rules to mean the same node. In rule bodies, blank nodes inside `log:onNegativeSurface { }` are special (see Negation below). Each `_:neg` in a negation surface should have a unique name per rule.
+
+---
+
+## Lists: `(a b c)`
+
+N3 supports RDF lists using parentheses:
+
+```n3
+@prefix : <http://example.org/> .
+
+:alice :scores (90 85 92) .
+:project :tags ("urgent" "Q1" "backend") .
+```
+
+Internally this expands to a chain of `rdf:first` / `rdf:rest` triples — the same structure as a Lisp-style linked list.
+
+Lists are used extensively with builtins that take multiple inputs:
+
+```n3
+@prefix math: <http://www.w3.org/2000/10/swap/math#> .
+
+# (90 85 92) math:sum ?Total — adds all three numbers
+{ :alice :scores ?L . ?L math:sum ?Total }
+    => { :alice :totalScore ?Total } .
+```
+
+And for multi-argument builtins:
+
+```n3
+# (?price 0.9) math:product ?discounted
+{ ?I :price ?P . (?P 0.9) math:product ?D }
+    => { ?I :discountedPrice ?D } .
+```
+
+---
+
+## Backward rules: `{ head } <= { body }`
+
+A backward rule is the reverse of a forward rule: instead of starting from facts and deriving conclusions, the engine works backward from a goal.
+
+```n3
+{ ?X :reachable ?Y } <= { ?X :link ?Y } .
+{ ?X :reachable ?Y } <= { ?X :reachable ?Z . ?Z :reachable ?Y } .
+```
+
+Backward rules are only used when you call `execute()` with a `query=` argument. The engine then works backward from the query to find what bindings satisfy it.
+
+```python
+from pyeye import execute
+from pyeye.term import NamedNode, Variable, Triple
+
+BASE = "http://example.org/"
+
+result = execute(
+    data_strings=["@prefix : <http://example.org/> . :a :link :b . :b :link :c ."],
+    rule_strings=["""
+        @prefix : <http://example.org/> .
+        { ?X :reachable ?Y } <= { ?X :link ?Y } .
+        { ?X :reachable ?Y } <= { ?X :reachable ?Z . ?Z :reachable ?Y } .
+    """],
+    query=Triple(
+        NamedNode(BASE + "a"),
+        NamedNode(BASE + "reachable"),
+        Variable("Dest"),
+    ),
+)
+
+for binding in result.query_answers:
+    print(binding["Dest"].value)
+# http://example.org/b
+# http://example.org/c
+```
+
+Forward and backward rules can coexist in the same file. Forward rules run first (during `engine.run()`), then backward chaining is applied to the query.
+
+---
+
+## Negation: `log:onNegativeSurface`
+
+N3 implements negation-as-failure (closed-world assumption) via `log:onNegativeSurface`. A negative surface fires only when the enclosed formula *cannot* be matched.
+
+```n3
+@prefix : <http://example.org/> .
+@prefix log: <http://www.w3.org/2000/10/swap/log#> .
+
+# Fire if ?Svc has no :timeout property
+{ ?Svc a :Service .
+  _:neg log:onNegativeSurface { ?Svc :timeout ?Any } }
+    => { ?Svc :timeout :defaultTimeout } .
+```
+
+The blank node before `log:onNegativeSurface` is syntactically required. Use a unique blank node label for each negation in a rule — `_:neg1`, `_:neg2`, etc.:
+
+```n3
+{ ?Svc a :Service .
+  _:n1 log:onNegativeSurface { ?Svc :host ?H } .
+  _:n2 log:onNegativeSurface { ?Svc :port ?P } }
+    => { ?Svc :status :misconfigured } .
+```
+
+**Important:** Negation-as-failure is closed-world. "I cannot derive X" is treated as "X is false." If your dataset is incomplete, this may give unexpected results.
+
+---
+
+## Named graphs: `GRAPH <iri> { ... }`
+
+Named graphs allow you to associate triples with a specific context (a graph IRI). pyeye uses TriG syntax:
+
+```n3
+@prefix : <http://example.org/> .
+
+GRAPH <http://example.org/graph/A> {
+    :alice :knows :bob .
+}
+
+GRAPH <http://example.org/graph/B> {
+    :bob :knows :carol .
+}
+
+# Triples without a GRAPH block go to the default graph
+:carol :age 35 .
+```
+
+You can query specific graphs using `graph:member` or scope reasoning to named graphs. See [Builtins — graph:](builtins.md#graph) for details.
+
+---
+
+## RDF-star: `<< S P O >>`
+
+RDF-star allows a triple itself to appear as the subject or object of another triple — useful for annotating statements.
+
+```n3
+@prefix : <http://example.org/> .
+
+# Annotate the fact that alice knows bob with a source
+<< :alice :knows :bob >> :source <http://example.org/survey/2024> .
+<< :alice :knows :bob >> :confidence 0.95 .
+```
+
+The `<< S P O >>` syntax produces a `TripleTerm` in pyeye's internal representation.
+
+---
+
+## Datatypes in depth
+
+### XSD namespace
+
+Most data types come from the XML Schema Definition (XSD) namespace:
+
+```n3
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:ex :intVal   "42"^^xsd:integer .
+:ex :floatVal "3.14"^^xsd:double .
+:ex :boolVal  "true"^^xsd:boolean .
+:ex :dateVal  "2024-01-15"^^xsd:date .
+:ex :dtVal    "2024-01-15T10:30:00"^^xsd:dateTime .
+:ex :strVal   "hello"^^xsd:string .
+```
+
+### Shorthand for common types
+
+```n3
+42        # same as "42"^^xsd:integer
+3.14      # same as "3.14"^^xsd:decimal
+true      # same as "true"^^xsd:boolean
+false     # same as "false"^^xsd:boolean
+"hello"   # plain string (no datatype)
+```
+
+### Creating typed literals in rules
+
+Use `log:dtlit` to construct a typed literal in a rule head:
+
+```n3
+@prefix log: <http://www.w3.org/2000/10/swap/log#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+{ ?P :rawScore ?V .
+  (?V "http://www.w3.org/2001/XMLSchema#integer") log:dtlit ?Typed }
+    => { ?P :score ?Typed } .
+```
+
+---
+
+## Path expressions: `!` and `^`
+
+N3 supports path shorthand for following chains of predicates.
+
+Forward path (`!`) — follow predicate:
+
+```n3
+:alice :parent !:name   # alice's parent's name
+```
+
+Reverse path (`^`) — follow predicate in reverse:
+
+```n3
+:alice ^:parent   # who has alice as their parent (i.e., alice's children)
+```
+
+Paths can be chained:
+
+```n3
+:alice !:parent !:parent   # alice's grandparent
+```
+
+These are syntactic sugar — the engine resolves them against the store during matching.
+
+---
+
+## `log:table` — memoization for backward chaining
+
+When using recursive backward rules, declare predicates as tabled to prevent infinite loops:
+
+```n3
+@prefix : <http://example.org/> .
+@prefix log: <http://www.w3.org/2000/10/swap/log#> .
+
+[] log:table :reachable .
+
+{ ?X :reachable ?Y } <= { ?X :link ?Y } .
+{ ?X :reachable ?Y } <= { ?X :reachable ?Z . ?Z :reachable ?Y } .
+```
+
+The `[] log:table :reachable .` directive tells the engine to memoize calls to the `:reachable` predicate during backward chaining. Without this, the recursive rule would loop indefinitely on cyclic graphs.
+
+---
+
+## `@forSome` — existential quantification
+
+`@forSome` declares blank-node-like variables that are existentially quantified over the whole document. In practice, use `log:skolem` instead for generating fresh identifiers in rules — it is more predictable and produces deterministic output:
+
+```n3
+@prefix log: <http://www.w3.org/2000/10/swap/log#> .
+
+{ ?P :worksAt ?C . (?P ?C) log:skolem ?Employment }
+    => { ?Employment a :Employment ; :employee ?P ; :employer ?C } .
+```
+
+---
+
+## Common gotchas
+
+### Period at end of every statement
+
+Every triple, rule, and prefix declaration must end with `.`:
+
+```n3
+# Wrong
+:alice :age 30
+{ ?X :parent ?Y } => { ?Y :child ?X }
+
+# Right
+:alice :age 30 .
+{ ?X :parent ?Y } => { ?Y :child ?X } .
+```
+
+### Semicolons do not end a rule
+
+A `;` groups predicates for the same subject — it does not terminate a statement. A `.` does:
+
+```n3
+:alice :name "Alice" ;
+       :age  30 .     # period ends the statement, not the semicolon
+```
+
+Inside rule heads, `;` groups multiple head triples for the same subject:
+
+```n3
+{ ?P :price ?V . ?V math:greaterThan 100 }
+    => { ?P :expensive true ; :requiresApproval true } .
+```
+
+### Blank nodes in rule bodies behave as existentials
+
+In a rule body, `_:name` means "there exists some node with this local name." Two patterns using the same `_:name` must refer to the same node. Use this to join on anonymous nodes:
+
+```n3
+# Both patterns must match the same blank node
+{ _:order :item ?I . _:order :qty ?Q }
+    => { ?I :ordered ?Q } .
+```
+
+### Builtin argument ordering
+
+Most computation builtins follow the pattern:
+
+```n3
+(input1 input2 ...) builtin:name ?output
+```
+
+The subject is a list of inputs. The object is the output variable. This is different from filter builtins, which take their single argument as the subject:
+
+```n3
+# Filter: subject is the value being tested, object is the comparand
+?V math:greaterThan 100 .
+
+# Computation: subject is input list, object is output variable
+(?A ?B) math:sum ?C .
+```
+
+### Variables are untyped
+
+Variables match any term: IRIs, literals, blank nodes. The builtin must handle what it receives. If a builtin receives a variable it cannot yet evaluate, it returns `None` and the rule body fails for that binding. This is not an error.
+
+### N3 is case-sensitive
+
+`:alice` and `:Alice` are different resources. Variable names like `?x` and `?X` are different variables.
+
+### Prefixes are per-document
+
+`@prefix` declarations apply to the document they appear in. If you load multiple data and rule files, each file can have its own prefix declarations. The serializer uses the merged set of all prefixes.
+
+---
+
+## Full working example
+
+```n3
+@prefix :     <http://example.org/shop#> .
+@prefix math: <http://www.w3.org/2000/10/swap/math#> .
+@prefix log:  <http://www.w3.org/2000/10/swap/log#> .
+@prefix list: <http://www.w3.org/2000/10/swap/list#> .
+
+# --- Facts ---
+:widget :price 120 ; :category :electronics ; :tags ("sale" "featured") .
+:gadget :price 40  ; :category :electronics .
+
+# --- Rules ---
+
+# Premium if price > 100 in the electronics category
+{ ?P :category :electronics . ?P :price ?V . ?V math:greaterThan 100 }
+    => { ?P :tier :premium } .
+
+# Standard otherwise (using negation)
+{ ?P :category :electronics .
+  _:neg log:onNegativeSurface { ?P :tier :premium } }
+    => { ?P :tier :standard } .
+
+# 10% discount for premium items
+{ ?P :tier :premium . ?P :price ?V .
+  (?V 0.1) math:product ?D }
+    => { ?P :discount ?D } .
+
+# Count tags
+{ ?P :tags ?L . ?L list:length ?N }
+    => { ?P :tagCount ?N } .
+```
+
+Run it:
+
+```python
+from pyeye import execute
+
+result = execute(
+    data_strings=[n3_text],   # the block above
+    rule_strings=[],           # rules are embedded in data_strings
+)
+print(result.triples)
+```
+
+Output (order may vary):
+
+```n3
+:widget :tier :premium .
+:gadget :tier :standard .
+:widget :discount 12.0 .
+:widget :tagCount 2 .
 ```
