@@ -268,6 +268,21 @@ Reasoning chain lineage: **eye.pl** (Prolog) → **eyeling** (JavaScript) → **
 
 ---
 
+## AI Transparency
+
+pyeye is an AI-assisted port, developed over several weeks with the following process:
+
+- **Original source**: the EYE reasoner lineage — `eye.pl` (Prolog) → `eyeling` (JavaScript) → `pyeye` (Python)
+- **All code written by [Claude](https://claude.ai)** (Anthropic) under heavy human guidance
+- The human author provided architecture decisions, reviewed every module, directed fixes, and had access to the original source code throughout
+- **Full test suite ported**: 1900+ tests covering the engine, parser, builtins, entailment, backward chaining, proof traces, and CLI
+- **100% line coverage** on core modules, verified by CI
+- **35 runnable examples** in `examples/` written and validated as part of the porting process — these double as integration tests and demonstrate correct behaviour across all major features
+
+This section exists because we believe users and contributors deserve to know how the code was produced.
+
+---
+
 ## License
 
 MIT — see `LICENSE`.
