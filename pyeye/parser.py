@@ -152,7 +152,7 @@ def tokenize(text: str) -> list[Tok]:
         ("BLANK",   r"_:[^\W\d]\w*"),  # C9 fix: Unicode blank node names
         ("LANG",    r"@[A-Za-z]+(-[A-Za-z0-9]+)*"),
         ("COLON",   r":"),
-        ("NUM",     r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?"),
+        ("NUM",     r"[+-]?(\d+\.\d+|\.\d+|\d+)([eE][+-]?\d+)?"),
         ("KW",      r"[^\W\d][\w\-]*"),  # C9 fix: Unicode keywords and local names (hyphens allowed per N3 spec)
         ("HASH",    r"#[^\n]*"),
         ("WS",      r"\s+"),
@@ -335,8 +335,12 @@ class Parser:
             elif self._peek().t == "TRUE":
                 self._eat("TRUE")
                 head = Formula(())
-            else:
+            elif self._peek().t == "LBR":
                 head = self._formula()
+            else:
+                # Bare term (variable, literal, IRI) as rule head — skip
+                self._eat_any()
+                head = Formula(())
             self._eat("DOT")
             self._rules.append(Rule(
                 body, head, self._src,
@@ -350,8 +354,12 @@ class Parser:
             if self._peek().t == "TRUE":
                 self._eat("TRUE")
                 head = Formula(())
-            else:
+            elif self._peek().t == "LBR":
                 head = self._formula()
+            else:
+                # Variable or other term as body — skip it (treat as empty body)
+                self._eat_any()
+                head = Formula(())
             self._eat("DOT")
             self._rules.append(Rule(
                 head, body, self._src,
@@ -377,21 +385,50 @@ class Parser:
         self._eat("LBR")
         tris: list[Triple] = []
         while self._peek().t != "RBR":
-            # Bug 1 fix: If we see RP immediately, it's an empty list ()
-            # which is the unit formula — consume it and continue
+            # Bug 1 fix: If we see `()` and nothing follows (or only DOT/RBR
+            # follows), it is the "unit formula" — a no-op.  But if a predicate
+            # follows, `()` is the empty-list *subject* of a triple pattern.
             if self._peek().t == "LP":
                 # Peek ahead to see if it's empty ()
                 if self._i + 1 < len(self._toks) and self._toks[self._i + 1].t == "RP":
-                    self._eat("LP")
-                    self._eat("RP")
-                    # Empty list is unit — no triples to add
-                    continue
+                    # Look at the token after the closing ) to decide
+                    after_rp = self._toks[self._i + 2].t if self._i + 2 < len(self._toks) else "EOF"
+                    if after_rp in ("RBR", "DOT"):
+                        # It's the unit formula — consume and skip
+                        self._eat("LP")
+                        self._eat("RP")
+                        continue
+                    # else: fall through to _triple_pattern which will parse () as subject
+            # Handle @forAll/@forSome quantifier inside a formula
+            if self._peek().t in ("FSOME", "FALL"):
+                self._do_quantifier()
+                continue
+
+            # Handle ?Var => {head} inside a formula (variable as antecedent)
+            if self._peek().t == "VAR" and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t == "IMPF":
+                var_term = Variable(self._eat("VAR").v[1:])
+                self._eat("IMPF")
+                head_formula = self._formula() if self._peek().t == "LBR" else Formula(())
+                if self._peek().t == "DOT":
+                    self._eat("DOT")
+                log_implies = NamedNode("http://www.w3.org/2000/10/swap/log#implies")
+                tris.append(Triple(var_term, log_implies, head_formula))
+                continue
+
             # M4 fix: Check for implication inside formulas: {A} => {B}
             if self._peek().t == "LBR":
                 body_formula = self._formula()
                 if self._peek().t == "IMPF":
                     self._eat("IMPF")
-                    head_formula = self._formula()
+                    if self._peek().t in ("FALSE", "TRUE"):
+                        self._eat_any()
+                        head_formula = Formula(())
+                    elif self._peek().t == "LBR":
+                        head_formula = self._formula()
+                    else:
+                        # Bare term as implication head — skip
+                        self._eat_any()
+                        head_formula = Formula(())
                     # Optional trailing DOT inside formula
                     if self._peek().t == "DOT":
                         self._eat("DOT")
@@ -400,7 +437,15 @@ class Parser:
                     tris.append(Triple(body_formula, log_implies, head_formula))
                 elif self._peek().t == "IMPB":
                     self._eat("IMPB")
-                    head_formula = self._formula()
+                    if self._peek().t == "LBR":
+                        head_formula = self._formula()
+                    elif self._peek().t == "TRUE":
+                        self._eat("TRUE")
+                        head_formula = Formula(())
+                    else:
+                        # Variable or other bare term as body — skip
+                        self._eat_any()
+                        head_formula = Formula(())
                     # Optional trailing DOT inside formula
                     if self._peek().t == "DOT":
                         self._eat("DOT")
@@ -424,6 +469,10 @@ class Parser:
 
     def _verb_obj_list(self, subj: Term) -> list[Triple]:
         out: list[Triple] = []
+        # If the subject is followed immediately by a path operator, expand it.
+        # E.g. ``(?L ?L) ! math:product math:lessThan ?N`` — the ``!math:product``
+        # modifies the list subject, producing a new existential as the effective subj.
+        subj = self._maybe_path(subj)
         while True:
             # Handle inverse predicate: `<-pred obj` → Triple(obj, pred, subj)
             if self._peek().t == "PREDINV":
@@ -532,18 +581,35 @@ class Parser:
         _LOCAL_NAME_TOKENS = frozenset(("KW", "IS_KW", "HAS_KW", "OF_KW", "GRAPH_KW", "TRUE", "FALSE"))
 
         # Prefixed name: :foo → COLON + KW
+        # Also handles digit-starting local names: :3outof5 → COLON + NUM + KW
         if t.t == "COLON":
             self._eat("COLON")
             lt = self._peek()
-            local = self._eat_any().v if lt.t in _LOCAL_NAME_TOKENS else ""
+            if lt.t in _LOCAL_NAME_TOKENS:
+                local = self._eat_any().v
+            elif lt.t == "NUM":
+                # Digit-starting local name: :3outof5 → combine NUM + optional KW
+                local = self._eat_any().v
+                if self._peek().t in _LOCAL_NAME_TOKENS:
+                    local += self._eat_any().v
+            else:
+                local = ""
             return self._maybe_path(self._pm.expand(":" + local))
 
         # Prefixed name: ex:foo → KW + COLON + KW
+        # Also handles ex:3outof5 → KW + COLON + NUM + KW
         if t.t == "KW" and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t == "COLON":
             prefix = self._eat("KW").v
             self._eat("COLON")
             lt = self._peek()
-            local = self._eat_any().v if lt.t in _LOCAL_NAME_TOKENS else ""
+            if lt.t in _LOCAL_NAME_TOKENS:
+                local = self._eat_any().v
+            elif lt.t == "NUM":
+                local = self._eat_any().v
+                if self._peek().t in _LOCAL_NAME_TOKENS:
+                    local += self._eat_any().v
+            else:
+                local = ""
             return self._maybe_path(self._pm.expand(prefix + ":" + local))
 
         if t.t == "IRI":
@@ -825,6 +891,35 @@ class Parser:
 
     def _do_data(self) -> None:
         subj = self._item()
+        # A bare blank node `[ ... ] .` is a valid top-level statement in N3.
+        # The blank node's properties are already added inside _bnode(), so if
+        # the next token is just a DOT, eat it and return.
+        if self._peek().t == "DOT":
+            self._eat("DOT")
+            return
+        # Handle bare-term backward rule: `true <= { ... } .`
+        # These arise in EYE N3 files like: `true <= { <body> }.`
+        if self._peek().t == "IMPB":
+            self._eat("IMPB")
+            if self._peek().t == "TRUE":
+                self._eat("TRUE")
+                body_formula = Formula(())
+            else:
+                body_formula = self._formula()
+            self._eat("DOT")
+            # Wrap head in a 1-triple formula: {subj :is :true} or treat as unit
+            # For now: create an empty head formula (facts derived trivially)
+            # The backward rule says: whenever body holds, derive subj.
+            # If subj is a literal like `true`, this means "the body is always satisfiable".
+            # We skip execution but record it as a backward rule.
+            head_formula = Formula(())
+            self._rules.append(Rule(
+                body_formula, head_formula, self._src,
+                for_some=tuple(self._for_some),
+                for_all=tuple(self._for_all),
+                is_backward=True,
+            ))
+            return
         new = self._verb_obj_list(subj)
         # Check if this turned out to be a rule (=> in predicate position)
         if self._triples and self._triples[-1].predicate.value.endswith("implies"):  # pragma: no cover — dead code: data mode never produces implies triples
