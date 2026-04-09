@@ -15,7 +15,7 @@ from pyeye.parser import (
     parse_n3, load_data_string, load_data_file, ParsedDocument, Rule
 )
 from pyeye.builtins import Builtin
-from pyeye.engine import Engine
+from pyeye.engine import Engine, ReasoningTimeoutError
 from pyeye.output import N3Writer
 
 import ipaddress as _ipaddress
@@ -40,6 +40,7 @@ def execute(
     explain: bool = False,
     max_steps: int = -1,
     limit_answers: int = -1,
+    timeout_seconds: float | None = 30.0,
     prefixes: dict[str, str] | None = None,
     nope: bool = False,
     pass_mode: bool = False,
@@ -109,6 +110,13 @@ def execute(
     explain_format :
         Format for proof trace output: "n3" (default), "dot" (Graphviz),
         or "html" (collapsible browser view). Only used when explain=True.
+    timeout_seconds :
+        Wall-clock deadline for forward chaining, in seconds.  Defaults to
+        30 s.  Raise ``ReasoningTimeoutError`` if the engine is still running
+        when the deadline is hit — this prevents infinite loops caused by
+        rules that generate an unbounded number of new triples.  Pass
+        ``None`` to disable the guard entirely (use only when you are certain
+        the rules terminate).
     """
     start = time.monotonic()
 
@@ -224,6 +232,7 @@ def execute(
         limit_answers=limit_answers,
         djiti_debug=djiti_debug,
         explain=explain,
+        timeout_seconds=timeout_seconds,
     )
 
     # Convert log:implies triples (formula log:implies formula) to rules

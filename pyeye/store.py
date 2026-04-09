@@ -35,15 +35,15 @@ class TripleStore:
     __slots__ = ("_triples", "_by_pred", "_by_subj", "_by_obj", "_quads", "_quads_by_graph")
 
     def __init__(self) -> None:
-        # Default graph (triples)
-        self._triples: set[Triple] = set()
-        self._by_pred: dict[Term, set[Triple]] = {}
+        # Default graph (triples) — dict[Triple, None] preserves insertion order
+        self._triples: dict[Triple, None] = {}
+        self._by_pred: dict[Term, dict[Triple, None]] = {}
         # M9 fix: Subject and object indexes for fast lookup
-        self._by_subj: dict[Term, set[Triple]] = {}
-        self._by_obj: dict[Term, set[Triple]] = {}
+        self._by_subj: dict[Term, dict[Triple, None]] = {}
+        self._by_obj: dict[Term, dict[Triple, None]] = {}
         # Named graphs (quads)
-        self._quads: set[Quad] = set()
-        self._quads_by_graph: dict[Term, set[Quad]] = {}
+        self._quads: dict[Quad, None] = {}
+        self._quads_by_graph: dict[Term, dict[Quad, None]] = {}
 
     # -- mutators ----------------------------------------------------------------
 
@@ -55,11 +55,11 @@ class TripleStore:
         """
         if triple in self._triples:
             return False
-        self._triples.add(triple)
+        self._triples[triple] = None
         # M9: Index by predicate, subject, and object
-        self._by_pred.setdefault(triple.predicate, set()).add(triple)
-        self._by_subj.setdefault(triple.subject, set()).add(triple)
-        self._by_obj.setdefault(triple.object, set()).add(triple)
+        self._by_pred.setdefault(triple.predicate, {})[triple] = None
+        self._by_subj.setdefault(triple.subject, {})[triple] = None
+        self._by_obj.setdefault(triple.object, {})[triple] = None
         return True
 
     def add_quad(self, quad: Quad) -> bool:
@@ -69,10 +69,10 @@ class TripleStore:
         """
         if quad in self._quads:
             return False
-        self._quads.add(quad)
+        self._quads[quad] = None
         graph = quad.graph
         if graph is not None:
-            self._quads_by_graph.setdefault(graph, set()).add(quad)
+            self._quads_by_graph.setdefault(graph, {})[quad] = None
         return True
 
     def contains(self, triple: Triple) -> bool:
@@ -86,21 +86,21 @@ class TripleStore:
         """
         if triple not in self._triples:
             return False
-        self._triples.discard(triple)
+        del self._triples[triple]
         # M9: Clean up all indexes
         pred = triple.predicate
         if pred in self._by_pred:
-            self._by_pred[pred].discard(triple)
+            self._by_pred[pred].pop(triple, None)
             if not self._by_pred[pred]:
                 del self._by_pred[pred]
         subj = triple.subject
         if subj in self._by_subj:
-            self._by_subj[subj].discard(triple)
+            self._by_subj[subj].pop(triple, None)
             if not self._by_subj[subj]:
                 del self._by_subj[subj]
         obj = triple.object
         if obj in self._by_obj:
-            self._by_obj[obj].discard(triple)
+            self._by_obj[obj].pop(triple, None)
             if not self._by_obj[obj]:
                 del self._by_obj[obj]
         return True
@@ -146,7 +146,7 @@ class TripleStore:
                 yield Triple(q.subject, q.predicate, q.object)
         else:
             # M9: Choose the most selective index
-            candidates: set[Triple] | None = None
+            candidates: dict[Triple, None] | None = None
 
             if subject is not None and subject in self._by_subj:
                 candidates = self._by_subj[subject]
@@ -177,13 +177,13 @@ class TripleStore:
         return len(self._triples) + len(self._quads)
 
     def __iter__(self) -> Iterator[Triple]:
-        yield from self._triples
-        for q in self._quads:
+        yield from self._triples.keys()
+        for q in self._quads.keys():
             yield Triple(q.subject, q.predicate, q.object)
 
     def triples(self) -> frozenset[Triple]:
         """Return a snapshot of all triples (default graph only)."""
-        return frozenset(self._triples)
+        return frozenset(self._triples.keys())
 
     def quads(self) -> frozenset[Quad]:
         """Return a snapshot of all quads (named graphs only)."""

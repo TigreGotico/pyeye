@@ -1,6 +1,7 @@
 """pyeye — Pure-Python forward-chaining N3 reasoner."""
 
 from pyeye.entry import execute, Result
+from pyeye.engine import ReasoningTimeoutError
 from pyeye.term import (
     NamedNode,
     Literal,
@@ -24,6 +25,7 @@ from pyeye.builtins import BUILTIN_REGISTRY
 __all__ = [
     "execute",
     "Result",
+    "ReasoningTimeoutError",
     "NamedNode",
     "Literal",
     "Variable",

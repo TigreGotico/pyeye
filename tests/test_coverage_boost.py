@@ -611,7 +611,6 @@ class TestEngineEdgeCases:
         result = e.add_triple(T(NN("a"), NN("p"), NN("b")))
         assert result is True
 
-    @pytest.mark.skip(reason="Formula.__hash__ unhashable list bug in upstream")
     def test_negative_surface_in_body_blocks(self):
         """Negative surface pattern: if formula matches, path fails."""
         r = execute(
@@ -1443,22 +1442,18 @@ class TestStringBuiltins:
         r = string_format([L("Hello %s!"), L("world")], None)
         assert r.value == "Hello world!"
 
-    @pytest.mark.skip(reason="_py_re undefined in builtins.py (source bug)")
     def test_scrape(self):
         r = string_scrape([L("hello world"), L(r"\w+")], None)
         assert r.value == "hello"
 
-    @pytest.mark.skip(reason="_py_re undefined in builtins.py (source bug)")
     def test_scrape_no_match(self):
         r = string_scrape([L("hello"), L(r"\d+")], None)
         assert r is None
 
-    @pytest.mark.skip(reason="_py_re undefined in builtins.py (source bug)")
     def test_scrapeAll(self):
         r = string_scrapeAll([L("hello world"), L(r"\w+")], None)
         assert r is not None
 
-    @pytest.mark.skip(reason="_py_re undefined in builtins.py (source bug)")
     def test_search(self):
         r = string_search([L("hello world"), L(r"\w+")], None)
         assert r is not None
@@ -1503,7 +1498,6 @@ class TestStringBuiltins:
         r = string_setCharAt([L("hi"), L("10"), L("X")], None)
         assert r is None
 
-    @pytest.mark.skip(reason="_py_re undefined in builtins.py (source bug)")
     def test_replaceAll(self):
         r = string_replaceAll([L("hello world"), L("o"), L("0")], None)
         assert r.value == "hell0 w0rld"
@@ -4172,8 +4166,9 @@ class TestBuiltinsCoverageBoost:
     # --- log_forAllIn ---
     def test_log_forAllIn(self):
         from pyeye.builtins import log_forAllIn
+        # Without a cases list in binding, returns None (no allPossibleCases found)
         r = log_forAllIn([L("x"), L("y")], self.engine)
-        assert isinstance(r, list)
+        assert r is None
 
     # --- e_calculate ---
     def test_e_calculate_ok(self):

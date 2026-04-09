@@ -91,28 +91,30 @@ class TestLogAllPossibleCases:
     def test_no_args_returns_none(self):
         assert log_allPossibleCases([], None) is None
 
-    def test_unground_returns_none(self):
-        assert log_allPossibleCases([V("X")], None) is None
+    def test_returns_none_when_no_cases_in_store(self):
+        # With no allPossibleCases triples in the store, returns None
+        from pyeye.engine import Engine
+        e = Engine()
+        e._current_binding = {}
+        result = log_allPossibleCases([V("X"), V("Y")], e)
+        assert result is None
 
-    def test_returns_derived_triples_when_present(self):
-        e = _make_engine()
-        t1 = T(NN("http://ex/a"), NN("http://ex/p"), NN("http://ex/b"))
-        e._derived_triples = [t1]
-        result = log_allPossibleCases([L("all")], e)
-        assert result is not None
-        assert t1 in result
-
-    def test_returns_empty_list_when_no_derived(self):
-        e = _make_engine()
-        # Engine has _derived_triples attr but it is empty
-        result = log_allPossibleCases([L("all")], e)
-        assert result == []
-
-    def test_returns_empty_when_engine_has_no_attr(self):
-        class MinimalEngine:
-            store = TripleStore()
-        result = log_allPossibleCases([L("x")], MinimalEngine())
-        assert result == []
+    def test_returns_cases_node_when_present(self):
+        # With an allPossibleCases triple in the store, returns the cases list node
+        from pyeye.engine import Engine
+        from pyeye.parser import parse_n3
+        e = Engine()
+        parsed = parse_n3("""
+@prefix log: <http://www.w3.org/2000/10/swap/log#>.
+@prefix var: <http://www.w3.org/2000/10/swap/var#>.
+@prefix : <urn:test:>.
+(var:X) log:allPossibleCases ({ var:X a :A } { var:X a :B }).
+""")
+        for t in parsed.triples:
+            e.add_triple(t)
+        e._current_binding = {}
+        result = log_allPossibleCases([V("X"), V("Y")], e)
+        assert result is not None  # returns the cases list node
 
 
 # ---------------------------------------------------------------------------

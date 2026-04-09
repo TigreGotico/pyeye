@@ -117,6 +117,21 @@ def _int_result(v: int) -> Literal:
     return Literal(str(v), datatype=NamedNode("http://www.w3.org/2001/XMLSchema#integer"))
 
 
+def _input_only(args: list[Term]) -> list[Term]:
+    """Return input args, stripping a trailing unbound Variable output slot.
+
+    When a function-style builtin is called from the engine, the last element
+    of *args* is the object of the builtin triple — the output slot.  If it is
+    still an unbound Variable we must not treat it as a ground input.
+
+    Only strips the last arg when there are at least 2 args, so that
+    single-element calls (e.g. in unit tests) are not incorrectly emptied.
+    """
+    if len(args) >= 2 and isinstance(args[-1], Variable):
+        return args[:-1]
+    return args
+
+
 def _make_list(items: list[Term], engine: EngineProto) -> Existential | None:
     """Create an RDF list from a Python list of terms."""
     if not items:
@@ -200,9 +215,10 @@ def math_divide(args: list[Term], engine: EngineProto) -> Term | None:
 # ---------------------------------------------------------------------------
 
 def string_concatenation(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args):
+    inputs = _input_only(args)
+    if _unground(inputs):
         return None
-    return Literal("".join(_str_val(a) for a in args))
+    return Literal("".join(_str_val(a) for a in inputs))
 
 
 def string_contains(args: list[Term], engine: EngineProto) -> Term | None:
@@ -244,7 +260,7 @@ def time_now(args: list[Term], engine: EngineProto) -> Term | None:
 
 
 def time_year(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args):
+    if _unground(args[:1]):
         return None
     dt = _str_val(args[0])
     try:
@@ -254,7 +270,7 @@ def time_year(args: list[Term], engine: EngineProto) -> Term | None:
 
 
 def time_month(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args):
+    if _unground(args[:1]):
         return None
     dt = _str_val(args[0])
     try:
@@ -264,7 +280,7 @@ def time_month(args: list[Term], engine: EngineProto) -> Term | None:
 
 
 def time_day(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args):
+    if _unground(args[:1]):
         return None
     dt = _str_val(args[0])
     try:
@@ -428,26 +444,26 @@ def type_iri(args: list[Term], engine: EngineProto) -> Term | None:
 # ---------------------------------------------------------------------------
 
 def crypto_md5(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args):
+    if _unground(args[:1]):
         return None
     return Literal(_hashlib.md5(_str_val(args[0]).encode()).hexdigest())
 
 
 def crypto_sha(args: list[Term], engine: EngineProto) -> Term | None:
     """SHA-1 (deprecated but kept for EYE compatibility)."""
-    if _unground(args):
+    if _unground(args[:1]):
         return None
     return Literal(_hashlib.sha1(_str_val(args[0]).encode()).hexdigest())
 
 
 def crypto_sha256(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args):
+    if _unground(args[:1]):
         return None
     return Literal(_hashlib.sha256(_str_val(args[0]).encode()).hexdigest())
 
 
 def crypto_sha512(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args):
+    if _unground(args[:1]):
         return None
     return Literal(_hashlib.sha512(_str_val(args[0]).encode()).hexdigest())
 
@@ -468,7 +484,7 @@ def string_matches(args: list[Term], engine: EngineProto) -> Term | None:
 
 def string_replace(args: list[Term], engine: EngineProto) -> Term | None:
     """Regex replace: string:replace(haystack, pattern, replacement) → string."""
-    if _unground(args):
+    if _unground(args[:3]):
         return None
     try:
         return Literal(_re.sub(_str_val(args[1]), _str_val(args[2]), _str_val(args[0])))
@@ -478,11 +494,11 @@ def string_replace(args: list[Term], engine: EngineProto) -> Term | None:
 
 def string_substring(args: list[Term], engine: EngineProto) -> Term | None:
     """Substring: string:substring(str, start, length) → string."""
-    if _unground(args):
+    if _unground(args[:2]):
         return None
     s = _str_val(args[0])
     start = int(_num_val(args[1]))
-    length = int(_num_val(args[2])) if len(args) > 2 else len(s)
+    length = int(_num_val(args[2])) if len(args) > 2 and not isinstance(args[2], Variable) else len(s)
     return Literal(s[start:start + length])
 
 
@@ -886,15 +902,93 @@ def log_implies(args: list[Term], engine: EngineProto) -> Term | None:
     return _bool_result(args[0] == args[1])
 
 
-def log_forAllIn(args: list[Term], engine: EngineProto) -> list[Triple] | None:
-    """Collect all bindings for a variable across matching triples.
+def log_forAllIn(args: list[Term], engine: EngineProto) -> Term | None:
+    """log:forAllIn — proof-by-cases: check that all possible cases are covered.
 
-    forAllIn(variable, pattern) → list of bindings.
-    Simplified: returns all store triples that match the pattern.
+    Subject: list of [cond1_formula, cond2_formula]
+    Object: scope variable (bound to True on success)
+
+    cond1 generates case formulas from the cases list (allPossibleCases);
+    cond2 checks that each case is covered by a rule in the engine.
+
+    The implementation inspects engine._current_binding for ?Y (cases list)
+    and ?T (theorem), then checks engine._rules for coverage.
     """
-    # This is a simplified version that returns the store contents
-    # Full implementation would need access to the rule's formula context
-    return list(engine.store)
+    binding = getattr(engine, '_current_binding', {})
+
+    # args = [Formula(cond1), Formula(cond2), Variable(SCOPE)]
+    # or just [Variable(SCOPE)] if no conditions
+    if not args:
+        return None
+
+    # Get the cases list (Y) and theorem (T) from current binding
+    _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+
+    # Find Y and T in binding (may have __rN suffixes from standardize-apart)
+    import re as _re_local
+    y_val = None
+    t_val = None
+    for key, val in binding.items():
+        base = _re_local.sub(r'__r\d+$', '', key)
+        if base == 'Y' and y_val is None:
+            y_val = val
+        elif base == 'T' and t_val is None:
+            t_val = val
+
+    if y_val is None or t_val is None:
+        return None
+
+    # Expand the cases list
+    if not isinstance(y_val, Existential):
+        return None
+    cases = engine._expand_list(y_val)
+
+    # For each case formula, extract the type class and check for a covering rule
+    for case_formula in cases:
+        if not isinstance(case_formula, Formula):
+            return None
+
+        # Extract object of rdf:type triple (the case class)
+        type_class = None
+        for t in case_formula.triples:
+            if isinstance(t.predicate, NamedNode) and t.predicate.value == _RDF_TYPE:
+                type_class = t.object
+                break
+
+        if type_class is None:
+            return None
+
+        # Check if engine has a rule covering this case for theorem T
+        # Rule pattern: body has {?X a type_class}, head has {T :isProvenFor ?X}
+        _ISPF = "isProvenFor"
+        rule_found = False
+        for rule in engine._rules:
+            body_ok = any(
+                isinstance(bt.predicate, NamedNode) and bt.predicate.value == _RDF_TYPE
+                and isinstance(bt.object, NamedNode) and bt.object == type_class
+                for bt in rule.body.triples
+            )
+            if not body_ok:
+                continue
+            head_ok = any(
+                isinstance(ht.subject, NamedNode) and ht.subject == t_val
+                and isinstance(ht.predicate, NamedNode) and _ISPF in ht.predicate.value
+                for ht in rule.head.triples
+            )
+            if head_ok:
+                rule_found = True
+                break
+
+        if not rule_found:
+            return None  # This case is not covered
+
+    # All cases covered — bind scope variable and succeed
+    scope_var = args[-1]
+    new_b = dict(binding)
+    if isinstance(scope_var, Variable):
+        new_b[scope_var.name] = NamedNode("urn:true")
+    engine._current_binding = new_b
+    return _bool_result(True)
 
 
 # ---------------------------------------------------------------------------
@@ -1747,57 +1841,59 @@ def string_notMatches(args: list[Term], engine: EngineProto) -> Term | None:
     return _bool_result(_re.search(_str_val(args[1]), _str_val(args[0])) is None)
 
 def string_replaceAll(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:3]): return None
     return Literal(_re.sub(_str_val(args[1]), _str_val(args[2]), _str_val(args[0])))
 
 def string_join(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    sep = _str_val(args[0])
-    head = args[1] if len(args) > 1 else None
+    inputs = _input_only(args)
+    if _unground(inputs[:1]): return None
+    sep = _str_val(inputs[0])
+    head = inputs[1] if len(inputs) > 1 else None
     if isinstance(head, Existential):
         items = [_str_val(t) for t in engine._expand_list(head)]
     else:
-        items = [_str_val(a) for a in args[1:]]
+        items = [_str_val(a) for a in inputs[1:]]
     return Literal(sep.join(items))
 
 def string_capitalize(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:1]): return None
     return Literal(_str_val(args[0]).capitalize())
 
 def string_upperCase(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:1]): return None
     return Literal(_str_val(args[0]).upper())
 
 def string_lowerCase(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:1]): return None
     return Literal(_str_val(args[0]).lower())
 
 def string_format(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    fmt = _str_val(args[0])
-    vals = [_str_val(a) for a in args[1:]]
+    inputs = _input_only(args)
+    if _unground(inputs): return None
+    fmt = _str_val(inputs[0])
+    vals = [_str_val(a) for a in inputs[1:]]
     return Literal(fmt % tuple(vals))
 
 def string_scrape(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:2]): return None
     m = _re.search(_str_val(args[1]), _str_val(args[0]))
     return Literal(m.group(0)) if m else None
 
 def string_scrapeAll(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:2]): return None
     return Literal(" ".join(m.group(0) for m in _re.finditer(_str_val(args[1]), _str_val(args[0]))))
 
 def string_search(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:2]): return None
     m = _re.search(_str_val(args[1]), _str_val(args[0]))
     return Literal(m.group(0)) if m else None
 
 def string_stringReverse(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:1]): return None
     return Literal(_str_val(args[0])[::-1])
 
 def string_stringEscape(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:1]): return None
     return Literal(_str_val(args[0]).encode("unicode_escape").decode())
 
 def string_lessThan(args: list[Term], engine: EngineProto) -> Term | None:
@@ -1837,6 +1933,9 @@ def list_member(args: list[Term], engine: EngineProto) -> Term | None:
 
 def list_notMember(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
+    if len(args) < 2:
+        # Empty list (nil expanded to nothing) — nothing is a member
+        return _bool_result(True)
     head, item = args[0], args[1]
     if isinstance(head, Existential):
         return _bool_result(item not in engine._expand_list(head))
@@ -2097,13 +2196,111 @@ def list_length_builtin(args: list[Term], engine: EngineProto) -> Term | None:
         return None
     return _int_result(len(args) - 1)
 
+def _resolve_var_in_binding(var: Variable, binding: dict) -> Term:
+    """Resolve a Variable from a binding, trying both the exact name and
+    the base name (without ``__rN`` suffix added by standardize-apart renaming).
+
+    This handles the case where list-node Variables have original names (e.g.
+    ``?from``) but the binding was built from a renamed rule (e.g. ``from__r3``).
+    """
+    import re as _re_local
+    val = binding.get(var.name)
+    if val is not None:
+        return val
+    # Try stripping ``__rN`` suffix from binding keys to find a match
+    base = var.name
+    for key, v in binding.items():
+        base_key = _re_local.sub(r'__r\d+$', '', key)
+        if base_key == base:
+            return v
+    return var
+
+
 def list_firstRest(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    head = args[0]
-    if isinstance(head, Existential):
-        items = engine._expand_list(head)
-        if items:
-            return _make_list(items[1:], engine) if len(items) > 1 else None
+    """Bidirectional list:firstRest.
+
+    Decompose: ``?L list:firstRest (?F ?R)`` — given list ?L, return (first, rest).
+    Construct: ``?L list:firstRest (?F ?R)`` — given ?F and ?R, construct ?L.
+
+    Also handles single-arg calls where the arg is an Existential list node
+    (test-style direct call): returns a (first, rest) pair.
+    """
+    binding = getattr(engine, '_current_binding', {})
+
+    # Single-arg decompose: called as list_firstRest([list_node], engine)
+    if len(args) == 1 and isinstance(args[0], Existential):
+        items = engine._expand_list(args[0])
+        if not items:
+            return None
+        first = items[0]
+        rest = _make_list(items[1:], engine) if len(items) > 1 else Existential("nil")
+        return _make_list([first, rest], engine)
+
+    # args layout: [subject_items..., object_term]
+    # But _collect_builtin_args expands Existential subjects into items.
+    # We need the raw subject to detect decompose vs construct mode.
+    # The object is the last arg.
+    obj = args[-1]
+    subj_args = args[:-1]
+
+    # Check if subject is a ground list (decompose mode)
+    if subj_args and not any(isinstance(a, Variable) for a in subj_args):
+        # Decompose: subject is a ground list, extract first and rest
+        first = subj_args[0]
+        rest = _make_list(subj_args[1:], engine) if len(subj_args) > 1 else Existential("nil")
+        result_pair = _make_list([first, rest], engine)
+        # If object is an Existential (list pattern with variables), try to unify
+        if isinstance(obj, Existential):
+            raw_items = engine._expand_list(obj)
+            obj_items = [_resolve_var_in_binding(i, binding) if isinstance(i, Variable) else i for i in raw_items]
+            if len(obj_items) == 2:
+                # Bind ?F and ?R if they are variables
+                new_binding = dict(binding)
+                for pat, val in zip(raw_items, [first, rest]):
+                    if isinstance(pat, Variable):
+                        new_binding[pat.name] = val
+                    elif pat != val:
+                        return None  # mismatch
+                engine._current_binding = new_binding
+                return _bool_result(True)
+        return result_pair
+
+    # Construct mode: subject has variables, object provides (first, rest)
+    if isinstance(obj, Existential):
+        # Expand the object list.  Variables inside rule-head list nodes have
+        # their original names (e.g. ?from), but after standardize-apart renaming
+        # the binding uses suffixed names (e.g. from__r5).  Use _resolve_var_in_binding
+        # to handle both cases.
+        raw_items = engine._expand_list(obj)
+        obj_items = [_resolve_var_in_binding(i, binding) if isinstance(i, Variable) else i for i in raw_items]
+        if len(obj_items) == 2:
+            first_item = obj_items[0]
+            rest_item = obj_items[1]
+            # Check for remaining unbound
+            if isinstance(first_item, Variable):
+                first_item = _resolve_var_in_binding(first_item, binding)
+            if isinstance(rest_item, Variable):
+                rest_item = _resolve_var_in_binding(rest_item, binding)
+            if isinstance(first_item, Variable) or isinstance(rest_item, Variable):
+                return None  # can't construct with unbound vars
+            # Build list: prepend first to rest, resolving any Variables
+            if isinstance(rest_item, Existential):
+                raw_rest = engine._expand_list(rest_item)
+                rest_items = [
+                    _resolve_var_in_binding(i, binding) if isinstance(i, Variable) else i
+                    for i in raw_rest
+                ]
+            else:
+                rest_items = []
+            new_list = _make_list([first_item] + rest_items, engine)
+            # Bind the subject variable
+            if subj_args and isinstance(subj_args[0], Variable):
+                new_binding = dict(binding)
+                new_binding[subj_args[0].name] = new_list
+                engine._current_binding = new_binding
+                return _bool_result(True)
+            return new_list
+
     return None
 
 def list_intersection(args: list[Term], engine: EngineProto) -> Term | None:
@@ -2117,11 +2314,12 @@ def list_intersection(args: list[Term], engine: EngineProto) -> Term | None:
     return None
 
 def list_select(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    head = args[0]
-    if isinstance(head, Existential) and len(args) > 1:
+    inputs = _input_only(args)
+    if _unground(inputs): return None
+    head = inputs[0]
+    if isinstance(head, Existential) and len(inputs) > 1:
         # 1-based indexing
-        idx = int(_num_val(args[1])) - 1
+        idx = int(_num_val(inputs[1])) - 1
         items = engine._expand_list(head)
         if 0 <= idx < len(items):
             return items[idx]
@@ -2160,20 +2358,26 @@ def log_copy(args: list[Term], engine: EngineProto) -> Term | None:
     return copy.deepcopy(args[0])
 
 def log_dtlit(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    return Literal(_str_val(args[0]), datatype=NamedNode("http://www.w3.org/2001/XMLSchema#dateTime"))
+    if _unground(args[:1]): return None
+    val = _str_val(args[0])
+    # If a datatype IRI arg is present and ground, use it; else fall back to xsd:dateTime
+    if len(args) >= 2 and not isinstance(args[1], Variable):
+        dt = _str_val(args[1])
+    else:
+        dt = "http://www.w3.org/2001/XMLSchema#dateTime"
+    return Literal(val, datatype=NamedNode(dt))
 
 def log_langlit(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     return Literal(_str_val(args[0]), language=_str_val(args[1]))
 
 def log_localName(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:1]): return None
     uri = _str_val(args[0])
     return Literal(uri.rsplit("#", 1)[-1].rsplit("/", 1)[-1])
 
 def log_namespace(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    if _unground(args[:1]): return None
     uri = _str_val(args[0])
     if "#" in uri:
         return Literal(uri.rsplit("#", 1)[0] + "#")
@@ -2686,29 +2890,59 @@ def var_x(args: list[Term], engine: EngineProto) -> Term | None:
 # Missing log: builtins (eye.pl inventory)
 # ---------------------------------------------------------------------------
 
-def log_allPossibleCases(args: list[Term], engine: EngineProto) -> list[Triple] | None:
-    """log:allPossibleCases — collect all derived triples from the engine.
+def log_allPossibleCases(args: list[Term], engine: EngineProto) -> Term | None:
+    """log:allPossibleCases — bind the universal variable and its cases list.
 
-    In EYE this is ``log:allPossibleCases(Premise, [])`` in the conclusion of a
-    rule, which causes EYE to collect *all* possible bindings for the rule's
-    body (premise) into a list.  In pyeye the forward-chaining engine has
-    already derived everything by the time a builtin is called, so we just
-    return all currently derived triples — the caller is free to filter them.
+    In EYE, ``(var:X) log:allPossibleCases (case1 case2 ...)`` declares that
+    var:X has a finite set of possible cases.  When this appears in a rule
+    body, the builtin searches the store for any such declaration and binds:
+      args[0] → the universal variable (first element of the subject list)
+      args[-1] → the cases list node
 
-    args[0]: the subject (premise formula term, ignored — all derived triples
-             are returned regardless)
-    args[1]: the target list term (ignored — the engine populates the store)
-
-    Returns the complete list of derived triples (may be empty) so the engine
-    can assert them.  Returning an empty list (rather than None) signals
-    *success with no new assertions*, which matches EYE's semantics of
-    "we collected zero new cases here".
+    This enables proof-by-cases reasoning when combined with log:forAllIn.
     """
-    if not args or _unground(args):
+    _LOG_APC = NS_LOG + "allPossibleCases"
+
+    binding = getattr(engine, '_current_binding', {})
+    # args[0] = universal variable (from subject list expansion)
+    # args[-1] = cases list variable (from object)
+    if len(args) < 1:
         return None
-    if hasattr(engine, '_derived_triples'):
-        return list(engine._derived_triples)
-    return []
+
+    subj_var = args[0] if len(args) >= 2 else None
+    obj_var = args[-1]
+
+    # Search the store for any allPossibleCases triple
+    for triple in engine.store:
+        if not (isinstance(triple.predicate, NamedNode) and
+                triple.predicate.value == _LOG_APC):
+            continue
+
+        # Get the universal variable from the subject list
+        subj_items = engine._expand_list(triple.subject) if isinstance(triple.subject, Existential) else []
+        univ_var = subj_items[0] if subj_items else None
+        cases_node = triple.object
+
+        # Check if we can bind subj_var and obj_var
+        new_b = dict(binding)
+        if isinstance(subj_var, Variable):
+            existing = binding.get(subj_var.name)
+            if existing is None and univ_var is not None:
+                new_b[subj_var.name] = univ_var
+            elif existing is not None and existing != univ_var:
+                continue  # mismatch
+        if isinstance(obj_var, Variable):
+            existing = binding.get(obj_var.name)
+            if existing is None:
+                new_b[obj_var.name] = cases_node
+            elif existing != cases_node:
+                continue  # mismatch
+
+        engine._current_binding = new_b
+        # Return the cases_node so the handler binds the object variable (?Y)
+        return cases_node
+
+    return None  # no allPossibleCases declaration found
 
 
 def log_dcg(args: list[Term], engine: EngineProto) -> Term | None:
@@ -3003,7 +3237,7 @@ def log_table(args: list[Term], engine: EngineProto) -> Term | None:
 
 def time_hour(args: list[Term], engine: EngineProto) -> Term | None:
     """time:hour — extract hour component from a datetime/time ISO string."""
-    if _unground(args):
+    if _unground(args[:1]):
         return None
     dt = _str_val(args[0])
     try:
@@ -3016,7 +3250,7 @@ def time_hour(args: list[Term], engine: EngineProto) -> Term | None:
 
 def time_minute(args: list[Term], engine: EngineProto) -> Term | None:
     """time:minute — extract minute component from a datetime/time ISO string."""
-    if _unground(args):
+    if _unground(args[:1]):
         return None
     dt = _str_val(args[0])
     try:
@@ -3028,7 +3262,7 @@ def time_minute(args: list[Term], engine: EngineProto) -> Term | None:
 
 def time_second(args: list[Term], engine: EngineProto) -> Term | None:
     """time:second — extract second component from a datetime/time ISO string."""
-    if _unground(args):
+    if _unground(args[:1]):
         return None
     dt = _str_val(args[0])
     try:

@@ -1,0 +1,8 @@
+@prefix : <http://example.org/> .
+
+# Facts
+:sky :colour :blue .
+
+# Rule: colour → isColoured
+{ ?Thing :colour ?C }
+    => { ?Thing :isColoured ?C } .

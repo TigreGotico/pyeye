@@ -52,6 +52,7 @@ class Rule:
     source: str = ""
     for_some: tuple[str, ...] = ()  # M3 fix: existentially quantified variables
     for_all: tuple[str, ...] = ()   # M3 fix: universally quantified variables
+    is_backward: bool = False       # True for ``<=`` rules (backward chaining only)
 
 
 @dataclass
@@ -344,6 +345,7 @@ class Parser:
                 head, body, self._src,
                 for_some=tuple(self._for_some),
                 for_all=tuple(self._for_all),
+                is_backward=True,
             ))  # reverse
         elif t.t == "DOT":
             self._eat("DOT")

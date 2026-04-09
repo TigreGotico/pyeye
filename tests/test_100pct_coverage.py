@@ -405,25 +405,24 @@ class TestEngineBackwardChain:
             head=F((T(V("X"), NN("http://x/q"), V("Y")),)),
         ))
         engine.store.add(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
-        # Query: ?X :q ?Y — backward chains through rule
+        # Query: ?A :q ?B — backward chains through rule
         query = T(V("A"), NN("http://x/q"), V("B"))
         results = engine.backward_chain(query)
-        # Results are body bindings (X, Y bound), not query vars (A, B)
         assert len(results) >= 1
-        # Check that X is bound to http://x/a
-        assert any(r.get("X") == NN("http://x/a") for r in results)
+        # After chain resolution, query var A should be bound to http://x/a
+        assert any(r.get("A") == NN("http://x/a") for r in results)
 
     def test_backward_chain_tabling_cache_hit(self):
-        # line 557: tabling cache hit — inject a cache entry then query the same pattern
+        # tabling cache hit — inject a cache entry with the correct key then query
         engine = Engine()
         engine.store.add(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
-        # Pre-populate the cache so that line 557 is hit immediately
+        # Pre-populate the cache with the correct key format (includes binding_key)
         q_resolved = T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b"))
         engine._tabling_cache = {}
-        cache_key = engine._tabling_key(q_resolved)
+        cache_key = engine._tabling_key(q_resolved, {})
         expected = [{"X": NN("http://x/a"), "Y": NN("http://x/b")}]
         engine._tabling_cache[cache_key] = expected
-        # Query the same triple — should hit cache at line 557
+        # Query the same triple — should hit cache
         results = engine._backward_chain_triple(q_resolved, {})
         assert results == expected
 

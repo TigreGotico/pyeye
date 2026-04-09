@@ -296,7 +296,6 @@ class TestPath:
 class TestAge:
     """eye/reasoning/age: age calculation (requires time builtins)."""
 
-    @pytest.mark.xfail(reason="time:localTime not implemented in pyeye")
     def test_age_above_80(self):
         """patH :ageAbove P80Y requires time:localTime builtin."""
         n3 = """
@@ -380,7 +379,6 @@ class TestPeano:
 }.
 """
 
-    @pytest.mark.xfail(reason="Peano backward chains require deep backward recursion — may hit depth limits in pyeye")
     def test_3_factorial_6(self):
         """3! = 6 in Peano encoding."""
         out = _run(self.FACTS_AND_RULES, self.QUERY)
@@ -433,7 +431,6 @@ class TestProofByCases:
 }.
 """
 
-    @pytest.mark.xfail(reason="log:allPossibleCases / log:forAllIn not implemented in pyeye")
     def test_theorem1_proven(self):
         """:theorem1 :isProvenFor var:X (all 3 cases covered)."""
         out = _run(self.FACTS_AND_RULES)
@@ -481,7 +478,6 @@ class TestPathDiscovery:
 { (:AMS :JFK () 0 5) :route ?R. } => { :result :route ?R. }.
 """
 
-    @pytest.mark.xfail(reason="list:notMember / list:firstRest backward recursive not fully supported")
     def test_ams_to_jfk_route_exists(self):
         """A route from AMS to JFK via LHR should be found."""
         out = _run(self.FACTS_AND_RULES)
