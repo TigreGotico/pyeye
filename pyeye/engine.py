@@ -28,6 +28,14 @@ from pyeye.builtins import Builtin, BUILTIN_REGISTRY, MultiResult
 from pyeye.proof import ProofStep, ProofTree
 
 
+class ContradictionError(RuntimeError):
+    """Raised when a ``=> false`` constraint rule fires.
+
+    In N3 logic, ``{ body } => false`` means the body must not hold.
+    When the body is satisfied, the engine raises this exception.
+    """
+
+
 class ReasoningTimeoutError(RuntimeError):
     """Raised when the engine exceeds its wall-clock timeout.
 
@@ -273,6 +281,12 @@ class Engine:
                 if brake_key_pass in processed:  # pragma: no cover — duplicate binding hash
                     continue
                 processed.add(brake_key_pass)
+
+            # Contradiction check — ``=> false`` rules raise when body is satisfied
+            if rule.is_contradiction:
+                raise ContradictionError(
+                    f"Constraint violation: rule body is satisfiable — {rule}"
+                )
 
             # Instantiate head
             head_triples = self._instantiate_formula(rule.head, for_some_binding)
@@ -602,7 +616,10 @@ class Engine:
             if not args:  # pragma: no cover — _collect_builtin_args always returns ≥1 element
                 continue
             self._current_binding = b  # allow builtins to access current binding
-            result = builtin(args, self)
+            try:
+                result = builtin(args, self)
+            except TypeError:
+                continue  # unbound variable in builtin args — skip
             # Use the (possibly updated) binding from the builtin
             b = self._current_binding
             if result is None:

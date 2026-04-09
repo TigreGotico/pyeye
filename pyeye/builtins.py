@@ -97,6 +97,8 @@ def _num_val(t: Term) -> float:
 
     Also handles ISO 8601 durations (PnY) → fractional years.
     """
+    if isinstance(t, Variable):
+        raise TypeError(f"Unbound variable: {t}")
     if isinstance(t, Literal):
         v = t.value
         d = _parse_duration_years(v)
@@ -306,27 +308,34 @@ def time_in_seconds(args: list[Term], engine: EngineProto) -> Term | None:
 # List builtins
 # ---------------------------------------------------------------------------
 
-def list_in(args: list[Term], engine: EngineProto) -> Term | None:
-    """list:in(item, list-head) — checks if item is in the RDF list."""
-    if _unground(args):
+def list_in(args: list[Term], engine: EngineProto) -> "Term | MultiResult | None":
+    """list:in(item, list-head) — checks if item is in the RDF list.
+
+    When item (args[0]) is unbound, generates bindings for each member of the
+    list (generative mode). When item is ground, checks membership.
+    """
+    # Only require the list (args[1]) to be ground; item (args[0]) may be unbound
+    if len(args) < 2 or isinstance(args[1], Variable):
         return None
     item = args[0]
     head = args[1]
+    item_is_var = isinstance(item, Variable)
+
     if not isinstance(head, Existential):
-        return _bool_result(False)
+        return MultiResult([]) if item_is_var else _bool_result(False)
 
     rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
     rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-    nil = Existential("nil")
-
     rdf_nil = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil")
-    cur = head
+
+    members: list[Term] = []
+    cur: Term = head
     visited: set[str] = set()
     while isinstance(cur, Existential) and cur.name not in visited:
         visited.add(cur.name)
         first_matches = list(engine.store.match(subject=cur, predicate=rdf_first))
-        if first_matches and first_matches[0].object == item:
-            return _bool_result(True)
+        if first_matches:
+            members.append(first_matches[0].object)
         rest_matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
         if not rest_matches:
             break
@@ -334,7 +343,10 @@ def list_in(args: list[Term], engine: EngineProto) -> Term | None:
         if nxt == rdf_nil:
             break
         cur = nxt
-    return _bool_result(False)
+
+    if item_is_var:
+        return MultiResult(members)
+    return _bool_result(item in members)
 
 
 def list_length(args: list[Term], engine: EngineProto) -> Term | None:  # pragma: no cover — overridden by list_length at line 611

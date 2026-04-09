@@ -53,6 +53,7 @@ class Rule:
     for_some: tuple[str, ...] = ()  # M3 fix: existentially quantified variables
     for_all: tuple[str, ...] = ()   # M3 fix: universally quantified variables
     is_backward: bool = False       # True for ``<=`` rules (backward chaining only)
+    is_contradiction: bool = False  # True for ``=> false`` rules (N3 constraint violation)
 
 
 @dataclass
@@ -325,12 +326,23 @@ class Parser:
         t = self._peek()
         if t.t == "IMPF":
             self._eat("IMPF")
-            head = self._formula()
+            # `=> false` is N3 contradiction syntax — marks a constraint rule
+            is_contradiction = False
+            if self._peek().t == "FALSE":
+                self._eat("FALSE")
+                head = Formula(())
+                is_contradiction = True
+            elif self._peek().t == "TRUE":
+                self._eat("TRUE")
+                head = Formula(())
+            else:
+                head = self._formula()
             self._eat("DOT")
             self._rules.append(Rule(
                 body, head, self._src,
                 for_some=tuple(self._for_some),
                 for_all=tuple(self._for_all),
+                is_contradiction=is_contradiction,
             ))
         elif t.t == "IMPB":
             self._eat("IMPB")

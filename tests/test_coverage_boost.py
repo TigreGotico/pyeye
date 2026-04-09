@@ -2507,15 +2507,25 @@ from pyeye.builtins import (
     math_logarithm, math_divide,
     e_becomes, e_hmac_sha,
     log_becomes,
+    MultiResult,
 )
 
 
 class TestBuiltinEarlyGuards:
     """Test _unground guard branches (return None when args have Variables)."""
 
-    def test_list_in_unground(self):
-        r = list_in([V("X"), E("h")], None)
+    def test_list_in_unground_var_head(self):
+        # When the list head (args[1]) is a Variable, must return None
+        r = list_in([L("x"), V("L")], None)
         assert r is None
+
+    def test_list_in_var_item_generative(self):
+        # When item is Variable and head is Existential, return MultiResult (generative)
+        e = MockEngine()
+        head = _make_list([L("a"), L("b")], e)
+        r = list_in([V("X"), head], e)
+        assert isinstance(r, MultiResult)
+        assert len(r.results) == 2
 
     def test_list_in_non_existential_head(self):
         e = MockEngine()
@@ -3822,9 +3832,11 @@ class TestBuiltinsCoverageBoost:
         r = list_in([L("x"), L("y")], self.engine)
         assert r.value == "false"
 
-    def test_list_in_unground(self):
-        from pyeye.builtins import list_in
-        assert list_in([V("x"), L("y")], self.engine) is None
+    def test_list_in_var_item_non_existential_head(self):
+        from pyeye.builtins import list_in, MultiResult
+        # When item is Variable but head is not an Existential, return empty MultiResult
+        r = list_in([V("x"), L("y")], self.engine)
+        assert isinstance(r, MultiResult) and r.results == []
 
     def test_list_in_match(self):
         from pyeye.builtins import list_in
