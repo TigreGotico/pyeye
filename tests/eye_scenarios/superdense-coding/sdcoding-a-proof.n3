@@ -1,0 +1,202 @@
+@prefix skolem: <https://eyereasoner.github.io/.well-known/genid/8b98b360-9a70-4845-b52c-c675af60ad01#>.
+@prefix r: <http://www.w3.org/2000/10/swap/reason#>.
+@prefix dqc: <https://eyereasoner.github.io/eye/reasoning/dqc#>.
+@prefix n3: <http://www.w3.org/2004/06/rei#>.
+@prefix var: <http://www.w3.org/2000/10/swap/var#>.
+
+skolem:proof a r:Proof, r:Conjunction;
+    r:component skolem:lemma1;
+    r:component skolem:lemma2;
+    r:component skolem:lemma3;
+    r:component skolem:lemma4;
+    r:component skolem:lemma5;
+    r:component skolem:lemma6;
+    r:component skolem:lemma7;
+    r:component skolem:lemma8;
+    r:component skolem:lemma9;
+    r:component skolem:lemma10;
+    r:component skolem:lemma11;
+    r:component skolem:lemma12;
+    r:component skolem:lemma13;
+    r:component skolem:lemma14;
+    r:gives {
+        0 dqc:sdcoding 1 .
+        0 dqc:sdcoding 3 .
+        1 dqc:sdcoding 0 .
+        1 dqc:sdcoding 1 .
+        1 dqc:sdcoding 2 .
+        2 dqc:sdcoding 1 .
+        2 dqc:sdcoding 3 .
+        3 dqc:sdcoding 1 .
+        3 dqc:sdcoding 3 .
+        3 dqc:sdcoding 0 .
+        3 dqc:sdcoding 2 .
+        0 dqc:sdcoding 0 .
+        2 dqc:sdcoding 0 .
+        2 dqc:sdcoding 2 .
+    }.
+
+skolem:lemma1 a r:Inference;
+    r:gives {
+        0 dqc:sdcoding 1 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {0 dqc:sdcoding 1}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 0];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 1];
+    r:rule skolem:lemma15.
+
+skolem:lemma2 a r:Inference;
+    r:gives {
+        0 dqc:sdcoding 3 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {0 dqc:sdcoding 3}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 0];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 3];
+    r:rule skolem:lemma15.
+
+skolem:lemma3 a r:Inference;
+    r:gives {
+        1 dqc:sdcoding 0 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {1 dqc:sdcoding 0}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 1];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 0];
+    r:rule skolem:lemma15.
+
+skolem:lemma4 a r:Inference;
+    r:gives {
+        1 dqc:sdcoding 1 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {1 dqc:sdcoding 1}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 1];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 1];
+    r:rule skolem:lemma15.
+
+skolem:lemma5 a r:Inference;
+    r:gives {
+        1 dqc:sdcoding 2 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {1 dqc:sdcoding 2}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 1];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 2];
+    r:rule skolem:lemma15.
+
+skolem:lemma6 a r:Inference;
+    r:gives {
+        2 dqc:sdcoding 1 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {2 dqc:sdcoding 1}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 2];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 1];
+    r:rule skolem:lemma15.
+
+skolem:lemma7 a r:Inference;
+    r:gives {
+        2 dqc:sdcoding 3 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {2 dqc:sdcoding 3}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 2];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 3];
+    r:rule skolem:lemma15.
+
+skolem:lemma8 a r:Inference;
+    r:gives {
+        3 dqc:sdcoding 1 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {3 dqc:sdcoding 1}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 3];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 1];
+    r:rule skolem:lemma15.
+
+skolem:lemma9 a r:Inference;
+    r:gives {
+        3 dqc:sdcoding 3 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {3 dqc:sdcoding 3}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 3];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 3];
+    r:rule skolem:lemma15.
+
+skolem:lemma10 a r:Inference;
+    r:gives {
+        3 dqc:sdcoding 0 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {3 dqc:sdcoding 0}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 3];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 0];
+    r:rule skolem:lemma15.
+
+skolem:lemma11 a r:Inference;
+    r:gives {
+        3 dqc:sdcoding 2 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {3 dqc:sdcoding 2}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 3];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 2];
+    r:rule skolem:lemma15.
+
+skolem:lemma12 a r:Inference;
+    r:gives {
+        0 dqc:sdcoding 0 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {0 dqc:sdcoding 0}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 0];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 0];
+    r:rule skolem:lemma15.
+
+skolem:lemma13 a r:Inference;
+    r:gives {
+        2 dqc:sdcoding 0 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {2 dqc:sdcoding 0}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 2];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 0];
+    r:rule skolem:lemma15.
+
+skolem:lemma14 a r:Inference;
+    r:gives {
+        2 dqc:sdcoding 2 .
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {2 dqc:sdcoding 2}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo 2];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo 2];
+    r:rule skolem:lemma15.
+
+skolem:lemma15 a r:Extraction;
+    r:gives {
+        @forAll var:x_0, var:x_1. {
+            var:x_0 dqc:sdcoding var:x_1.
+        } => {
+            var:x_0 dqc:sdcoding var:x_1.
+        }.
+    };
+    r:because [ a r:Parsing; r:source <https://eyereasoner.github.io/eye/reasoning/superdense-coding/sdcoding-q.n3>].
+

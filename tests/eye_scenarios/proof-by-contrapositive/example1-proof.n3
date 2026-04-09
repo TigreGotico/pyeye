@@ -1,0 +1,95 @@
+@prefix skolem: <https://eyereasoner.github.io/.well-known/genid/8b98b360-9a70-4845-b52c-c675af60ad01#>.
+@prefix r: <http://www.w3.org/2000/10/swap/reason#>.
+@prefix : <https://eyereasoner.github.io/ns#>.
+@prefix n3: <http://www.w3.org/2004/06/rei#>.
+@prefix var: <http://www.w3.org/2000/10/swap/var#>.
+
+skolem:proof a r:Proof, r:Conjunction;
+    r:component skolem:lemma1;
+    r:component skolem:lemma2;
+    r:gives {
+        {
+            :ground :is :wet.
+        } => false.
+        {
+            :it :is :raining.
+        } => false.
+    }.
+
+skolem:lemma1 a r:Inference;
+    r:gives {
+        {
+            :ground :is :wet.
+        } => false.
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {{
+            :ground :is :wet.
+        } => false}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/ns#ground"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/ns#wet"]];
+    r:rule skolem:lemma3.
+
+skolem:lemma2 a r:Inference;
+    r:gives {
+        {
+            :it :is :raining.
+        } => false.
+    };
+    r:evidence (
+        skolem:lemma4
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/ns#it"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/ns#raining"]];
+    r:rule skolem:lemma3.
+
+skolem:lemma3 a r:Extraction;
+    r:gives {
+        @forAll var:x_0, var:x_1. {
+            {
+                var:x_0 :is var:x_1.
+            } => false.
+        } => {
+            {
+                var:x_0 :is var:x_1.
+            } => false.
+        }.
+    };
+    r:because [ a r:Parsing; r:source <https://eyereasoner.github.io/eye/reasoning/proof-by-contrapositive/example1-query.n3>].
+
+skolem:lemma4 a r:Inference;
+    r:gives {
+        {
+            :it :is :raining.
+        } => false.
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {{
+            :it :is :raining.
+        } => {
+            :ground :is :wet.
+        }}]
+        [ a r:Fact; r:gives {{
+            :ground :is :wet.
+        } => false}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo {
+        :it :is :raining.
+    }];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo {
+        :ground :is :wet.
+    }];
+    r:rule skolem:lemma5.
+
+skolem:lemma5 a r:Extraction;
+    r:gives {
+        @forAll var:x_0, var:x_1. {
+            var:x_0 => var:x_1.
+            var:x_1 => false.
+        } => {
+            var:x_0 => false.
+        }.
+    };
+    r:because [ a r:Parsing; r:source <https://eyereasoner.github.io/eye/reasoning/proof-by-contrapositive/example1.n3>].
+

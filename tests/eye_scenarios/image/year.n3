@@ -1,0 +1,9 @@
+@prefix log: <http://www.w3.org/2000/10/swap/log#>.
+@prefix : <https://eyereasoner.github.io/eye/reasoning#>.
+
+(1950 2050) :yearsOfInterest true.
+
+{?YEAR a :Year} <= {
+    (?FROM ?TO) :yearsOfInterest true.
+    ("between" ?FROM ?TO ?YEAR) log:pro true.
+}.

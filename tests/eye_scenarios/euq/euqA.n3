@@ -1,0 +1,9 @@
+@prefix : <http://example.org/test#>.
+@prefix var: <http://www.w3.org/2000/10/swap/var#>.
+
+:a :valid true.
+{
+    var:qu_1 :valid true.
+} => {
+    :all :is :satisfied.
+}.

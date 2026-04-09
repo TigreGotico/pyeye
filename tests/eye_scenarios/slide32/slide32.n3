@@ -1,0 +1,11 @@
+@prefix : <http://example.org/#>.
+
+# Ghent is a city
+:Ghent a :City.
+
+# every city is a human community
+{
+    ?x a :City.
+} => {
+    ?x a :HumanCommunity.
+}.

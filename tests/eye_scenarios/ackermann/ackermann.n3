@@ -1,0 +1,53 @@
+@prefix math: <http://www.w3.org/2000/10/swap/math#>.
+@prefix log: <http://www.w3.org/2000/10/swap/log#>.
+@prefix : <https://eyereasoner.github.io/ns#>.
+
+# ackermann(x, y)
+{
+    (?X ?Y) :ackermann ?A.
+} <= {
+    (?Y 3) math:sum ?B.
+    (?X ?B 2) :ackermann ?C.
+    (?C 3) math:difference ?A.
+}.
+
+# ackermann(x, y, z)
+# succ (x=0)
+{
+    (0 ?Y ?Z) :ackermann ?A.
+} <= {
+    true log:callWithCut true.
+    (?Y 1) math:sum ?A.
+}.
+
+# sum (x=1)
+{
+    (1 ?Y ?Z) :ackermann ?A.
+} <= {
+    true log:callWithCut true.
+    (?Y ?Z) math:sum ?A.
+}.
+
+# product (x=2)
+{
+    (2 ?Y ?Z) :ackermann ?A.
+} <= {
+    true log:callWithCut true.
+    (?Y ?Z) math:product ?A.
+}.
+
+# exponentiation (x=3), tetration (x=4), pentation (x=5), hexation (x=6), etc
+{
+    (?X 0 ?Z) :ackermann 1.
+} <= {
+    true log:callWithCut true.
+}.
+
+{
+    (?X ?Y ?Z) :ackermann ?A.
+} <= {
+    (?Y 1) math:difference ?B.
+    (?X ?B ?Z) :ackermann ?C.
+    (?X 1) math:difference ?D.
+    (?D ?C ?Z) :ackermann ?A.
+}.

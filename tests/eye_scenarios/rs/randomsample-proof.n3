@@ -1,0 +1,136 @@
+@prefix skolem: <https://eyereasoner.github.io/.well-known/genid/8b98b360-9a70-4845-b52c-c675af60ad01#>.
+@prefix r: <http://www.w3.org/2000/10/swap/reason#>.
+@prefix : <https://eyereasoner.github.io/eye/reasoning#>.
+@prefix n3: <http://www.w3.org/2004/06/rei#>.
+@prefix var: <http://www.w3.org/2000/10/swap/var#>.
+
+skolem:proof a r:Proof, r:Conjunction;
+    r:component skolem:lemma1;
+    r:gives {
+        {
+            :i5325 :i88 :i5230.
+            :i9216 :i22 :i6690.
+            :i7809 :i51 :i9928.
+            :i2289 :i44 :i9670.
+            :i7756 :i68 :i2641.
+            :i7109 :i97 :i889.
+            :i2037 :i38 :i3135.
+            :i1437 :i2 :i9285.
+            :i5013 :i50 :i1439.
+            :i7343 :i9 :i2985.
+            :i5534 :i5 :i1605.
+            :i639 :i20 :i7263.
+            :i9711 :i58 :i7353.
+            :i3833 :i19 :i7862.
+            :i4730 :i70 :i6479.
+            :i6634 :i68 :i9339.
+            :i3847 :i0 :i6173.
+            :i20 :i74 :i8433.
+            :i1228 :i13 :i5928.
+            :i217 :i56 :i6166.
+            :i7811 :i58 :i1447.
+            :i7921 :i29 :i5354.
+            :i7659 :i26 :i5372.
+            :i7794 :i71 :i7931.
+            :i7907 :i6 :i4520.
+        } a :Result.
+    }.
+
+skolem:lemma1 a r:Inference;
+    r:gives {
+        {
+            :i5325 :i88 :i5230.
+            :i9216 :i22 :i6690.
+            :i7809 :i51 :i9928.
+            :i2289 :i44 :i9670.
+            :i7756 :i68 :i2641.
+            :i7109 :i97 :i889.
+            :i2037 :i38 :i3135.
+            :i1437 :i2 :i9285.
+            :i5013 :i50 :i1439.
+            :i7343 :i9 :i2985.
+            :i5534 :i5 :i1605.
+            :i639 :i20 :i7263.
+            :i9711 :i58 :i7353.
+            :i3833 :i19 :i7862.
+            :i4730 :i70 :i6479.
+            :i6634 :i68 :i9339.
+            :i3847 :i0 :i6173.
+            :i20 :i74 :i8433.
+            :i1228 :i13 :i5928.
+            :i217 :i56 :i6166.
+            :i7811 :i58 :i1447.
+            :i7921 :i29 :i5354.
+            :i7659 :i26 :i5372.
+            :i7794 :i71 :i7931.
+            :i7907 :i6 :i4520.
+        } a :Result.
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {(<https://eyereasoner.github.io/eye/reasoning/rs/graph-1000.n3> 25) :randomsample {
+            :i5325 :i88 :i5230.
+            :i9216 :i22 :i6690.
+            :i7809 :i51 :i9928.
+            :i2289 :i44 :i9670.
+            :i7756 :i68 :i2641.
+            :i7109 :i97 :i889.
+            :i2037 :i38 :i3135.
+            :i1437 :i2 :i9285.
+            :i5013 :i50 :i1439.
+            :i7343 :i9 :i2985.
+            :i5534 :i5 :i1605.
+            :i639 :i20 :i7263.
+            :i9711 :i58 :i7353.
+            :i3833 :i19 :i7862.
+            :i4730 :i70 :i6479.
+            :i6634 :i68 :i9339.
+            :i3847 :i0 :i6173.
+            :i20 :i74 :i8433.
+            :i1228 :i13 :i5928.
+            :i217 :i56 :i6166.
+            :i7811 :i58 :i1447.
+            :i7921 :i29 :i5354.
+            :i7659 :i26 :i5372.
+            :i7794 :i71 :i7931.
+            :i7907 :i6 :i4520.
+        }}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo {
+        :i5325 :i88 :i5230.
+        :i9216 :i22 :i6690.
+        :i7809 :i51 :i9928.
+        :i2289 :i44 :i9670.
+        :i7756 :i68 :i2641.
+        :i7109 :i97 :i889.
+        :i2037 :i38 :i3135.
+        :i1437 :i2 :i9285.
+        :i5013 :i50 :i1439.
+        :i7343 :i9 :i2985.
+        :i5534 :i5 :i1605.
+        :i639 :i20 :i7263.
+        :i9711 :i58 :i7353.
+        :i3833 :i19 :i7862.
+        :i4730 :i70 :i6479.
+        :i6634 :i68 :i9339.
+        :i3847 :i0 :i6173.
+        :i20 :i74 :i8433.
+        :i1228 :i13 :i5928.
+        :i217 :i56 :i6166.
+        :i7811 :i58 :i1447.
+        :i7921 :i29 :i5354.
+        :i7659 :i26 :i5372.
+        :i7794 :i71 :i7931.
+        :i7907 :i6 :i4520.
+    }];
+    r:rule skolem:lemma2.
+
+skolem:lemma2 a r:Extraction;
+    r:gives {
+        @forAll var:x_0. {
+            (<https://eyereasoner.github.io/eye/reasoning/rs/graph-1000.n3> 25) :randomsample var:x_0.
+        } => {
+            var:x_0 a :Result.
+        }.
+    };
+    r:because [ a r:Parsing; r:source <https://eyereasoner.github.io/eye/reasoning/rs/randomsample-query.n3>].
+

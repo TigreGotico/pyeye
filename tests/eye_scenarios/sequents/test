@@ -1,0 +1,75 @@
+#!/bin/bash
+# check the command line
+if [ $# -lt 1 ] ; then
+  echo "Usage: $(basename $0) sequents"
+  exit 1
+fi
+
+# Colors
+RED="\e[31m"
+GREEN="\e[32m"
+YELLOW="\e[33m"
+NORMAL="\e[0;39m"
+
+OK=0
+DIFF=0
+
+# Header
+printf "${YELLOW}-------------------------------------------------${NORMAL}\n"
+printf "${YELLOW}Running sequents examples and test cases${NORMAL}\n"
+printf "${YELLOW}Using eye v%s and swipl v%s${NORMAL}\n" \
+  "$(eye --version 2>&1 | awk '/EYE/ { print substr($2,2) }')" \
+  "$(swipl --version 2>&1 | awk '{ print $3 }')"
+printf "${YELLOW}-------------------------------------------------${NORMAL}\n\n"
+
+# Function for padding
+pad () {
+    local str="$1"
+    local width="$2"
+    printf "%*s" "$width" "$str"
+}
+
+begin=$(date +%s)
+
+for file in input/*.n3; do
+    f="$(basename "$file")"
+    printf "%s" "$(pad "$f" -34)"
+
+    start_ms=$(($(date +%s%N)/1000000))
+
+    eye --quiet \
+        --skolem-genid 8b98b360-9a70-4845-b52c-c675af60ad01 \
+        --wcache https://eyereasoner.github.io/eye/reasoning .. \
+        --nope \
+        --n3 https://eyereasoner.github.io/eye/reasoning/sequents/sequents.n3 \
+        --n3 https://eyereasoner.github.io/eye/reasoning/sequents/"$file" \
+        --output output/"$f"
+
+    eye --quiet \
+        --skolem-genid 8b98b360-9a70-4845-b52c-c675af60ad01 \
+        --wcache https://eyereasoner.github.io/eye/reasoning .. \
+        --n3 https://eyereasoner.github.io/eye/reasoning/sequents/sequents.n3 \
+        --n3 https://eyereasoner.github.io/eye/reasoning/sequents/"$file" \
+        --output proof/"$f"
+
+    end_ms=$(($(date +%s%N)/1000000))
+    duration_ms=$((end_ms - start_ms))
+    printf "${YELLOW}%s${NORMAL} " "$(pad "${duration_ms} msec" 12)"
+
+    if git diff --quiet output/"$f" && git diff --quiet proof/"$f"; then
+        printf "${GREEN}OK${NORMAL}\n"
+        ((OK++))
+    else
+        printf "${RED}DIFF${NORMAL}\n"
+        ((DIFF++))
+    fi
+done
+
+end=$(date +%s)
+total_runtime=$((end - begin))
+
+printf "\n${YELLOW}%d sec${NORMAL} ${GREEN}%d OK${NORMAL} ${RED}%d DIFF${NORMAL}\n" \
+  "$total_runtime" "$OK" "$DIFF"
+
+exit $(( DIFF == 0 ? 0 : 2 ))
+

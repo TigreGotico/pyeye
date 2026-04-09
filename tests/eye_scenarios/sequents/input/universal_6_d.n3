@@ -1,0 +1,19 @@
+@prefix : <http://example.org/#>.
+
+{
+    ?x :is :working.
+} <= true.
+
+{
+    ?x :is :working.
+    :This :is :working.
+} => {
+    :we :are :happy.
+}.
+
+# query
+{
+    :we :are :happy.
+} =^ {
+    :we :are :happy.
+}.

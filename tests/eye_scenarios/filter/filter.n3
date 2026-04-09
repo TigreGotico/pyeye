@@ -1,0 +1,6 @@
+@prefix : <http://example.org/#>.
+
+# facts
+:Let :param "Huey".
+:Let :param "Dewey".
+:Let :param "Louie".

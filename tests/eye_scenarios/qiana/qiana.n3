@@ -1,0 +1,13 @@
+@prefix : <https://eyereasoner.github.io/ns#>.
+
+# forall phi, x: says(Einstein, phi) => believes(x, phi)
+{ ?x :believes ?phi } <= { :Einstein :says ?phi }.
+
+# forall phi: says(Einstein, phi) => phi
+{ :Einstein :says ?phi } => ?phi.
+
+# says(Einstein, not (forall x: glitters(x) => gold(x)))
+:Einstein :says { { ?x a :glitter } => { ?x :notNecessarilyA :gold } }.
+
+# example
+:northStar a :glitter.

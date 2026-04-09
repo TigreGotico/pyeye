@@ -1,0 +1,223 @@
+@prefix skolem: <https://eyereasoner.github.io/.well-known/genid/8b98b360-9a70-4845-b52c-c675af60ad01#>.
+@prefix r: <http://www.w3.org/2000/10/swap/reason#>.
+@prefix : <https://eyereasoner.github.io/eye/reasoning#>.
+@prefix gps: <https://eyereasoner.github.io/eye/reasoning/gps/gps-schema#>.
+@prefix n3: <http://www.w3.org/2004/06/rei#>.
+@prefix var: <http://www.w3.org/2000/10/swap/var#>.
+
+skolem:proof a r:Proof, r:Conjunction;
+    r:component skolem:lemma1;
+    r:component skolem:lemma2;
+    r:component skolem:lemma3;
+    r:component skolem:lemma4;
+    r:component skolem:lemma5;
+    r:component skolem:lemma6;
+    r:component skolem:lemma7;
+    r:component skolem:lemma8;
+    r:component skolem:lemma9;
+    r:component skolem:lemma10;
+    r:gives {
+        :i1 gps:path ((:action1a :action3a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 38.8 5.8999999999999995 0.6389964940404326 0.702100441346585).
+        :i1 gps:path ((:action1a :action3a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 32.0 8.61 0.7219156861494439 0.8000679447902944).
+        :i1 gps:path ((:action2a :action4a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 124.8 3.7 0.6194353768759293 0.6808246703966885).
+        :i1 gps:path ((:action2a :action4a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 118.0 6.409999999999999 0.6998162263693588 0.775823461614831).
+        :i1 gps:path ((:action1b :action3a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 38.8 5.8999999999999995 0.6443214648241028 0.702100441346585).
+        :i1 gps:path ((:action1b :action3a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 32.0 8.61 0.7279316502006893 0.8000679447902944).
+        :i1 gps:path ((:action1b :action3b :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 38.8 5.8999999999999995 0.6495812318838914 0.702100441346585).
+        :i1 gps:path ((:action1b :action3b :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 32.0 8.61 0.7338739493860011 0.8000679447902944).
+        :i1 gps:path ((:action2b :action4a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 124.8 3.7 0.6246516747864636 0.6808246703966885).
+        :i1 gps:path ((:action2b :action4a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 118.0 6.409999999999999 0.7057094156440481 0.775823461614831).
+    }.
+
+skolem:lemma1 a r:Inference;
+    r:gives {
+        :i1 gps:path ((:action1a :action3a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 38.8 5.8999999999999995 0.6389964940404326 0.702100441346585).
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1) gps:findpath ({
+            :i1 :f :g.
+        } (:action1a :action3a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 38.8 5.8999999999999995 0.6389964940404326 0.702100441346585 (3600.0 50.0 0.2 0.4 2))}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo ((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/eye/reasoning#i1"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo (:action1a :action3a :action5a :action11a :action12a :action13a :action14a :action15a :action6a)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo 38.8];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_4"]; r:boundTo 5.8999999999999995];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_5"]; r:boundTo 0.6389964940404326];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_6"]; r:boundTo 0.702100441346585];
+    r:rule skolem:lemma11.
+
+skolem:lemma2 a r:Inference;
+    r:gives {
+        :i1 gps:path ((:action1a :action3a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 32.0 8.61 0.7219156861494439 0.8000679447902944).
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1) gps:findpath ({
+            :i1 :f :g.
+        } (:action1a :action3a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 32.0 8.61 0.7219156861494439 0.8000679447902944 (3600.0 50.0 0.2 0.4 2))}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo ((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/eye/reasoning#i1"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo (:action1a :action3a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo 32.0];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_4"]; r:boundTo 8.61];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_5"]; r:boundTo 0.7219156861494439];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_6"]; r:boundTo 0.8000679447902944];
+    r:rule skolem:lemma11.
+
+skolem:lemma3 a r:Inference;
+    r:gives {
+        :i1 gps:path ((:action2a :action4a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 124.8 3.7 0.6194353768759293 0.6808246703966885).
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1) gps:findpath ({
+            :i1 :f :g.
+        } (:action2a :action4a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 124.8 3.7 0.6194353768759293 0.6808246703966885 (3600.0 50.0 0.2 0.4 2))}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo ((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/eye/reasoning#i1"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo (:action2a :action4a :action5a :action11a :action12a :action13a :action14a :action15a :action6a)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo 124.8];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_4"]; r:boundTo 3.7];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_5"]; r:boundTo 0.6194353768759293];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_6"]; r:boundTo 0.6808246703966885];
+    r:rule skolem:lemma11.
+
+skolem:lemma4 a r:Inference;
+    r:gives {
+        :i1 gps:path ((:action2a :action4a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 118.0 6.409999999999999 0.6998162263693588 0.775823461614831).
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1) gps:findpath ({
+            :i1 :f :g.
+        } (:action2a :action4a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 118.0 6.409999999999999 0.6998162263693588 0.775823461614831 (3600.0 50.0 0.2 0.4 2))}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo ((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/eye/reasoning#i1"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo (:action2a :action4a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo 118.0];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_4"]; r:boundTo 6.409999999999999];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_5"]; r:boundTo 0.6998162263693588];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_6"]; r:boundTo 0.775823461614831];
+    r:rule skolem:lemma11.
+
+skolem:lemma5 a r:Inference;
+    r:gives {
+        :i1 gps:path ((:action1b :action3a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 38.8 5.8999999999999995 0.6443214648241028 0.702100441346585).
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1) gps:findpath ({
+            :i1 :f :g.
+        } (:action1b :action3a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 38.8 5.8999999999999995 0.6443214648241028 0.702100441346585 (3600.0 50.0 0.2 0.4 2))}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo ((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/eye/reasoning#i1"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo (:action1b :action3a :action5a :action11a :action12a :action13a :action14a :action15a :action6a)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo 38.8];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_4"]; r:boundTo 5.8999999999999995];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_5"]; r:boundTo 0.6443214648241028];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_6"]; r:boundTo 0.702100441346585];
+    r:rule skolem:lemma11.
+
+skolem:lemma6 a r:Inference;
+    r:gives {
+        :i1 gps:path ((:action1b :action3a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 32.0 8.61 0.7279316502006893 0.8000679447902944).
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1) gps:findpath ({
+            :i1 :f :g.
+        } (:action1b :action3a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 32.0 8.61 0.7279316502006893 0.8000679447902944 (3600.0 50.0 0.2 0.4 2))}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo ((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/eye/reasoning#i1"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo (:action1b :action3a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo 32.0];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_4"]; r:boundTo 8.61];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_5"]; r:boundTo 0.7279316502006893];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_6"]; r:boundTo 0.8000679447902944];
+    r:rule skolem:lemma11.
+
+skolem:lemma7 a r:Inference;
+    r:gives {
+        :i1 gps:path ((:action1b :action3b :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 38.8 5.8999999999999995 0.6495812318838914 0.702100441346585).
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1) gps:findpath ({
+            :i1 :f :g.
+        } (:action1b :action3b :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 38.8 5.8999999999999995 0.6495812318838914 0.702100441346585 (3600.0 50.0 0.2 0.4 2))}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo ((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/eye/reasoning#i1"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo (:action1b :action3b :action5a :action11a :action12a :action13a :action14a :action15a :action6a)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo 38.8];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_4"]; r:boundTo 5.8999999999999995];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_5"]; r:boundTo 0.6495812318838914];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_6"]; r:boundTo 0.702100441346585];
+    r:rule skolem:lemma11.
+
+skolem:lemma8 a r:Inference;
+    r:gives {
+        :i1 gps:path ((:action1b :action3b :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 32.0 8.61 0.7338739493860011 0.8000679447902944).
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1) gps:findpath ({
+            :i1 :f :g.
+        } (:action1b :action3b :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 32.0 8.61 0.7338739493860011 0.8000679447902944 (3600.0 50.0 0.2 0.4 2))}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo ((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/eye/reasoning#i1"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo (:action1b :action3b :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo 32.0];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_4"]; r:boundTo 8.61];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_5"]; r:boundTo 0.7338739493860011];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_6"]; r:boundTo 0.8000679447902944];
+    r:rule skolem:lemma11.
+
+skolem:lemma9 a r:Inference;
+    r:gives {
+        :i1 gps:path ((:action2b :action4a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 124.8 3.7 0.6246516747864636 0.6808246703966885).
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1) gps:findpath ({
+            :i1 :f :g.
+        } (:action2b :action4a :action5a :action11a :action12a :action13a :action14a :action15a :action6a) 124.8 3.7 0.6246516747864636 0.6808246703966885 (3600.0 50.0 0.2 0.4 2))}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo ((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/eye/reasoning#i1"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo (:action2b :action4a :action5a :action11a :action12a :action13a :action14a :action15a :action6a)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo 124.8];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_4"]; r:boundTo 3.7];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_5"]; r:boundTo 0.6246516747864636];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_6"]; r:boundTo 0.6808246703966885];
+    r:rule skolem:lemma11.
+
+skolem:lemma10 a r:Inference;
+    r:gives {
+        :i1 gps:path ((:action2b :action4a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 118.0 6.409999999999999 0.7057094156440481 0.775823461614831).
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1) gps:findpath ({
+            :i1 :f :g.
+        } (:action2b :action4a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a) 118.0 6.409999999999999 0.7057094156440481 0.775823461614831 (3600.0 50.0 0.2 0.4 2))}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo ((<https://eyereasoner.github.io/eye/reasoning/gps/gps-plugin.n3> <https://eyereasoner.github.io/eye/reasoning/gps/gps-example2.n3>) 1)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "https://eyereasoner.github.io/eye/reasoning#i1"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo (:action2b :action4a :action7a :action9a :action10a :action8a :action11a :action12a :action13a :action14a :action15a :action6a)];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo 118.0];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_4"]; r:boundTo 6.409999999999999];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_5"]; r:boundTo 0.7057094156440481];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_6"]; r:boundTo 0.775823461614831];
+    r:rule skolem:lemma11.
+
+skolem:lemma11 a r:Extraction;
+    r:gives {
+        @forAll var:x_0, var:x_1, var:x_2, var:x_3, var:x_4, var:x_5, var:x_6. {
+            var:x_0 gps:findpath ({
+                var:x_1 :f :g.
+            } var:x_2 var:x_3 var:x_4 var:x_5 var:x_6 (3600.0 50.0 0.2 0.4 2)).
+        } => {
+            var:x_1 gps:path (var:x_2 var:x_3 var:x_4 var:x_5 var:x_6).
+        }.
+    };
+    r:because [ a r:Parsing; r:source <https://eyereasoner.github.io/eye/reasoning/gps/gps-query2.n3>].
+

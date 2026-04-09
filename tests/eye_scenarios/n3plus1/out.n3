@@ -1,0 +1,41 @@
+@prefix : <http://example.org/#>.
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>.
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#>.
+
+_:e_g_1 :h _:e_i_1.
+:s :p << :d :e :f ~ _:bne_21 >>.
+:s :p << :g :h :i ~ :x >>.
+:s :p :o.
+_:bne_21 rdf:reifies <<( :d :e :f )>>.
+:x rdf:reifies <<( :g :h :i )>>.
+:r rdf:reifies <<( :a :b _:e_x_1 )>>.
+:r rdf:reifies <<( :a :b _:e_y_1 )>>.
+:x rdf:reifies <<( :s :p _:e_1 )>>.
+<< :a :b _:e_x_1 ~ :r >> :c :d.
+<< :a :b _:e_y_1 ~ :r >> :c :d.
+_:e_1 :q1 "A".
+_:e_1 :q2 "B".
+<< :s :p :o ~ _:bne_28 >> :j :k.
+:liz :marriedTo :richard.
+<< :liz :marriedTo :richard ~ _:bne_31 >> :from 1964 .
+<< :liz :marriedTo :richard ~ _:bne_34 >> :from 1980 .
+<< :liz :marriedTo :richard ~ _:bne_31 >> :to 1975 .
+<< :liz :marriedTo :richard ~ _:bne_34 >> :to 2001 .
+:a :name "Alice".
+<< :a :name "Alice" ~ :t >> :statedBy :bob.
+<< :a :name "Alice" ~ :t >> :recorded "2021-07-07"^^xsd:date.
+
+_:e_g_1 {
+    :s :p _:e_x_1.
+    :s :p :o.
+}
+
+_:e_i_1 {
+    :a :b :c.
+    :d :e _:e_x_1.
+}
+
+_:sk_0 {
+    :u :v :w.
+    :x :y :z.
+}

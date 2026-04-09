@@ -1,0 +1,8 @@
+@prefix : <https://eyereasoner.github.io/ns#>.
+
+# query
+{
+    ?X :is ?Y.
+} => {
+    ?X :is ?Y.
+}.

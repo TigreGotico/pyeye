@@ -1,0 +1,9 @@
+@prefix log: <http://www.w3.org/2000/10/swap/log#>.
+@prefix : <http://example.org/#>.
+
+:a :b :c.
+{ ?s ?p :C } <= { ?s ?p :c }.
+{ ?s ?p :C } => { :TEST :PASS 3.1 }.
+{ :a ?p :C. ?p log:equalTo :b } => { :TEST :PASS 3.2 }.
+{ :a ?p :C } => { :TEST :PASS 3.3 }.
+{ ?s ?p :C. ?p log:equalTo :b } => { :TEST :PASS 3.4 }.

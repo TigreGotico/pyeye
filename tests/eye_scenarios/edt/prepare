@@ -1,0 +1,3 @@
+#!/bin/bash
+eye --quiet gentf.n3
+eye --quiet gentd.n3

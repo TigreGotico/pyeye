@@ -1,0 +1,53 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>.
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#>.
+@prefix graph: <http://www.w3.org/2000/10/swap/graph#>.
+@prefix list: <http://www.w3.org/2000/10/swap/list#>.
+@prefix log: <http://www.w3.org/2000/10/swap/log#>.
+@prefix : <http://example.org/#>.
+
+# triple with blank node graphs
+_:g :h _:i.
+
+# blank node graphs
+_:g {
+    :s :p _:x.
+}
+
+_:i {
+    :a :b :c.
+    :d :e _:x.
+}
+
+# additional quad
+:s :p :o _:g.
+
+# derive trig graph
+{
+    ?G graph:statement ?C.
+    ?C graph:member {
+        :a :b :c.
+    }.
+} => {
+    ?H graph:statement {
+        :u :v :w.
+        :x :y :z.
+    }.
+}.
+
+# reified triples
+:s :p << :d :e :f >> .
+:s :p << :g :h :i ~ :x >> .
+
+<< :a :b _:x ~ :r >> :c :d .
+<< :a :b _:y ~ :r >> :c :d .
+
+<< :s :p [ :q1 "A" ; :q2 "B" ] ~ :x >> .
+
+# annotations
+:s :p :o {| :j :k |} .
+
+:liz :marriedTo :richard
+    {| :from 1964; :to 1975 |}
+    {| :from 1980; :to 2001 |} .
+
+:a :name "Alice" ~ :t {| :statedBy :bob ; :recorded "2021-07-07"^^xsd:date |} .

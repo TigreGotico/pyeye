@@ -1,0 +1,86 @@
+@prefix skolem: <https://eyereasoner.github.io/.well-known/genid/8b98b360-9a70-4845-b52c-c675af60ad01#>.
+@prefix r: <http://www.w3.org/2000/10/swap/reason#>.
+@prefix : <http://example.org/>.
+@prefix log: <http://www.w3.org/2000/10/swap/log#>.
+@prefix n3: <http://www.w3.org/2004/06/rei#>.
+@prefix var: <http://www.w3.org/2000/10/swap/var#>.
+
+skolem:proof a r:Proof, r:Conjunction;
+    r:component skolem:lemma1;
+    r:gives {
+        {
+            (?U_1 {
+                :a :b ?U_2.
+            } (:o2)) log:collectAllIn ?U_3.
+        } => {
+            :a :n :m.
+        }.
+    }.
+
+skolem:lemma1 a r:Inference;
+    r:gives {
+        {
+            (?U_1 {
+                :a :b ?U_2.
+            } (:o2)) log:collectAllIn ?U_3.
+        } => {
+            :a :n :m.
+        }.
+    };
+    r:evidence (
+        [ a r:Fact; r:gives {(| "pass_only_new" {
+            {
+                (_:sk_1 {
+                    :a :b _:sk_2.
+                } (:o2)) log:collectAllIn _:sk_3.
+            } => {
+                :a :n :m.
+            }.
+        } |)}]
+        [ a r:Fact; r:gives {(| "=.." {
+            {
+                (_:sk_1 {
+                    :a :b _:sk_2.
+                } (:o2)) log:collectAllIn _:sk_3.
+            } => {
+                :a :n :m.
+            }.
+        } (log:implies {
+            (_:sk_1 {
+                :a :b _:sk_2.
+            } (:o2)) log:collectAllIn _:sk_3.
+        } {
+            :a :n :m.
+        }) |)}]
+    );
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_0"]; r:boundTo {
+        {
+            (_:sk_1 {
+                :a :b _:sk_2.
+            } (:o2)) log:collectAllIn _:sk_3.
+        } => {
+            :a :n :m.
+        }.
+    }];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_1"]; r:boundTo [ n3:uri "http://www.w3.org/2000/10/swap/log#implies"]];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_2"]; r:boundTo {
+        (_:sk_1 {
+            :a :b _:sk_2.
+        } (:o2)) log:collectAllIn _:sk_3.
+    }];
+    r:binding [ r:variable [ n3:uri "http://www.w3.org/2000/10/swap/var#x_3"]; r:boundTo {
+        :a :n :m.
+    }];
+    r:rule skolem:lemma2.
+
+skolem:lemma2 a r:Extraction;
+    r:gives {
+        @forAll var:x_0, var:x_1, var:x_2, var:x_3. {
+            (| "pass_only_new" var:x_0 |).
+            (| "=.." var:x_0 (var:x_1 var:x_2 var:x_3) |).
+        } => {
+            var:x_2 var:x_1 var:x_3.
+        }.
+    };
+    r:because [ a r:Parsing; r:source <http://eulersharp.sourceforge.net/2003/03swap/pass-only-new>].
+

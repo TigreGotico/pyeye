@@ -1,0 +1,11 @@
+@prefix log: <http://www.w3.org/2000/10/swap/log#>.
+@prefix : <https://eyereasoner.github.io/ns#>.
+
+# the ground is not wet
+{ :ground :is :wet } => false.
+
+# if it is raining, then the ground is wet
+{ :it :is :raining } => { :ground :is :wet }.
+
+# proof by contrapositive
+{ ?P => ?C. ?C => false } => { ?P => false }.

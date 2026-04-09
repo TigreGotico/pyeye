@@ -1,0 +1,5 @@
+@prefix : <https://eyereasoner.github.io/ns#>.
+
+# query
+{ :Fabian :believes ?what } => { :Fabian :believes ?what }.
+{ ?x :notNecessarilyA ?what } => { ?x :notNecessarilyA ?what }.

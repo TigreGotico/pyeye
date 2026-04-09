@@ -1,0 +1,8 @@
+@prefix : <https://eyereasoner.github.io/ns#>.
+
+# query
+{
+    ?X a :Mortal.
+} => {
+    ?X a :Mortal.
+}.

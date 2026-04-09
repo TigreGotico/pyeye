@@ -1,0 +1,7 @@
+@prefix : <https://eyereasoner.github.io/ns#>.
+
+{
+    (:a :f) :dijkstra (?Path ?Cost).
+} => {
+    (:a :f) :dijkstra (?Path ?Cost).
+}.

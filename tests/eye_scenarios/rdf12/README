@@ -1,0 +1,8 @@
+-------------
+RDF 1.2 tests
+-------------
+
+See https://w3c.github.io/rdf-tests/rdf/rdf12/
+
+Prepare the results via
+./prepare
