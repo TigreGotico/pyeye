@@ -2,3 +2,18 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+
+# Agent artifacts
+plan.md
+spec*.md
+status*.md
+audit*.md
+checklist.md
+decisions.md
+implementation-notes.md
+index.html
+index.html.*
+CONFORMANCE.md
+IMPLEMENTATION_STATUS.md
+XFAILED_ANALYSIS.md
+.claude/
