@@ -17,3 +17,5 @@ CONFORMANCE.md
 IMPLEMENTATION_STATUS.md
 XFAILED_ANALYSIS.md
 .claude/
+STATUS.txt
+test_results_raw.txt
