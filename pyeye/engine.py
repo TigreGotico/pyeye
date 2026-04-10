@@ -62,6 +62,7 @@ class Engine:
     ) -> None:
         self.store = TripleStore()
         self._rules: list[Rule] = []
+        self._derived_rule_hashes: set[int] = set()  # dedup derived rules
         self._builtins: dict[str, Builtin] = {**BUILTIN_REGISTRY}
         if builtins:
             self._builtins.update(builtins)
@@ -249,8 +250,17 @@ class Engine:
         M3 fix: For @forSome rules, track base bindings across all passes
         to prevent infinite derivation.
         """
+        # Check timeout before expensive matching
+        if self._deadline is not None and _time.monotonic() > self._deadline:
+            raise ReasoningTimeoutError(
+                f"Forward chaining exceeded {self._timeout_seconds}s timeout."
+            )
         bindings = self._match_formula(rule.body, {})
         for binding in bindings:
+            if self._deadline is not None and _time.monotonic() > self._deadline:
+                raise ReasoningTimeoutError(
+                    f"Forward chaining exceeded {self._timeout_seconds}s timeout."
+                )
             if self._limit_answers > 0 and self._derived_count >= self._limit_answers:
                 return
             if self._max_steps > 0 and self._step_count >= self._max_steps:
@@ -288,13 +298,34 @@ class Engine:
                     f"Constraint violation: rule body is satisfiable — {rule}"
                 )
 
-            # Instantiate head
-            head_triples = self._instantiate_formula(rule.head, for_some_binding)
+            # Instantiate head (pass rule_id for stable skolemization)
+            head_triples = self._instantiate_formula(
+                rule.head, for_some_binding, rule_id=rule.source or str(rule_idx)
+            )
             for head_triple in head_triples:
                 if self._limit_answers > 0 and self._derived_count >= self._limit_answers:
                     return
                 if self._max_steps > 0 and self._step_count >= self._max_steps:
                     return
+
+                # Derived rule: if head triple is {body} log:implies {head},
+                # promote it to an active rule in the engine.
+                _LOG_IMPLIES = "http://www.w3.org/2000/10/swap/log#implies"
+                if (isinstance(head_triple.predicate, NamedNode)
+                        and head_triple.predicate.value == _LOG_IMPLIES
+                        and isinstance(head_triple.subject, Formula)
+                        and isinstance(head_triple.object, Formula)):
+                    rule_hash = hash((str(head_triple.subject), str(head_triple.object)))
+                    if rule_hash not in self._derived_rule_hashes:
+                        self._derived_rule_hashes.add(rule_hash)
+                        derived_rule = Rule(
+                            body=head_triple.subject,
+                            head=head_triple.object,
+                            source="derived",
+                        )
+                        self._rules.append(derived_rule)
+                        self._derived_count += 1
+                    continue
 
                 if head_triple.is_ground() and self.store.add(head_triple):
                     self._derived_count += 1
@@ -516,6 +547,10 @@ class Engine:
         results: list[Binding] = [binding]
 
         for pattern in patterns:
+            if self._deadline is not None and _time.monotonic() > self._deadline:
+                raise ReasoningTimeoutError(
+                    f"Forward chaining exceeded {self._timeout_seconds}s timeout."
+                )
             # Resolve any bound variables in the pattern
             resolved = self._resolve_triple(pattern, binding)
 
@@ -823,11 +858,15 @@ class Engine:
         self,
         formula: Formula,
         binding: Binding,
+        rule_id: str = "",
     ) -> list[Triple]:
         """Create ground triples from the head formula with bindings applied.
 
         Only skolemize blank nodes that appear literally in the head formula
         template (not ones that arrived via variable binding from the body).
+
+        Skolem names are stable: same rule + same binding → same blank node name,
+        preventing infinite re-derivation of structurally identical triples.
         """
         # Collect blank-node names that appear *directly* in the head template
         head_blanks: set[str] = set()
@@ -836,9 +875,14 @@ class Engine:
                 if isinstance(term, Existential) and term.name.startswith("_b"):
                     head_blanks.add(term.name)
 
-        # Build a per-instantiation mapping from template bnode → fresh skolem
-        # so that shared bnodes in the head map to the SAME fresh node.
+        # Build a stable mapping from template bnode → skolem constant.
+        # The skolem name is a hash of (rule_id, bnode_template_name, binding_values).
+        binding_key = "_".join(f"{k}={v}" for k, v in sorted(binding.items()))
         bnode_map: dict[str, Existential] = {}
+        for bn in sorted(head_blanks):
+            key = f"{rule_id}|{bn}|{binding_key}"
+            skolem_name = f"sk-{abs(hash(key)) % (10**9)}"
+            bnode_map[bn] = Existential(skolem_name)
 
         result: list[Triple] = []
         for pattern in formula.triples:
@@ -869,12 +913,15 @@ class Engine:
             # Only skolemize if it's a template bnode (not a body binding)
             if head_blanks is not None and t.name not in head_blanks:
                 return t
-            # Use consistent mapping within this instantiation
+            # Use pre-computed stable mapping (set in _instantiate_formula)
             if bnode_map is not None:
-                if t.name not in bnode_map:
-                    self._bn_counter += 1
-                    bnode_map[t.name] = Existential(f"bn-{self._bn_counter}")
-                return bnode_map[t.name]
+                if t.name in bnode_map:
+                    return bnode_map[t.name]
+                # Fallback: fresh counter (legacy path or shared bnode not in map)
+                self._bn_counter += 1
+                mapped = Existential(f"bn-{self._bn_counter}")
+                bnode_map[t.name] = mapped
+                return mapped
             # Legacy path (called without head_blanks)
             self._bn_counter += 1
             return Existential(f"bn-{self._bn_counter}")

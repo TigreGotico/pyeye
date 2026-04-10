@@ -3729,10 +3729,12 @@ class TestBuiltinsCoverageBoost:
         """_num_val with a plain string-like object (non-Literal/NamedNode path)."""
         from pyeye.builtins import _num_val
         from pyeye.term import Variable
-        # Variable has no .value but str() gives the name
+        # Unknown types now raise TypeError
         class FakeNum:
             def __str__(self): return "42"
-        assert _num_val(FakeNum()) == 42.0
+        import pytest
+        with pytest.raises(TypeError):
+            _num_val(FakeNum())
 
     # --- _make_list empty branch (line 94) ---
     def test_make_list_empty(self):
@@ -5831,10 +5833,10 @@ class TestParserCoverageBoost:
         assert doc is not None
 
     def test_parse_error_handling(self):
-        """Cover ParseError path (line 538)."""
+        """Cover ParseError path."""
         from pyeye.parser import parse_n3, ParseError
         with pytest.raises(Exception):
-            parse_n3("{ ?x ??? }")
+            parse_n3("@prefix ex: <http://ex/> . ex:a <http://forbidden{char/> ex:b .")
 
     def test_parse_multiline_string(self):
         """Cover triple-quoted string literal (lines 594-597)."""

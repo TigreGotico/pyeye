@@ -78,6 +78,30 @@ def _str_val(t: Term) -> str:
     return str(t)
 
 
+def _parse_datetime_float(s: str) -> float:
+    """Parse an xsd:dateTime string to a POSIX timestamp (float) for ordering."""
+    from datetime import datetime, timezone, timedelta
+    import re as _re3
+    # Normalise: replace space separator with T
+    s = s.strip().replace(" ", "T")
+    # Handle timezone offset like +01:00 or -05:30 or Z
+    tz_match = _re3.search(r'([+-])(\d{2}):(\d{2})$', s)
+    if tz_match:
+        sign, hh, mm = tz_match.groups()
+        offset = timedelta(hours=int(hh), minutes=int(mm))
+        if sign == '-':
+            offset = -offset
+        s_no_tz = s[:tz_match.start()]
+        dt = datetime.fromisoformat(s_no_tz).replace(tzinfo=timezone(offset))
+    elif s.endswith('Z'):
+        dt = datetime.fromisoformat(s[:-1]).replace(tzinfo=timezone.utc)
+    else:
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
 def _parse_duration_years(s: str) -> float | None:
     """Parse an ISO 8601 duration like 'P80Y' or 'P1Y6M' to fractional years.
 
@@ -104,10 +128,23 @@ def _num_val(t: Term) -> float:
         d = _parse_duration_years(v)
         if d is not None:
             return d
+        # Boolean literals: true → 1.0, false → 0.0
+        if v.lower() == "true":
+            return 1.0
+        if v.lower() == "false":
+            return 0.0
+        # xsd:dateTime literals — convert to POSIX timestamp for comparison
+        dt_node = t.datatype
+        if dt_node is not None and isinstance(dt_node, NamedNode):
+            dt_uri = dt_node.value
+            if dt_uri == "http://www.w3.org/2001/XMLSchema#dateTime":
+                return _parse_datetime_float(v)
+            if dt_uri == "http://www.w3.org/2001/XMLSchema#date":
+                return _parse_datetime_float(v + "T00:00:00")
         return float(v)
-    if isinstance(t, (NamedNode, Existential)):
+    if isinstance(t, NamedNode):
         return float(t.value)
-    return float(str(t))
+    raise TypeError(f"Non-numeric term: {t}")
 
 
 def _bool_result(v: bool) -> Literal:
@@ -1836,9 +1873,13 @@ def math_radians(args: list[Term], engine: EngineProto) -> Term | None:
     return _num_result(_py_math.radians(_num_val(args[0])))
 
 def math_memberCount(args: list[Term], engine: EngineProto) -> Term | None:
+    """Count items in the subject list (or formula)."""
     inputs = _input_only(args)
     if _unground(inputs): return None
-    return _int_result(len(_extract_list(inputs, engine)))
+    # inputs may be: a single Formula, or the expanded list items from the subject list
+    if len(inputs) == 1 and isinstance(inputs[0], Formula):
+        return _int_result(len(inputs[0].triples))
+    return _int_result(len(inputs))
 
 # --- String: missing builtins ---
 
@@ -2815,8 +2856,18 @@ def e_stringSplit(args: list[Term], engine: EngineProto) -> Term | None:
     return _make_list([Literal(p) for p in parts], engine)
 
 def e_subsequence(args: list[Term], engine: EngineProto) -> Term | None:
+    """Check if the object list is an order-preserving subsequence of the subject list.
+
+    Pattern: (a b c d e) e:subsequence (a c e)
+    args[:-1] = subject list items, args[-1] = object list (Existential or NamedNode nil)
+    """
     if _unground(args): return None
-    return _bool_result(_str_val(args[1]) in _str_val(args[0]))
+    seq = list(args[:-1])  # subject list items
+    sub_node = args[-1]
+    sub = engine._expand_list(sub_node) if isinstance(sub_node, Existential) else []
+    # Order-preserving subsequence check
+    it = iter(seq)
+    return _bool_result(all(any(s == el for el in it) for s in sub))
 
 def e_T(args: list[Term], engine: EngineProto) -> Term | None:
     return _bool_result(True)

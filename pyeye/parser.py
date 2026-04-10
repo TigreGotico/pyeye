@@ -130,6 +130,8 @@ def tokenize(text: str) -> list[Tok]:
         ("FTCLOSE", r"\|\)"),       # Phase 2: formula term close
         ("SETOPEN", r"\(\$"),       # Phase 2: set open
         ("SETCLOSE", r"\$\)"),      # Phase 2: set close
+        ("ANNOT_OPEN",  r"\{\|"),    # RDF 1.2 annotation {| ... |}
+        ("ANNOT_CLOSE", r"\|\}"),    # RDF 1.2 annotation close
         ("LBR",     r"\{"),
         ("RBR",     r"\}"),
         ("LBK",     r"\["),
@@ -341,6 +343,8 @@ class Parser:
                 # Bare term (variable, literal, IRI) as rule head — skip
                 self._eat_any()
                 head = Formula(())
+            if self._peek().t == "ANNOT_OPEN":
+                self._skip_annotation()
             self._eat("DOT")
             self._rules.append(Rule(
                 body, head, self._src,
@@ -360,6 +364,8 @@ class Parser:
                 # Variable or other term as body — skip it (treat as empty body)
                 self._eat_any()
                 head = Formula(())
+            if self._peek().t == "ANNOT_OPEN":
+                self._skip_annotation()
             self._eat("DOT")
             self._rules.append(Rule(
                 head, body, self._src,
@@ -503,6 +509,11 @@ class Parser:
         # E.g. ``(?L ?L) ! math:product math:lessThan ?N`` — the ``!math:product``
         # modifies the list subject, producing a new existential as the effective subj.
         subj = self._maybe_path(subj)
+        # Bare blank node: [ p o ] . — blank node properties already emitted; no verb follows
+        if self._peek().t in ("DOT", "RBR", "ANNOT_OPEN", "EOF"):
+            if self._peek().t == "DOT":
+                self._eat("DOT")
+            return out
         while True:
             # Handle inverse predicate: `<-pred obj` → Triple(obj, pred, subj)
             if self._peek().t == "PREDINV":
@@ -564,15 +575,39 @@ class Parser:
                     break
             else:
                 break
+        # RDF 1.2 annotation syntax: triple {| prop val |} — skip annotation block
+        if self._peek().t == "ANNOT_OPEN":
+            self._skip_annotation()
         if self._peek().t == "DOT":
             self._eat("DOT")
         return out
+
+    def _skip_annotation(self) -> None:
+        """Skip an RDF 1.2 annotation block ``{| prop val ; ... |}``."""
+        self._eat("ANNOT_OPEN")
+        depth = 1
+        while depth > 0:
+            t = self._peek()
+            if t.t == "ANNOT_OPEN":
+                depth += 1
+                self._eat_any()
+            elif t.t == "ANNOT_CLOSE":
+                depth -= 1
+                self._eat_any()
+            elif t.t == "EOF":
+                break
+            else:
+                self._eat_any()
 
     def _verb(self) -> Term:
         t = self._peek()
         if t.t == "KW" and t.v == "a":
             self._eat("KW")
             return RDF_TYPE
+        # N3/EYE `=` shorthand for owl:sameAs when used as predicate
+        if t.t == "EQ":
+            self._eat("EQ")
+            return NamedNode("http://www.w3.org/2002/07/owl#sameAs")
         return self._item()
 
     def _obj_list(self) -> list[Term]:
@@ -860,11 +895,21 @@ class Parser:
     # -- Phase 2: triple terms << S P O >> -----------------------------------
 
     def _triple_term(self) -> TripleTerm:
-        """Parse ``<< S P O >>`` into a TripleTerm."""
+        """Parse ``<< S P O >>`` or ``<<( S P O )>>`` into a TripleTerm."""
         self._eat("TTOPEN")
+        # EYE uses <<( S P O )>> syntax (parenthesised form)
+        paren = self._peek().t == "LP"
+        if paren:
+            self._eat("LP")
         s = self._item()
         p = self._item()
         o = self._item()
+        # Optional annotation marker: ~ :annotationGraph
+        if self._peek().t in ("OP_REV",):
+            self._eat("OP_REV")
+            self._item()  # consume annotation graph ref, ignore for now
+        if paren:
+            self._eat("RP")
         self._eat("TTCLOSE")
         return TripleTerm(s, p, o)
 

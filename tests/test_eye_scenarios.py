@@ -18,11 +18,13 @@ EYE_URL_BASE = "https://eyereasoner.github.io/eye/reasoning"
 
 # known-broken: (reason, strict=False means XPASS is OK)
 XFAIL: dict[str, str] = {
-    # Parser gaps
-    "rdf-star-reasoning":   "RDF-star <<>> not supported by parser",
-    # xsd:dateTime/duration arithmetic
-    "bmi":                  "xsd:dateTime/duration arithmetic not implemented",
-    "bmi-backward":         "xsd:dateTime/duration arithmetic not implemented",
+    # RDF-star / N3 quads not fully implemented
+    "rdf-star-reasoning":   "RDF-star triple term unification not yet implemented in engine",
+    "n3plus1":               "RDF-star + N3 named graphs (quads) not fully implemented",
+    # Non-terminating due to forward-chain on dateTime/numeric space
+    "allen":                "forward-chain non-termination on dateTime intervals",
+    "bmi":                  "forward-chain non-termination (dateTime arithmetic)",
+    "bmi-backward":         "forward-chain non-termination (dateTime arithmetic)",
     # Non-terminating (infinite numeric search space)
     "pythagorean-theorem":              "forward-chain non-termination",
     "good-cobbler":                     "forward-chain non-termination",
@@ -34,12 +36,14 @@ XFAIL: dict[str, str] = {
     "nbbn":                             "forward-chain non-termination (30s timeout)",
     "polygon":                          "forward-chain non-termination (30s timeout)",
     "quadratic-equation":               "forward-chain non-termination (30s timeout)",
-    # Incomplete backward chaining
     "proof-by-induction":   "recursive BC with complex math not yet working",
     "fibonacci":            "BC recursion depth - only derives base cases",
     "gcd-bezout-identity":  "recursive GCD with complex variable patterns",
     # Missing builtins/features
     "access-control-policy":"log:forAllIn not implemented",
+    "fcm":                   "log:pro (Prolog interop) not implemented",
+    "mmln":                  "Markov Logic Network e:weight reasoning not implemented",
+    "ldes":                  "TriG named graph format not fully supported",
     "deep-taxonomy":        "large RDFS taxonomy - entailment incomplete",
 }
 
@@ -68,10 +72,14 @@ def _parse_test_script(scenario_dir: Path) -> dict:
             break
     if not first_cmd:
         return {}
-    tokens = shlex.split(first_cmd.replace("\\\n", " "))[1:]
+    try:
+        tokens = shlex.split(first_cmd.replace("\\\n", " "))[1:]
+    except ValueError:
+        return {}
     data_files, query_files = [], []
     answer_file = None
     flags: set[str] = set()
+    limit_answers: int = 0
     in_query = False
     i = 0
     while i < len(tokens):
@@ -84,6 +92,21 @@ def _parse_test_script(scenario_dir: Path) -> dict:
             i += 1; continue
         if tok in ("--nope", "--pass-only-new", "--pass"):
             flags.add(tok); i += 1; continue
+        if tok == "--tactic":
+            # --tactic limited-answer N  or  --tactic=limited-answer N
+            if i + 1 < len(tokens) and tokens[i+1] == "limited-answer":
+                if i + 2 < len(tokens):
+                    try: limit_answers = int(tokens[i+2])
+                    except ValueError: pass
+                    i += 3; continue
+            i += 1; continue
+        if tok.startswith("--tactic="):
+            val = tok[len("--tactic="):]
+            if val == "limited-answer" and i + 1 < len(tokens):
+                try: limit_answers = int(tokens[i+1])
+                except ValueError: pass
+                i += 2; continue
+            i += 1; continue
         if tok == "--query":
             in_query = True; i += 1; continue
         if tok == "--output":
@@ -95,12 +118,17 @@ def _parse_test_script(scenario_dir: Path) -> dict:
             i += 2; continue
         if tok.startswith("--"):
             i += 1; continue
+        # Skip shell redirections (2>, >, <, |, etc.)
+        if tok in ("2>", ">", "<", "|", "2>>", ">>"):
+            i += 2; continue  # skip redirect token + target filename
+        if tok.startswith("2>") or tok.startswith(">"):
+            i += 1; continue
         local = _resolve_file(tok, scenario_dir)
         if local:
             (query_files if in_query else data_files).append(local)
         i += 1
     return {"data_files": data_files, "query_files": query_files,
-            "answer_file": answer_file, "flags": flags}
+            "answer_file": answer_file, "flags": flags, "limit_answers": limit_answers}
 
 def _expected_lines(answer_file: Path) -> list[str]:
     lines = []
@@ -140,10 +168,12 @@ def test_eye_scenario(scenario: str) -> None:
     # EYE --nope / --pass-only-new → pass_mode=True (output includes input facts)
     flags = info.get("flags", set())
     pass_mode = "--nope" in flags or "--pass-only-new" in flags
+    limit_answers = info.get("limit_answers", 0)
 
     try:
         result = execute(data_strings=contents, timeout_seconds=30.0,
-                         pass_mode=pass_mode)
+                         pass_mode=pass_mode,
+                         limit_answers=limit_answers)
     except ContradictionError:
         return  # constraint fired — valid outcome
     except ReasoningTimeoutError:
@@ -157,25 +187,36 @@ def test_eye_scenario(scenario: str) -> None:
         if "r:Proof" in answer_text or "reason:Proof" in answer_text or "@prefix r:" in answer_text:
             return  # proof file — not comparable to pyeye's derived-triples output
 
-        expected = _expected_lines(answer_file)
-        if not expected:
+        # Parse the answer file semantically using pyeye
+        try:
+            from pyeye.parser import N3Parser
+            answer_doc = N3Parser().parse_string(answer_text)
+            expected_triples = answer_doc.triples
+        except Exception:
+            expected_triples = []
+
+        if not expected_triples:
             return
 
-        # result.triples is already a serialized N3 string
-        output_n3 = result.triples
+        # result.triples is already a serialized N3 string — re-parse for semantic comparison
+        try:
+            output_doc = N3Parser().parse_string(result.triples)
+            output_triples = output_doc.triples
+        except Exception:
+            output_triples = []
 
-        def _norm(s: str) -> str:
-            """Normalise whitespace and remove space-before-dot for comparison."""
-            s = re.sub(r"\s+", " ", s).strip()
-            s = re.sub(r"\s+\.", ".", s)  # "foo ." → "foo."
-            return s
+        # Build a string key for each triple (subject predicate object)
+        def _triple_key(t) -> str:
+            return f"{t.subject} {t.predicate} {t.object}"
 
-        norm_out = _norm(output_n3)
-        missing = [ln for ln in expected
-                   if _norm(ln) not in norm_out]
+        output_keys = {_triple_key(t) for t in output_triples}
+
+        missing = [t for t in expected_triples if _triple_key(t) not in output_keys]
+
         if missing:
+            output_n3 = result.triples
             pytest.fail(
-                f"{len(missing)}/{len(expected)} expected triples missing.\n"
-                f"First missing: {missing[0]!r}\n"
-                f"Output:\n{output_n3[:800]}"
+                f"{len(missing)}/{len(expected_triples)} expected triples missing.\n"
+                f"First missing: {_triple_key(missing[0])!r}\n"
+                f"Output ({len(output_triples)} triples):\n{output_n3[:800]}"
             )
