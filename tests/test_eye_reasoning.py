@@ -138,7 +138,8 @@ class TestBackward:
             "{ :nums :bigger ?X. :nums :smaller ?Y. ?X math:greaterThan ?Y. } => { ?X :moreInterestingThan ?Y. }.\n"
         )
         out = _run_ds(data, rules)
-        assert _contains(out, re.compile(r'"5"[^\s]*\s+\S*moreInterestingThan\S*\s+"3"', re.MULTILINE))
+        # Integers now serialized as bare numbers
+        assert _contains(out, re.compile(r'5\s+\S*moreInterestingThan\S*\s+3', re.MULTILINE))
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +502,8 @@ class TestCollatz:
     def test_half_of_6_is_3(self):
         """3 is half of 6 using math:quotient."""
         out = _run_ds(self.DATA, self.RULES)
-        assert _contains(out, re.compile(r'"3[^"]*"\S*\s+\S*isHalfOf\S*\s+"6', re.MULTILINE))
+        # Floats/doubles now serialized as bare numbers; integers too
+        assert _contains(out, re.compile(r'3[\s.0]*\s+\S*isHalfOf\S*\s+6', re.MULTILINE))
 
 
 # ---------------------------------------------------------------------------

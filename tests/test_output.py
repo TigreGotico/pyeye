@@ -49,7 +49,8 @@ class TestN3Writer:
         dt = NN("http://www.w3.org/2001/XMLSchema#integer")
         t = T(NN("http://ex/a"), NN("http://ex/val"), Literal("42", datatype=dt))
         result = w.write_triples([t])
-        assert '"42"^^<http://www.w3.org/2001/XMLSchema#integer>' in result
+        # Integers serialized as bare numbers (N3/Turtle canonical form)
+        assert ' 42 ' in result or result.strip().endswith(' 42 .')
 
     def test_literal_language(self):
         w = N3Writer()

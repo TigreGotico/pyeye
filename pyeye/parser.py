@@ -119,7 +119,7 @@ def tokenize(text: str) -> list[Tok]:
         ("IMPF",    r"=>"),
         ("IMPB",    r"<="),         # must be before IRI so <= is not swallowed as <...>
         ("PREDINV", r"<-"),         # must be before IRI so <-<IRI> is not swallowed as <...>
-        ("IRI",     r"<[^>]+>"),
+        ("IRI",     r"<[^>]*>"),
         ("PFX",     r"@prefix\b"),
         ("SPARQL_PFX", r"\bPREFIX\b"),  # L1 fix: SPARQL-style prefix
         ("BASE",    r"@base\b"),
@@ -404,15 +404,45 @@ class Parser:
                 self._do_quantifier()
                 continue
 
-            # Handle ?Var => {head} inside a formula (variable as antecedent)
-            if self._peek().t == "VAR" and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t == "IMPF":
+            # Handle ?Var => {head} or ?Var <= {body} inside a formula
+            if self._peek().t == "VAR" and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t in ("IMPF", "IMPB"):
                 var_term = Variable(self._eat("VAR").v[1:])
-                self._eat("IMPF")
-                head_formula = self._formula() if self._peek().t == "LBR" else Formula(())
+                imp_dir = self._eat_any().t  # IMPF or IMPB
+                if self._peek().t == "LBR":
+                    head_formula = self._formula()
+                elif self._peek().t in ("FALSE", "TRUE"):
+                    self._eat_any()
+                    head_formula = Formula(())
+                else:
+                    # Bare term (variable, literal) — eat and treat as empty
+                    if self._peek().t not in ("DOT", "RBR"):
+                        self._eat_any()
+                    head_formula = Formula(())
                 if self._peek().t == "DOT":
                     self._eat("DOT")
-                log_implies = NamedNode("http://www.w3.org/2000/10/swap/log#implies")
-                tris.append(Triple(var_term, log_implies, head_formula))
+                if imp_dir == "IMPF":
+                    log_implies = NamedNode("http://www.w3.org/2000/10/swap/log#implies")
+                    tris.append(Triple(var_term, log_implies, head_formula))
+                else:
+                    log_implied_by = NamedNode("http://www.w3.org/2000/10/swap/log#impliedBy")
+                    tris.append(Triple(head_formula, log_implied_by, var_term))
+                continue
+
+            # Handle true/false => {head} or true/false <= {body} inside a formula
+            if self._peek().t in ("TRUE", "FALSE") and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t in ("IMPF", "IMPB"):
+                self._eat_any()  # eat true/false
+                imp_dir = self._eat_any().t  # IMPF or IMPB
+                if self._peek().t == "LBR":
+                    head_formula = self._formula()
+                elif self._peek().t in ("FALSE", "TRUE"):
+                    self._eat_any()
+                    head_formula = Formula(())
+                else:
+                    if self._peek().t not in ("DOT", "RBR"):
+                        self._eat_any()
+                    head_formula = Formula(())
+                if self._peek().t == "DOT":
+                    self._eat("DOT")
                 continue
 
             # M4 fix: Check for implication inside formulas: {A} => {B}

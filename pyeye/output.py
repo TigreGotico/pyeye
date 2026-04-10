@@ -66,6 +66,65 @@ class N3Writer:
 
         return result
 
+    # -- RDF list detection --------------------------------------------------
+
+    _RDF_FIRST = "http://www.w3.org/1999/02/22-rdf-syntax-ns#first"
+    _RDF_REST  = "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"
+    _RDF_NIL   = "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil"
+
+    def _detect_lists(self, triples: list[Triple]) -> set[str]:
+        """Return names of blank nodes that are the head of an RDF list chain.
+
+        A blank node is a list node if it has exactly rdf:first and rdf:rest.
+        Returns the set of blank-node names that are list nodes.
+        """
+        by_subj: dict[str, list[Triple]] = defaultdict(list)
+        for t in triples:
+            if isinstance(t.subject, Existential):
+                by_subj[t.subject.name].append(t)
+
+        list_nodes: set[str] = set()
+        for name, ts in by_subj.items():
+            preds = {t.predicate.value for t in ts
+                     if isinstance(t.predicate, NamedNode)}
+            if preds == {self._RDF_FIRST, self._RDF_REST}:
+                list_nodes.add(name)
+        return list_nodes
+
+    def _render_list(self, head: Existential, list_nodes: set[str],
+                     by_subj: dict[str, list[Triple]]) -> str | None:
+        """Try to render the RDF list starting at head as N3 `(...)` notation.
+
+        Returns the rendered string, or None if the structure is not a clean list.
+        """
+        items: list[str] = []
+        node: Existential | NamedNode = head
+        seen: set[str] = set()
+        while True:
+            if isinstance(node, NamedNode) and node.value == self._RDF_NIL:
+                return "(" + " ".join(items) + ")"
+            if not isinstance(node, Existential) or node.name in seen:
+                return None  # cycle or unexpected structure
+            seen.add(node.name)
+            ts = by_subj.get(node.name, [])
+            first_val: Term | None = None
+            rest_val: Term | None = None
+            for t in ts:
+                if isinstance(t.predicate, NamedNode):
+                    if t.predicate.value == self._RDF_FIRST:
+                        first_val = t.object
+                    elif t.predicate.value == self._RDF_REST:
+                        rest_val = t.object
+            if first_val is None or rest_val is None:
+                return None
+            # Recursively render nested lists
+            if isinstance(first_val, Existential) and first_val.name in list_nodes:
+                inner = self._render_list(first_val, list_nodes, by_subj)
+                items.append(inner if inner else self._term(first_val))
+            else:
+                items.append(self._term(first_val))
+            node = rest_val  # type: ignore[assignment]
+
     def _write_triples_n3(self, triples: list[Triple]) -> str:
         """Write regular triples with N3 syntax."""
 
@@ -84,6 +143,22 @@ class N3Writer:
             if isinstance(t.object, Existential):
                 bnode_refs[t.object.name] += 1
 
+        # Detect RDF list nodes — these will be inlined as (a b c) rather than [ ... ]
+        list_nodes = self._detect_lists(triples)
+        by_subj_name: dict[str, list[Triple]] = {
+            t.subject.name: by_subject[t.subject]
+            for t in triples
+            if isinstance(t.subject, Existential)
+        }
+
+        def _obj(obj: Term) -> str:
+            """Render an object term, collapsing list heads to (...) notation."""
+            if isinstance(obj, Existential) and obj.name in list_nodes:
+                rendered = self._render_list(obj, list_nodes, by_subj_name)
+                if rendered is not None:
+                    return rendered
+            return self._term_for_object(obj, bnode_subjects, bnode_refs)
+
         # Build output, collapsing blank node property lists
         lines: list[str] = []
 
@@ -94,6 +169,10 @@ class N3Writer:
         ))
 
         for subj in sorted_subjects:
+            # Skip blank nodes that are interior list nodes (they're inlined)
+            if isinstance(subj, Existential) and subj.name in list_nodes:
+                continue
+
             trip_list = by_subject[subj]
             # Sort triples within each subject by (predicate, object)
             trip_list.sort(key=lambda t: (str(t.predicate), str(t.object)))
@@ -103,18 +182,22 @@ class N3Writer:
                 pred_objs: list[str] = []
                 for t in trip_list:
                     pred_str = self._term(t.predicate)
-                    obj_str = self._term_for_object(t.object, bnode_subjects, bnode_refs)
+                    obj_str = _obj(t.object)
                     pred_objs.append(f"{pred_str} {obj_str}")
 
                 # Collapse using semicolons
                 collapsed = "; ".join(pred_objs)
                 lines.append(f"[ {collapsed} ] .")
             else:
-                # Normal subject
-                subj_str = self._term(subj)
+                # Render list-as-subject: if subject is a list head, render as (...)
+                if isinstance(subj, Existential) and subj.name in list_nodes:
+                    subj_str_maybe = self._render_list(subj, list_nodes, by_subj_name)
+                    subj_str = subj_str_maybe if subj_str_maybe else self._term(subj)
+                else:
+                    subj_str = self._term(subj)
                 for t in trip_list:
                     pred_str = self._term(t.predicate)
-                    obj_str = self._term_for_object(t.object, bnode_subjects, bnode_refs)
+                    obj_str = _obj(t.object)
                     lines.append(f"{subj_str} {pred_str} {obj_str} .")
 
         return self._write_prefix_block("\n".join(lines))
@@ -252,10 +335,26 @@ class N3Writer:
         # Escape quotes
         v = v.replace('"', '\\"')
 
-        # M11 fix: Normalize boolean output to bare true/false
-        XSD_BOOL = "http://www.w3.org/2001/XMLSchema#boolean"
-        if lit.datatype and lit.datatype.value == XSD_BOOL:
-            return v  # bare true or false
+        XSD_BOOL    = "http://www.w3.org/2001/XMLSchema#boolean"
+        XSD_INTEGER = "http://www.w3.org/2001/XMLSchema#integer"
+        XSD_DECIMAL = "http://www.w3.org/2001/XMLSchema#decimal"
+        XSD_DOUBLE  = "http://www.w3.org/2001/XMLSchema#double"
+        XSD_FLOAT   = "http://www.w3.org/2001/XMLSchema#float"
+
+        if lit.datatype:
+            dt = lit.datatype.value
+            # Bare boolean literals
+            if dt == XSD_BOOL:
+                return v
+            # Bare integer literals  — emit as plain number e.g. 42
+            if dt == XSD_INTEGER:
+                return v  # already a digit string like "42"
+            # Bare decimal/double — emit as plain number e.g. 3.14
+            if dt in (XSD_DECIMAL, XSD_DOUBLE, XSD_FLOAT):
+                # Avoid trailing dot: "3." → "3.0"
+                if v.endswith("."):
+                    v = v + "0"
+                return v
 
         if lit.language:
             return f'"{v}"@{lit.language}'
