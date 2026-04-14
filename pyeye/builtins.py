@@ -28,7 +28,7 @@ import urllib.parse as _urllib_parse
 import shlex as _shlex
 from typing import Protocol
 
-from pyeye.term import NamedNode, Literal, Variable, Existential, Triple, Term, Formula
+from pyeye.term import NamedNode, Literal, Variable, Existential, Triple, Term, Formula, ListTerm
 from pyeye.store import TripleStore
 
 
@@ -44,6 +44,12 @@ class MultiResult:
     the current binding once for each element."""
     def __init__(self, results: list[Term]) -> None:
         self.results = results
+
+
+class BindingsList:
+    """Returned by meta-builtins that produce multiple binding sets."""
+    def __init__(self, bindings: list) -> None:
+        self.bindings = bindings
 
 
 class Builtin(Protocol):
@@ -165,6 +171,22 @@ def _int_result(v: int) -> Literal:
     return Literal(str(v), datatype=NamedNode("http://www.w3.org/2001/XMLSchema#integer"))
 
 
+_XSD_INTEGER = "http://www.w3.org/2001/XMLSchema#integer"
+
+def _is_integer_term(t: Term) -> bool:
+    return (isinstance(t, Literal) and t.datatype is not None
+            and isinstance(t.datatype, NamedNode)
+            and t.datatype.value == _XSD_INTEGER)
+
+def _typed_num_result(v: float, inputs: list[Term]) -> Literal:
+    if all(_is_integer_term(t) for t in inputs) and v == int(v):
+        try:
+            return _int_result(int(v))
+        except (OverflowError, ValueError):
+            pass
+    return _num_result(v)
+
+
 def _input_only(args: list[Term]) -> list[Term]:
     """Return input args, stripping a trailing unbound Variable output slot.
 
@@ -180,27 +202,9 @@ def _input_only(args: list[Term]) -> list[Term]:
     return args
 
 
-def _make_list(items: list[Term], engine: EngineProto) -> Existential | None:
-    """Create an RDF list from a Python list of terms."""
-    if not items:
-        return Existential("nil")
-    rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-    first_p = NamedNode(rdf + "first")
-    rest_p = NamedNode(rdf + "rest")
-    nil = Existential("nil")
-    head = Existential(f"_ml{engine._bn_counter}")
-    engine._bn_counter += 1
-    cur = head
-    for i, item in enumerate(items):
-        engine.store.add(Triple(cur, first_p, item))
-        if i < len(items) - 1:
-            nxt = Existential(f"_ml{engine._bn_counter}")
-            engine._bn_counter += 1
-            engine.store.add(Triple(cur, rest_p, nxt))
-            cur = nxt
-        else:
-            engine.store.add(Triple(cur, rest_p, nil))
-    return head
+def _make_list(items: list[Term], engine: EngineProto) -> ListTerm:
+    """Create a ListTerm from a Python list of terms."""
+    return ListTerm(items=tuple(items))
 
 
 # ---------------------------------------------------------------------------
@@ -358,28 +362,10 @@ def list_in(args: list[Term], engine: EngineProto) -> "Term | MultiResult | None
     head = args[1]
     item_is_var = isinstance(item, Variable)
 
-    if not isinstance(head, Existential):
+    if not isinstance(head, ListTerm):
         return MultiResult([]) if item_is_var else _bool_result(False)
 
-    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-    rdf_nil = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil")
-
-    members: list[Term] = []
-    cur: Term = head
-    visited: set[str] = set()
-    while isinstance(cur, Existential) and cur.name not in visited:
-        visited.add(cur.name)
-        first_matches = list(engine.store.match(subject=cur, predicate=rdf_first))
-        if first_matches:
-            members.append(first_matches[0].object)
-        rest_matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
-        if not rest_matches:
-            break
-        nxt = rest_matches[0].object
-        if nxt == rdf_nil:
-            break
-        cur = nxt
+    members = list(head.items)
 
     if item_is_var:
         return MultiResult(members)
@@ -390,29 +376,10 @@ def list_length(args: list[Term], engine: EngineProto) -> Term | None:  # pragma
     if _unground(args):
         return None
     head = args[0]
-    if not isinstance(head, Existential):
+    if not isinstance(head, ListTerm):
         return _int_result(0)
 
-    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-    nil = Existential("nil")
-    cur = head
-    count = 0
-    visited: set[str] = set()
-    while cur.name not in visited and cur.name != "nil":
-        visited.add(cur.name)
-        count += 1
-        matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
-        if matches:
-            nxt = matches[0].object
-            if nxt == nil:
-                break
-            if isinstance(nxt, Existential):
-                cur = nxt
-            else:
-                break
-        else:
-            break
-    return _int_result(count)
+    return _int_result(len(head.items))
 
 
 # ---------------------------------------------------------------------------
@@ -677,33 +644,16 @@ def list_select(args: list[Term], engine: EngineProto) -> Term | None:  # pragma
     if _unground(args):
         return None
     head = args[0]
-    if not isinstance(head, Existential):
+    if not isinstance(head, ListTerm):
         return None
     try:
         index = int(_num_val(args[1])) - 1  # 1-indexed
     except (ValueError, IndexError):
         return None
 
-    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-    nil = Existential("nil")
-
-    cur = head
-    for _ in range(index):
-        matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
-        if not matches:
-            return None
-        nxt = matches[0].object
-        if nxt == nil:
-            return None
-        if isinstance(nxt, Existential):
-            cur = nxt
-        else:
-            return None
-
-    first_matches = list(engine.store.match(subject=cur, predicate=rdf_first))
-    if first_matches:
-        return first_matches[0].object
+    items = head.items
+    if 0 <= index < len(items):
+        return items[index]
     return None
 
 
@@ -717,9 +667,9 @@ def list_length(args: list[Term], engine: EngineProto) -> Term | None:
     """
     if not args:
         return None
-    # Direct call: single Existential head
-    if len(args) <= 2 and isinstance(args[0], Existential) and engine is not None:
-        return _int_result(len(engine._expand_list(args[0])))
+    # Direct call: ListTerm head
+    if len(args) <= 2 and isinstance(args[0], ListTerm):
+        return _int_result(len(args[0].items))
     # Unground head (Variable)
     if isinstance(args[0], Variable):
         return None
@@ -744,13 +694,9 @@ def list_car(args: list[Term], engine: EngineProto) -> Term | None:  # pragma: n
     if _unground(args):
         return None
     head = args[0]
-    if not isinstance(head, Existential):
+    if not isinstance(head, ListTerm):
         return None
-    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-    matches = list(engine.store.match(subject=head, predicate=rdf_first))
-    if matches:
-        return matches[0].object
-    return None
+    return head.items[0] if head.items else None
 
 
 def list_cdr(args: list[Term], engine: EngineProto) -> Term | None:  # pragma: no cover — overridden by list_cdr at line 1407
@@ -758,13 +704,9 @@ def list_cdr(args: list[Term], engine: EngineProto) -> Term | None:  # pragma: n
     if _unground(args):
         return None
     head = args[0]
-    if not isinstance(head, Existential):
+    if not isinstance(head, ListTerm):
         return None
-    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-    matches = list(engine.store.match(subject=head, predicate=rdf_rest))
-    if matches:
-        return matches[0].object
-    return None
+    return ListTerm(items=head.items[1:]) if len(head.items) > 1 else ListTerm(items=())
 
 
 # ---------------------------------------------------------------------------
@@ -885,26 +827,7 @@ def func_tokenize(args: list[Term], engine: EngineProto) -> Term | None:
     s = _str_val(args[0])
     pattern = _str_val(args[1]) if len(args) > 1 else r"\s+"
     tokens = _re.split(pattern, s)
-    # Return as a list structure
-    if not tokens:  # pragma: no cover — re.split never returns empty list
-        return Existential("nil")
-    # Create list in store
-    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-    nil = Existential("nil")
-    head = Existential(f"_b{engine._skolem_counter}")
-    engine._skolem_counter += 1
-    cur = head
-    for i, tok in enumerate(tokens):
-        engine.store.add(Triple(cur, rdf_first, Literal(tok.strip())))
-        if i < len(tokens) - 1:
-            nxt = Existential(f"_b{engine._skolem_counter}")
-            engine._skolem_counter += 1
-            engine.store.add(Triple(cur, rdf_rest, nxt))
-            cur = nxt
-        else:
-            engine.store.add(Triple(cur, rdf_rest, nil))
-    return head
+    return ListTerm(items=tuple(Literal(tok.strip()) for tok in tokens))
 
 
 def pred_equal_to(args: list[Term], engine: EngineProto) -> Term | None:
@@ -986,24 +909,32 @@ def log_forAllIn(args: list[Term], engine: EngineProto) -> Term | None:
     # Get the cases list (Y) and theorem (T) from current binding
     _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 
-    # Find Y and T in binding (may have __rN suffixes from standardize-apart)
-    import re as _re_local
+    # Find Y and T in binding — binding is dict[int, Term] keyed by Variable.id.
+    # We search for Variable objects whose name is Y or T among the args or
+    # by scanning the binding values (the engine stores Variable.id -> Term).
+    # The args themselves may contain the Variable objects we need.
     y_val = None
     t_val = None
-    for key, val in binding.items():
-        base = _re_local.sub(r'__r\d+$', '', key)
-        if base == 'Y' and y_val is None:
-            y_val = val
-        elif base == 'T' and t_val is None:
-            t_val = val
+    # Try to find Y and T variables from the formula args
+    for a in args:
+        if isinstance(a, Formula):
+            for tri in a.triples:
+                for slot in (tri.subject, tri.predicate, tri.object):
+                    if isinstance(slot, Variable):
+                        bound = binding.get(slot.id)
+                        if bound is not None:
+                            if slot.name == 'Y' and y_val is None:
+                                y_val = bound
+                            elif slot.name == 'T' and t_val is None:
+                                t_val = bound
 
     if y_val is None or t_val is None:
         return None
 
     # Expand the cases list
-    if not isinstance(y_val, Existential):
+    if not isinstance(y_val, ListTerm):
         return None
-    cases = engine._expand_list(y_val)
+    cases = list(y_val.items)
 
     # For each case formula, extract the type class and check for a covering rule
     for case_formula in cases:
@@ -1048,7 +979,7 @@ def log_forAllIn(args: list[Term], engine: EngineProto) -> Term | None:
     scope_var = args[-1]
     new_b = dict(binding)
     if isinstance(scope_var, Variable):
-        new_b[scope_var.name] = NamedNode("urn:true")
+        new_b[scope_var.id] = NamedNode("urn:true")
     engine._current_binding = new_b
     return _bool_result(True)
 
@@ -1199,7 +1130,7 @@ def e_becomes(args: list[Term], engine: EngineProto) -> list[Triple] | None:
             return []
 
         # Check if new_arg is a list head (Existential pointing to RDF list)
-        if isinstance(new_arg, Existential):
+        if isinstance(new_arg, ListTerm):
             return _assert_list_as_triples(new_arg, engine)
 
         # Single new triple from args[3:6]
@@ -1213,72 +1144,31 @@ def e_becomes(args: list[Term], engine: EngineProto) -> list[Triple] | None:
         new_t = args[1]
         if isinstance(old_t, Triple):
             engine.store.retract(old_t)
-        elif isinstance(old_t, Existential):
+        elif isinstance(old_t, ListTerm):
             # Retract all triples in the list
             _retract_list(old_t, engine)
         if isinstance(new_t, Triple):
             engine.store.add(new_t)
             return [new_t]
-        elif isinstance(new_t, Existential):
+        elif isinstance(new_t, ListTerm):
             return _assert_list_as_triples(new_t, engine)
     return None
 
 
-def _retract_list(head: Existential, engine: EngineProto) -> None:
-    """Retract all triples in an RDF list."""
-    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-    nil = Existential("nil")
-    cur = head
-    visited: set[str] = set()
-    while cur.name not in visited and cur.name != "nil":
-        visited.add(cur.name)
-        # Find and retract the triple at this list node
-        first_matches = list(engine.store.match(subject=cur, predicate=rdf_first))
-        if first_matches:
-            t = first_matches[0]
-            if isinstance(t.object, Triple):
-                engine.store.retract(t.object)
-        rest_matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
-        if rest_matches:
-            nxt = rest_matches[0].object
-            if nxt == nil:
-                break
-            if isinstance(nxt, Existential):
-                cur = nxt
-            else:
-                break
-        else:
-            break
+def _retract_list(head: ListTerm, engine: EngineProto) -> None:
+    """Retract all triples contained in a ListTerm."""
+    for item in head.items:
+        if isinstance(item, Triple):
+            engine.store.retract(item)
 
 
-def _assert_list_as_triples(head: Existential, engine: EngineProto) -> list[Triple]:
-    """Assert all triples in an RDF list as store triples."""
-    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-    nil = Existential("nil")
-    cur = head
-    visited: set[str] = set()
+def _assert_list_as_triples(head: ListTerm, engine: EngineProto) -> list[Triple]:
+    """Assert all triples contained in a ListTerm."""
     asserted: list[Triple] = []
-    while cur.name not in visited and cur.name != "nil":
-        visited.add(cur.name)
-        first_matches = list(engine.store.match(subject=cur, predicate=rdf_first))
-        if first_matches:
-            t = first_matches[0]
-            if isinstance(t.object, Triple):
-                if engine.store.add(t.object):
-                    asserted.append(t.object)
-        rest_matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
-        if rest_matches:
-            nxt = rest_matches[0].object
-            if nxt == nil:
-                break
-            if isinstance(nxt, Existential):
-                cur = nxt
-            else:
-                break
-        else:
-            break
+    for item in head.items:
+        if isinstance(item, Triple):
+            if engine.store.add(item):
+                asserted.append(item)
     return asserted
 
 
@@ -1445,8 +1335,8 @@ def log_collectAllIn(args: list[Term], engine: EngineProto) -> Term | None:
         for b in all_bindings:
             # Resolve the pattern triple under current binding
             def _res(t: Term, bnd: dict) -> Term:
-                while isinstance(t, Variable) and t.name in bnd:
-                    t = bnd[t.name]
+                while isinstance(t, Variable) and t.id in bnd:
+                    t = bnd[t.id]
                 return t
             s = _res(pat_triple.subject, b)
             p = _res(pat_triple.predicate, b)
@@ -1466,8 +1356,8 @@ def log_collectAllIn(args: list[Term], engine: EngineProto) -> Term | None:
     results: list[Term] = []
     for b in all_bindings:
         def _res_term(t: Term, bnd: dict) -> Term:
-            while isinstance(t, Variable) and t.name in bnd:
-                t = bnd[t.name]
+            while isinstance(t, Variable) and t.id in bnd:
+                t = bnd[t.id]
             return t
         item = _res_term(template, b)
         results.append(item)
@@ -1480,7 +1370,7 @@ def log_collectAllIn(args: list[Term], engine: EngineProto) -> Term | None:
         # Update the engine's current binding so _handle_builtin picks it up
         if hasattr(engine, '_current_binding'):
             engine._current_binding = dict(engine._current_binding)
-            engine._current_binding[output_slot.name] = result_list
+            engine._current_binding[output_slot.id] = result_list
         return _bool_result(True)
     else:
         # Verify existing binding matches
@@ -1638,13 +1528,9 @@ def list_car(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args):
         return None
     head = args[0]
-    if not isinstance(head, Existential):
+    if not isinstance(head, ListTerm):
         return None
-    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-    matches = list(engine.store.match(subject=head, predicate=rdf_first))
-    if matches:
-        return matches[0].object
-    return None
+    return head.items[0] if head.items else None
 
 
 def list_cdr(args: list[Term], engine: EngineProto) -> Term | None:
@@ -1652,13 +1538,9 @@ def list_cdr(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args):
         return None
     head = args[0]
-    if not isinstance(head, Existential):
+    if not isinstance(head, ListTerm):
         return None
-    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-    matches = list(engine.store.match(subject=head, predicate=rdf_rest))
-    if matches:
-        return matches[0].object
-    return None
+    return ListTerm(items=head.items[1:]) if len(head.items) > 1 else ListTerm(items=())
 
 
 # ---------------------------------------------------------------------------
@@ -1677,12 +1559,12 @@ import hmac as _hmac
 # --- Math: missing builtins ---
 
 def _extract_list(args: list[Term], engine: EngineProto) -> list[float]:
-    """Extract numeric values from a list head or direct args."""
+    """Extract numeric values from a list or direct args."""
     if not args:  # pragma: no cover — builtins always receive at least one arg
         return []
     head = args[0]
-    if isinstance(head, Existential):
-        return [_num_val(t) for t in engine._expand_list(head)]
+    if isinstance(head, ListTerm):
+        return [_num_val(t) for t in head.items]
     return [_num_val(a) for a in args]
 
 def _strip_output_var(args: list[Term]) -> list[Term]:
@@ -1694,23 +1576,23 @@ def _strip_output_var(args: list[Term]) -> list[Term]:
     return args
 
 def _expand_if_list(args: list[Term], engine: EngineProto) -> list[Term]:
-    """If args is a single Existential (list head), expand it from the store.
+    """If args is a single ListTerm, expand it.
     Otherwise strip the output variable (if present) and return ground inputs."""
-    if len(args) == 1 and isinstance(args[0], Existential) and engine is not None:
-        return engine._expand_list(args[0])
+    if args and isinstance(args[0], ListTerm):
+        return list(args[0].items)
     return _strip_output_var(args)
 
 def math_sum(args: list[Term], engine: EngineProto) -> Term | None:
     inputs = _expand_if_list(args, engine)
     if _unground(inputs): return None
-    return _num_result(sum(_num_val(a) for a in inputs))
+    return _typed_num_result(sum(_num_val(a) for a in inputs), inputs)
 
 def math_product(args: list[Term], engine: EngineProto) -> Term | None:
     inputs = _expand_if_list(args, engine)
     if _unground(inputs): return None
     r = 1.0
     for a in inputs: r *= _num_val(a)
-    return _num_result(r)
+    return _typed_num_result(r, inputs)
 
 def _input_args(args: list[Term], n_inputs: int) -> list[Term]:
     """Return the input args, dropping the output variable if present."""
@@ -1767,7 +1649,7 @@ def math_difference(args: list[Term], engine: EngineProto) -> Term | None:
     yr = _date_difference_years(v0, v1)
     if yr is not None:
         return _num_result(yr)
-    return _num_result(_num_val(inp[0]) - _num_val(inp[1]))
+    return _typed_num_result(_num_val(inp[0]) - _num_val(inp[1]), inp)
 
 def math_quotient(args: list[Term], engine: EngineProto) -> Term | None:
     inp = _input_args(args, 2)
@@ -1918,8 +1800,8 @@ def string_join(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(inputs[:1]): return None
     sep = _str_val(inputs[0])
     head = inputs[1] if len(inputs) > 1 else None
-    if isinstance(head, Existential):
-        items = [_str_val(t) for t in engine._expand_list(head)]
+    if isinstance(head, ListTerm):
+        items = [_str_val(t) for t in list(head.items)]
     else:
         items = [_str_val(a) for a in inputs[1:]]
     return Literal(sep.join(items))
@@ -1987,8 +1869,8 @@ def list_append(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     items = []
     for a in args:
-        if isinstance(a, Existential):
-            items.extend(engine._expand_list(a))
+        if isinstance(a, ListTerm):
+            items.extend(list(a.items))
         else:
             items.append(a)
     return _make_list(items, engine)
@@ -1996,8 +1878,8 @@ def list_append(args: list[Term], engine: EngineProto) -> Term | None:
 def list_member(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head, item = args[0], args[1]
-    if isinstance(head, Existential):
-        return _bool_result(item in engine._expand_list(head))
+    if isinstance(head, ListTerm):
+        return _bool_result(item in list(head.items))
     return _bool_result(False)
 
 def list_notMember(args: list[Term], engine: EngineProto) -> Term | None:
@@ -2006,23 +1888,23 @@ def list_notMember(args: list[Term], engine: EngineProto) -> Term | None:
         # Empty list (nil expanded to nothing) — nothing is a member
         return _bool_result(True)
     head, item = args[0], args[1]
-    if isinstance(head, Existential):
-        return _bool_result(item not in engine._expand_list(head))
+    if isinstance(head, ListTerm):
+        return _bool_result(item not in list(head.items))
     return _bool_result(True)
 
 def list_memberAt(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head, idx = args[0], int(_num_val(args[1]))
-    if isinstance(head, Existential):
-        items = engine._expand_list(head)
+    if isinstance(head, ListTerm):
+        items = list(head.items)
         return items[idx] if 0 <= idx < len(items) else None
     return None
 
 def list_removeAt(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head, idx = args[0], int(_num_val(args[1]))
-    if isinstance(head, Existential):
-        items = engine._expand_list(head)
+    if isinstance(head, ListTerm):
+        items = list(head.items)
         if 0 <= idx < len(items):
             return _make_list(items[:idx] + items[idx+1:], engine)
     return None
@@ -2030,25 +1912,25 @@ def list_removeAt(args: list[Term], engine: EngineProto) -> Term | None:
 def list_reverse(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head = args[0]
-    if isinstance(head, Existential):
-        return _make_list(list(reversed(engine._expand_list(head))), engine)
+    if isinstance(head, ListTerm):
+        return _make_list(list(reversed(list(head.items))), engine)
     return None
 
 def list_sort(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head = args[0]
-    if isinstance(head, Existential):
-        items = sorted(engine._expand_list(head), key=str)
+    if isinstance(head, ListTerm):
+        items = sorted(list(head.items), key=str)
         return _make_list(items, engine)
     return None
 
 def list_unique(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head = args[0]
-    if isinstance(head, Existential):
+    if isinstance(head, ListTerm):
         seen = set()
         items = []
-        for t in engine._expand_list(head):
+        for t in list(head.items):
             s = str(t)
             if s not in seen:
                 seen.add(s)
@@ -2059,8 +1941,8 @@ def list_unique(args: list[Term], engine: EngineProto) -> Term | None:
 def list_permutation(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head = args[0]
-    if isinstance(head, Existential):
-        items = engine._expand_list(head)
+    if isinstance(head, ListTerm):
+        items = list(head.items)
         import random
         random.shuffle(items)
         return _make_list(items, engine)
@@ -2069,48 +1951,48 @@ def list_permutation(args: list[Term], engine: EngineProto) -> Term | None:
 def list_setEqualTo(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     h1, h2 = args[0], args[1]
-    if isinstance(h1, Existential) and isinstance(h2, Existential):
-        s1 = set(str(t) for t in engine._expand_list(h1))
-        s2 = set(str(t) for t in engine._expand_list(h2))
+    if isinstance(h1, ListTerm) and isinstance(h2, ListTerm):
+        s1 = set(str(t) for t in list(h1.items))
+        s2 = set(str(t) for t in list(h2.items))
         return _bool_result(s1 == s2)
     return _bool_result(False)
 
 def list_setNotEqualTo(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     h1, h2 = args[0], args[1]
-    if isinstance(h1, Existential) and isinstance(h2, Existential):
-        s1 = set(str(t) for t in engine._expand_list(h1))
-        s2 = set(str(t) for t in engine._expand_list(h2))
+    if isinstance(h1, ListTerm) and isinstance(h2, ListTerm):
+        s1 = set(str(t) for t in list(h1.items))
+        s2 = set(str(t) for t in list(h2.items))
         return _bool_result(s1 != s2)
     return _bool_result(True)
 
 def list_multisetEqualTo(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     h1, h2 = args[0], args[1]
-    if isinstance(h1, Existential) and isinstance(h2, Existential):
+    if isinstance(h1, ListTerm) and isinstance(h2, ListTerm):
         from collections import Counter
-        c1 = Counter(str(t) for t in engine._expand_list(h1))
-        c2 = Counter(str(t) for t in engine._expand_list(h2))
+        c1 = Counter(str(t) for t in list(h1.items))
+        c2 = Counter(str(t) for t in list(h2.items))
         return _bool_result(c1 == c2)
     return _bool_result(False)
 
 def list_multisetNotEqualTo(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     h1, h2 = args[0], args[1]
-    if isinstance(h1, Existential) and isinstance(h2, Existential):
+    if isinstance(h1, ListTerm) and isinstance(h2, ListTerm):
         from collections import Counter
-        c1 = Counter(str(t) for t in engine._expand_list(h1))
-        c2 = Counter(str(t) for t in engine._expand_list(h2))
+        c1 = Counter(str(t) for t in list(h1.items))
+        c2 = Counter(str(t) for t in list(h2.items))
         return _bool_result(c1 != c2)
     return _bool_result(True)
 
 def list_removeDuplicates(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head = args[0]
-    if isinstance(head, Existential):
+    if isinstance(head, ListTerm):
         seen = set()
         items = []
-        for t in engine._expand_list(head):
+        for t in list(head.items):
             s = str(t)
             if s not in seen:
                 seen.add(s)
@@ -2119,43 +2001,20 @@ def list_removeDuplicates(args: list[Term], engine: EngineProto) -> Term | None:
     return None
 
 def _expand_rdf_list(head: Term, engine: EngineProto) -> list[Term] | None:
-    """Expand an RDF list starting at head. Returns items, or None if not a list."""
-    if not isinstance(head, Existential):
+    """Expand a ListTerm to its items. Returns items, or None if not a list."""
+    if not isinstance(head, ListTerm):
         return None
-    rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-    rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-    nil = Existential("nil")
-    result: list[Term] = []
-    cur = head
-    visited: set[str] = set()
-    while cur.name not in visited and cur.name != "nil":
-        visited.add(cur.name)
-        first_matches = list(engine.store.match(subject=cur, predicate=rdf_first))
-        if not first_matches:
-            return None
-        result.append(first_matches[0].object)
-        rest_matches = list(engine.store.match(subject=cur, predicate=rdf_rest))
-        if not rest_matches:
-            break
-        nxt = rest_matches[0].object
-        if nxt == nil:
-            break
-        if isinstance(nxt, Existential):
-            cur = nxt
-        else:
-            break
-    return result
+    return list(head.items)
 
 
 def list_iterate(args: list[Term], engine: EngineProto) -> "MultiResult | None":
     """list:iterate(?list, ?pair) — yields (index item) pairs for each list element.
 
-    _collect_builtin_args expands the subject if it's an Existential, so
     args[:-1] are the list elements and args[-1] is the output object.
     """
     if len(args) < 1:
         return None
-    # The last arg is the output object (Variable or Existential list head)
+    # The last arg is the output object (Variable or ListTerm)
     items = args[:-1]
     out_obj = args[-1]
 
@@ -2163,32 +2022,20 @@ def list_iterate(args: list[Term], engine: EngineProto) -> "MultiResult | None":
     if not items and isinstance(out_obj, Variable):
         return None
 
-    # If no items were expanded, the subject was not an Existential list
+    # If no items were expanded, the subject was not a list
     if not items:
         return MultiResult([])
 
-    # Build (index, item) pair lists in the store and return MultiResult
-    rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-    first_p = NamedNode(rdf + "first")
-    rest_p = NamedNode(rdf + "rest")
-    nil = Existential("nil")
-
+    # Build (index, item) pair ListTerms
     results: list[Term] = []
     for idx, item in enumerate(items):
-        head = Existential(f"_b{engine._bn_counter}")
-        engine._bn_counter += 1
-        mid = Existential(f"_b{engine._bn_counter}")
-        engine._bn_counter += 1
-        engine.store.add(Triple(head, first_p, _int_result(idx)))
-        engine.store.add(Triple(head, rest_p, mid))
-        engine.store.add(Triple(mid, first_p, item))
-        engine.store.add(Triple(mid, rest_p, nil))
-        results.append(head)
+        pair = ListTerm(items=(_int_result(idx), item))
+        results.append(pair)
 
-    # If out_obj is a concrete list (Existential, not Variable), filter to matching pairs
-    if isinstance(out_obj, Existential) and out_obj.name != "nil":
-        pair_items = _expand_rdf_list(out_obj, engine)
-        if pair_items is not None and len(pair_items) == 2:
+    # If out_obj is a concrete list (ListTerm, not Variable), filter to matching pairs
+    if isinstance(out_obj, ListTerm) and len(out_obj.items) > 0:
+        pair_items = list(out_obj.items)
+        if len(pair_items) == 2:
             wanted_idx_val = pair_items[0]
             wanted_item = pair_items[1]
             filtered: list[Term] = []
@@ -2208,40 +2055,40 @@ def list_map(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     # Simplified: identity map
     head = args[0]
-    if isinstance(head, Existential):
-        return _make_list(engine._expand_list(head), engine)
+    if isinstance(head, ListTerm):
+        return _make_list(list(head.items), engine)
     return None
 
 def list_first(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head = args[0]
-    if isinstance(head, Existential):
-        items = engine._expand_list(head)
+    if isinstance(head, ListTerm):
+        items = list(head.items)
         return items[0] if items else None
     return None
 
 def list_rest(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head = args[0]
-    if isinstance(head, Existential):
-        items = engine._expand_list(head)
+    if isinstance(head, ListTerm):
+        items = list(head.items)
         return _make_list(items[1:], engine) if len(items) > 1 else None
     return None
 
 def list_last(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head = args[0]
-    if isinstance(head, Existential):
-        items = engine._expand_list(head)
+    if isinstance(head, ListTerm):
+        items = list(head.items)
         return items[-1] if items else None
     return None
 
 def list_isList(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head = args[0]
-    if isinstance(head, Existential):
+    if isinstance(head, ListTerm):
         try:
-            engine._expand_list(head)
+            list(head.items)
             return _bool_result(True)
         except Exception:  # pragma: no cover — _expand_list doesn't raise in practice
             return _bool_result(False)
@@ -2253,12 +2100,10 @@ def list_length_builtin(args: list[Term], engine: EngineProto) -> Term | None:
     # 2. Direct call (tests): args = [Existential_head, ...] — expand from store
     if not args:
         return None
-    if len(args) == 1 and isinstance(args[0], Existential) and engine is not None:
-        # Direct call with list head — expand from store
-        return _int_result(len(engine._expand_list(args[0])))
-    if len(args) == 2 and isinstance(args[0], Existential) and engine is not None:
-        # Direct call with (head, output_var)
-        return _int_result(len(engine._expand_list(args[0])))
+    if len(args) == 1 and isinstance(args[0], ListTerm):
+        return _int_result(len(args[0].items))
+    if len(args) == 2 and isinstance(args[0], ListTerm):
+        return _int_result(len(args[0].items))
     # Engine-expanded path: last arg is output var, preceding args are elements
     # If ALL args are Variables (nothing bound), return None (unground)
     if _unground(args[:-1] if len(args) > 1 else args):
@@ -2266,22 +2111,10 @@ def list_length_builtin(args: list[Term], engine: EngineProto) -> Term | None:
     return _int_result(len(args) - 1)
 
 def _resolve_var_in_binding(var: Variable, binding: dict) -> Term:
-    """Resolve a Variable from a binding, trying both the exact name and
-    the base name (without ``__rN`` suffix added by standardize-apart renaming).
-
-    This handles the case where list-node Variables have original names (e.g.
-    ``?from``) but the binding was built from a renamed rule (e.g. ``from__r3``).
-    """
-    import re as _re_local
-    val = binding.get(var.name)
+    """Resolve a Variable from a binding keyed by Variable.id."""
+    val = binding.get(var.id)
     if val is not None:
         return val
-    # Try stripping ``__rN`` suffix from binding keys to find a match
-    base = var.name
-    for key, v in binding.items():
-        base_key = _re_local.sub(r'__r\d+$', '', key)
-        if base_key == base:
-            return v
     return var
 
 
@@ -2297,12 +2130,12 @@ def list_firstRest(args: list[Term], engine: EngineProto) -> Term | None:
     binding = getattr(engine, '_current_binding', {})
 
     # Single-arg decompose: called as list_firstRest([list_node], engine)
-    if len(args) == 1 and isinstance(args[0], Existential):
-        items = engine._expand_list(args[0])
+    if len(args) == 1 and isinstance(args[0], ListTerm):
+        items = list(args[0].items)
         if not items:
             return None
         first = items[0]
-        rest = _make_list(items[1:], engine) if len(items) > 1 else Existential("nil")
+        rest = _make_list(items[1:], engine) if len(items) > 1 else ListTerm(items=())
         return _make_list([first, rest], engine)
 
     # args layout: [subject_items..., object_term]
@@ -2316,18 +2149,18 @@ def list_firstRest(args: list[Term], engine: EngineProto) -> Term | None:
     if subj_args and not any(isinstance(a, Variable) for a in subj_args):
         # Decompose: subject is a ground list, extract first and rest
         first = subj_args[0]
-        rest = _make_list(subj_args[1:], engine) if len(subj_args) > 1 else Existential("nil")
+        rest = _make_list(subj_args[1:], engine) if len(subj_args) > 1 else ListTerm(items=())
         result_pair = _make_list([first, rest], engine)
         # If object is an Existential (list pattern with variables), try to unify
-        if isinstance(obj, Existential):
-            raw_items = engine._expand_list(obj)
+        if isinstance(obj, ListTerm):
+            raw_items = list(obj.items)
             obj_items = [_resolve_var_in_binding(i, binding) if isinstance(i, Variable) else i for i in raw_items]
             if len(obj_items) == 2:
                 # Bind ?F and ?R if they are variables
                 new_binding = dict(binding)
                 for pat, val in zip(raw_items, [first, rest]):
                     if isinstance(pat, Variable):
-                        new_binding[pat.name] = val
+                        new_binding[pat.id] = val
                     elif pat != val:
                         return None  # mismatch
                 engine._current_binding = new_binding
@@ -2335,12 +2168,12 @@ def list_firstRest(args: list[Term], engine: EngineProto) -> Term | None:
         return result_pair
 
     # Construct mode: subject has variables, object provides (first, rest)
-    if isinstance(obj, Existential):
+    if isinstance(obj, ListTerm):
         # Expand the object list.  Variables inside rule-head list nodes have
         # their original names (e.g. ?from), but after standardize-apart renaming
         # the binding uses suffixed names (e.g. from__r5).  Use _resolve_var_in_binding
         # to handle both cases.
-        raw_items = engine._expand_list(obj)
+        raw_items = list(obj.items)
         obj_items = [_resolve_var_in_binding(i, binding) if isinstance(i, Variable) else i for i in raw_items]
         if len(obj_items) == 2:
             first_item = obj_items[0]
@@ -2353,8 +2186,8 @@ def list_firstRest(args: list[Term], engine: EngineProto) -> Term | None:
             if isinstance(first_item, Variable) or isinstance(rest_item, Variable):
                 return None  # can't construct with unbound vars
             # Build list: prepend first to rest, resolving any Variables
-            if isinstance(rest_item, Existential):
-                raw_rest = engine._expand_list(rest_item)
+            if isinstance(rest_item, ListTerm):
+                raw_rest = list(rest_item.items)
                 rest_items = [
                     _resolve_var_in_binding(i, binding) if isinstance(i, Variable) else i
                     for i in raw_rest
@@ -2365,7 +2198,7 @@ def list_firstRest(args: list[Term], engine: EngineProto) -> Term | None:
             # Bind the subject variable
             if subj_args and isinstance(subj_args[0], Variable):
                 new_binding = dict(binding)
-                new_binding[subj_args[0].name] = new_list
+                new_binding[subj_args[0].id] = new_list
                 engine._current_binding = new_binding
                 return _bool_result(True)
             return new_list
@@ -2375,9 +2208,9 @@ def list_firstRest(args: list[Term], engine: EngineProto) -> Term | None:
 def list_intersection(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     h1, h2 = args[0], args[1]
-    if isinstance(h1, Existential) and isinstance(h2, Existential):
-        s1 = engine._expand_list(h1)
-        s2 = engine._expand_list(h2)
+    if isinstance(h1, ListTerm) and isinstance(h2, ListTerm):
+        s1 = list(h1.items)
+        s2 = list(h2.items)
         s2_set = set(str(t) for t in s2)
         return _make_list([t for t in s1 if str(t) in s2_set], engine)
     return None
@@ -2386,14 +2219,14 @@ def list_select(args: list[Term], engine: EngineProto) -> Term | None:
     inputs = _input_only(args)
     if _unground(inputs): return None
     head = inputs[0]
-    if isinstance(head, Existential) and len(inputs) > 1:
+    if isinstance(head, ListTerm) and len(inputs) > 1:
         # 1-based indexing
         idx = int(_num_val(inputs[1])) - 1
-        items = engine._expand_list(head)
+        items = list(head.items)
         if 0 <= idx < len(items):
             return items[idx]
-    elif isinstance(head, Existential):
-        return _make_list(engine._expand_list(head), engine)
+    elif isinstance(head, ListTerm):
+        return _make_list(list(head.items), engine)
     return None
 
 # --- Log: missing builtins ---
@@ -2655,8 +2488,8 @@ def e_csvTuple(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     items = []
     for a in args:
-        if isinstance(a, Existential):
-            items.extend(_str_val(t) for t in engine._expand_list(a))
+        if isinstance(a, ListTerm):
+            items.extend(_str_val(t) for t in list(a.items))
         else:
             items.append(_str_val(a))
     return Literal(",".join(items))
@@ -2730,8 +2563,8 @@ def e_labelvars(args: list[Term], engine: EngineProto) -> Term | None:
 def e_length(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     head = args[0]
-    if isinstance(head, Existential):
-        return _int_result(len(engine._expand_list(head)))
+    if isinstance(head, ListTerm):
+        return _int_result(len(list(head.items)))
     return _int_result(0)
 
 def e_match(args: list[Term], engine: EngineProto) -> Term | None:
@@ -2836,8 +2669,8 @@ def e_std(args: list[Term], engine: EngineProto) -> Term | None:
     inputs = _input_only(args)
     if _unground(inputs): return None
     head = inputs[0]
-    if isinstance(head, Existential) and engine is not None:
-        items = engine._expand_list(head)
+    if isinstance(head, ListTerm) and engine is not None:
+        items = list(head.items)
         return math_std(items, engine)
     return math_std(inputs, engine)
 
@@ -2864,7 +2697,7 @@ def e_subsequence(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
     seq = list(args[:-1])  # subject list items
     sub_node = args[-1]
-    sub = engine._expand_list(sub_node) if isinstance(sub_node, Existential) else []
+    sub = list(sub_node.items) if isinstance(sub_node, ListTerm) else []
     # Order-preserving subsequence check
     it = iter(seq)
     return _bool_result(all(any(s == el for el in it) for s in sub))
@@ -3001,22 +2834,22 @@ def log_allPossibleCases(args: list[Term], engine: EngineProto) -> Term | None:
             continue
 
         # Get the universal variable from the subject list
-        subj_items = engine._expand_list(triple.subject) if isinstance(triple.subject, Existential) else []
+        subj_items = list(triple.subject.items) if isinstance(triple.subject, ListTerm) else []
         univ_var = subj_items[0] if subj_items else None
         cases_node = triple.object
 
         # Check if we can bind subj_var and obj_var
         new_b = dict(binding)
         if isinstance(subj_var, Variable):
-            existing = binding.get(subj_var.name)
+            existing = binding.get(subj_var.id)
             if existing is None and univ_var is not None:
-                new_b[subj_var.name] = univ_var
+                new_b[subj_var.id] = univ_var
             elif existing is not None and existing != univ_var:
                 continue  # mismatch
         if isinstance(obj_var, Variable):
-            existing = binding.get(obj_var.name)
+            existing = binding.get(obj_var.id)
             if existing is None:
-                new_b[obj_var.name] = cases_node
+                new_b[obj_var.id] = cases_node
             elif existing != cases_node:
                 continue  # mismatch
 
@@ -3074,8 +2907,8 @@ def log_ifThenElseIn(args: list[Term], engine: EngineProto) -> Term | None:
 
     arg0 = args[0]
     items: list[Term] = []
-    if isinstance(arg0, Existential) and hasattr(engine, '_expand_list'):
-        items = engine._expand_list(arg0)
+    if isinstance(arg0, ListTerm):
+        items = list(arg0.items)
     elif isinstance(arg0, (list,)):  # pragma: no cover — parser never passes raw Python list
         items = arg0  # type: ignore[assignment]
 
@@ -3276,9 +3109,9 @@ def log_query(args: list[Term], engine: EngineProto) -> list[Triple] | None:
         for binding in bindings:
             for pattern in query_term.triples:
                 # Resolve the pattern with this binding
-                s = binding.get(pattern.subject.name, pattern.subject) if isinstance(pattern.subject, Variable) else pattern.subject
-                p = binding.get(pattern.predicate.name, pattern.predicate) if isinstance(pattern.predicate, Variable) else pattern.predicate
-                o = binding.get(pattern.object.name, pattern.object) if isinstance(pattern.object, Variable) else pattern.object
+                s = binding.get(pattern.subject.id, pattern.subject) if isinstance(pattern.subject, Variable) else pattern.subject
+                p = binding.get(pattern.predicate.id, pattern.predicate) if isinstance(pattern.predicate, Variable) else pattern.predicate
+                o = binding.get(pattern.object.id, pattern.object) if isinstance(pattern.object, Variable) else pattern.object
                 t = Triple(s, p, o)
                 if t not in matched:
                     matched.append(t)
@@ -3289,7 +3122,7 @@ def log_query(args: list[Term], engine: EngineProto) -> list[Triple] | None:
         return list(engine.store.match(predicate=query_term))
 
     # Existential: return all triples with this as subject
-    if isinstance(query_term, Existential):
+    if isinstance(query_term, ListTerm):
         return list(engine.store.match(subject=query_term))
 
     # Fallback: return all store triples
