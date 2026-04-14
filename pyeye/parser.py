@@ -212,6 +212,10 @@ class Parser:
         self._bn = 0
         self._for_some: list[str] = []
         self._for_all: list[str] = []
+        # Variable scope: maps name → Variable within the current rule.
+        # Ensures ?X in body and ?X in head share the same Variable.id.
+        # Reset for each top-level statement, inherited into nested formulas.
+        self._var_scope: dict[str, Variable] = {}
         # Formula-local triple routing: when inside { ... }, blank node
         # property triples and path-expansion triples go into the formula's
         # triple list, not the document-level self._triples.
@@ -244,6 +248,9 @@ class Parser:
     # -- statement dispatch --------------------------------------------------
 
     def _stmt(self) -> None:
+        # Reset variable scope for each top-level statement so that ?X in
+        # one rule is independent from ?X in a different rule.
+        self._var_scope = {}
         t = self._peek()
         if t.t in ("PFX", "SPARQL_PFX"):
             self._do_prefix()
@@ -428,7 +435,10 @@ class Parser:
 
             # Handle ?Var => {head} or ?Var <= {body} inside a formula
             if self._peek().t == "VAR" and self._i + 1 < len(self._toks) and self._toks[self._i + 1].t in ("IMPF", "IMPB"):
-                var_term = Variable(self._eat("VAR").v[1:])
+                vname = self._eat("VAR").v[1:]
+                if vname not in self._var_scope:
+                    self._var_scope[vname] = Variable(vname)
+                var_term = self._var_scope[vname]
                 imp_dir = self._eat_any().t  # IMPF or IMPB
                 if self._peek().t == "LBR":
                     head_formula = self._formula()
@@ -699,7 +709,11 @@ class Parser:
             return self._maybe_path(NamedNode(t.v[1:-1]))
         if t.t == "VAR":
             self._eat("VAR")
-            return self._maybe_path(Variable(t.v[1:]))       # strip ?
+            name = t.v[1:]  # strip leading ?
+            # Reuse the same Variable for the same name within the current scope
+            if name not in self._var_scope:
+                self._var_scope[name] = Variable(name)
+            return self._maybe_path(self._var_scope[name])
         if t.t == "BLANK":
             self._eat("BLANK")
             return self._maybe_path(Existential(t.v[2:]))     # strip _:
@@ -781,7 +795,10 @@ class Parser:
 
         if t.t == "VAR":
             self._eat("VAR")
-            return Variable(t.v[1:])
+            name = t.v[1:]
+            if name not in self._var_scope:
+                self._var_scope[name] = Variable(name)
+            return self._var_scope[name]
 
         raise ParseError(f"Expected IRI or prefixed name in path at {self._src}:{self._i}")
 
