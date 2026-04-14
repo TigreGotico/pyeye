@@ -235,22 +235,19 @@ def execute(
         timeout_seconds=timeout_seconds,
     )
 
-    # Convert log:implies triples (formula log:implies formula) to rules
+    # Convert log:implies triples to rules AND keep them in the store
+    # (keeping them queryable lets meta-builtins like log:forAllIn inspect rules)
     _log_implies_iri = "http://www.w3.org/2000/10/swap/log#implies"
+    _log_implies_answer_iri = "http://www.w3.org/2000/10/swap/log#impliesAnswer"
     from pyeye.term import Formula as _Formula
-    remaining_triples: list[Triple] = []
     for t in all_triples:
         if (
-            isinstance(t.predicate, type(t.predicate))
-            and hasattr(t.predicate, "value")
-            and t.predicate.value == _log_implies_iri
+            isinstance(t.predicate, NamedNode)
+            and t.predicate.value in (_log_implies_iri, _log_implies_answer_iri)
             and isinstance(t.subject, _Formula)
             and isinstance(t.object, _Formula)
         ):
             all_rules.append(Rule(body=t.subject, head=t.object))
-        else:
-            remaining_triples.append(t)
-    all_triples = remaining_triples
 
     # Add data triples
     for t in all_triples:
