@@ -28,6 +28,7 @@ from pyeye.term import (
     Formula,
     Triple,
     Term,
+    ListTerm,
     # Phase 2 extended types
     TripleTerm,
     FormulaTerm,
@@ -209,9 +210,23 @@ class Parser:
         self._triples: list[Triple] = []
         self._rules: list[Rule] = []
         self._bn = 0
-        # M3 fix: Track quantified variables
         self._for_some: list[str] = []
         self._for_all: list[str] = []
+        # Formula-local triple routing: when inside { ... }, blank node
+        # property triples and path-expansion triples go into the formula's
+        # triple list, not the document-level self._triples.
+        self._formula_triples_stack: list[list[Triple]] = []
+
+    @property
+    def _current_triples(self) -> list[Triple]:
+        """The triple list that side-effect triples (blank nodes, paths) go into.
+
+        When inside a formula (``{ ... }``), returns the formula-local list.
+        Otherwise returns the document-level list.
+        """
+        if self._formula_triples_stack:
+            return self._formula_triples_stack[-1]
+        return self._triples
 
     def parse(self) -> ParsedDocument:
         while not self._eof():
@@ -384,12 +399,13 @@ class Parser:
     def _formula(self) -> Formula:
         """Parse ``{ ... }`` into a Formula.
 
-        Bug 1 fix: Handle empty formulas ``{()}`` and ``{}`` as unit formulas.
-        M4 fix: Handle implication inside formulas ``{ {A} => {B} }``.
-        EYE treats these as always-true (the unit of conjunction).
+        Blank-node property triples and path-expansion triples created inside
+        this formula are captured in the formula-local triple list (via
+        ``_formula_triples_stack``), not added to the document-level triples.
         """
         self._eat("LBR")
         tris: list[Triple] = []
+        self._formula_triples_stack.append(tris)
         while self._peek().t != "RBR":
             # Bug 1 fix: If we see `()` and nothing follows (or only DOT/RBR
             # follows), it is the "unit formula" — a no-op.  But if a predicate
@@ -495,6 +511,7 @@ class Parser:
                 continue
             tris.extend(self._triple_pattern())
         self._eat("RBR")
+        self._formula_triples_stack.pop()
         return Formula(tuple(tris))
 
     # -- triple patterns -----------------------------------------------------
@@ -729,11 +746,9 @@ class Parser:
             nxt = Existential(f"_b{self._bn}")
             self._bn += 1
             if op == "OP_FWD":
-                # cur ! pred → cur pred nxt
-                self._triples.append(Triple(cur, pred, nxt))
+                self._current_triples.append(Triple(cur, pred, nxt))
             else:
-                # cur ^ pred → nxt pred cur
-                self._triples.append(Triple(nxt, pred, cur))
+                self._current_triples.append(Triple(nxt, pred, cur))
             cur = nxt
         return cur
 
@@ -784,7 +799,9 @@ class Parser:
             pred = self._verb()
             objs = self._obj_list()
             for o in objs:
-                self._triples.append(Triple(node, pred, o))
+                # Route blank-node property triples into the formula when
+                # inside { ... }, so they become part of the rule body/head.
+                self._current_triples.append(Triple(node, pred, o))
             if self._peek().t == "SC":
                 self._eat("SC")
         self._eat("RBK")
@@ -793,30 +810,13 @@ class Parser:
     # -- RDF lists -----------------------------------------------------------
 
     def _rdf_list(self) -> Term:
+        """Parse ``(a b c)`` into a ListTerm (native list, no rdf:first/rest)."""
         self._eat("LP")
         items: list[Term] = []
         while self._peek().t != "RP":
             items.append(self._item())
         self._eat("RP")
-        if not items:
-            return Existential("nil")
-        rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-        first_p = NamedNode(rdf + "first")
-        rest_p = NamedNode(rdf + "rest")
-        nil = Existential("nil")
-        head = Existential(f"_b{self._bn}")
-        self._bn += 1
-        cur = head
-        for i, item in enumerate(items):
-            self._triples.append(Triple(cur, first_p, item))
-            if i < len(items) - 1:
-                nxt = Existential(f"_b{self._bn}")
-                self._bn += 1
-                self._triples.append(Triple(cur, rest_p, nxt))
-                cur = nxt
-            else:
-                self._triples.append(Triple(cur, rest_p, nil))
-        return head
+        return ListTerm(items=tuple(items))
 
     # -- literals ------------------------------------------------------------
 
