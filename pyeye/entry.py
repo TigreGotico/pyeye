@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from pyeye.term import Triple, Quad
+from pyeye.term import Triple, Quad, NamedNode
 from pyeye.parser import (
     parse_n3, load_data_string, load_data_file, ParsedDocument, Rule
 )
