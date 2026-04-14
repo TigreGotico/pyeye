@@ -8,18 +8,45 @@ Term hierarchy::
     Term (abstract base)
     ├── NamedNode        — <http://example.org/foo>
     ├── Literal          — "value"^^<datatype> or "value"@en
-    ├── Variable         — ?name
+    ├── Variable         — ?name  (carries unique id for scoping)
     ├── Existential      — _:name (blank node / skolem)
     ├── Formula          — { ... } (nested conjunction of triples)
+    ├── ListTerm         — (a b c) (native list, not rdf:first/rest)
     ├── TripleTerm       — << S P O >> (reified triple as a term)
-    ├── FormulaTerm      — (| Functor Args |) (formula as a term)
-    └── PathTerm         — :a ! :p ! :q  (chained path)
+    └── FormulaTerm      — (| Functor Args |) (formula as a term)
+
+Variable scoping
+----------------
+Each Variable carries a unique ``id`` (int) in addition to its ``name``.
+Two Variables with the same name but different IDs are distinct — this
+mirrors Prolog's ``copy_term_nat/2`` where each rule application gets
+genuinely fresh variables.  Bindings are keyed by ``Variable.id``, never
+by ``Variable.name``, so nested backward-chaining never has name collisions.
 """
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from typing import Literal as TypingLiteral, Protocol, runtime_checkable
+
+
+# ---------------------------------------------------------------------------
+# Variable ID allocator (module-level, monotonically increasing)
+# ---------------------------------------------------------------------------
+
+_var_id_counter = itertools.count(1)
+
+
+def _next_var_id() -> int:
+    """Return a globally unique variable ID."""
+    return next(_var_id_counter)
+
+
+def reset_var_ids(start: int = 1) -> None:
+    """Reset the global variable ID counter (for testing only)."""
+    global _var_id_counter
+    _var_id_counter = itertools.count(start)
 
 
 # ---------------------------------------------------------------------------
@@ -64,11 +91,29 @@ class Literal:
 
 @dataclass(frozen=True)
 class Variable:
-    """A logical variable, e.g. ``?X``."""
+    """A logical variable, e.g. ``?X``.
+
+    Each Variable carries a unique ``id`` for scoping.  ``copy_rule``
+    creates fresh Variables with new IDs so that recursive backward-chain
+    applications never collide.  Bindings are keyed by ``id``, not ``name``.
+    """
     name: str
+    id: int = -1  # -1 = sentinel; replaced in __post_init__
+
+    def __post_init__(self) -> None:
+        if self.id == -1:
+            object.__setattr__(self, "id", _next_var_id())
 
     def __str__(self) -> str:
         return f"?{self.name}"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Variable):
+            return NotImplemented
+        return self.id == other.id
+
+    def __hash__(self) -> int:
+        return hash(self.id)
 
 
 @dataclass(frozen=True)
@@ -86,7 +131,6 @@ class Formula:
     triples: tuple[Triple, ...] = ()
 
     def __post_init__(self) -> None:
-        # Normalize list to tuple so Formula is always hashable
         if isinstance(self.triples, list):
             object.__setattr__(self, "triples", tuple(self.triples))
 
@@ -98,8 +142,45 @@ class Formula:
         return f"{{{inner}}}"
 
 
+@dataclass(frozen=True)
+class ListTerm:
+    """A native N3 list ``(a b c)``.
+
+    Stored as a tuple of items — no rdf:first/rdf:rest encoding.
+    Unification handles ListTerm element-by-element.  Empty list is
+    ``ListTerm(items=())``.
+    """
+    items: tuple[Term, ...] = ()
+
+    def __post_init__(self) -> None:
+        if isinstance(self.items, list):
+            object.__setattr__(self, "items", tuple(self.items))
+
+    def __hash__(self) -> int:
+        return hash(self.items)
+
+    def __str__(self) -> str:
+        inner = " ".join(str(i) for i in self.items)
+        return f"({inner})"
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def __iter__(self):
+        return iter(self.items)
+
+    def is_ground(self) -> bool:
+        """Return True if no item contains a Variable."""
+        for item in self.items:
+            if isinstance(item, Variable):
+                return False
+            if isinstance(item, ListTerm) and not item.is_ground():
+                return False
+        return True
+
+
 # ---------------------------------------------------------------------------
-# Phase 2 extended term types
+# Extended term types (RDF-star, formula terms)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -119,7 +200,6 @@ class TripleTerm:
         return f"<<{self.subject} {self.predicate} {self.object}>>"
 
     def is_ground(self) -> bool:
-        """Return True if no component contains a Variable."""
         return not any(
             isinstance(t, Variable)
             for t in (self.subject, self.predicate, self.object)
@@ -128,10 +208,7 @@ class TripleTerm:
 
 @dataclass(frozen=True)
 class FormulaTerm:
-    """A formula as a term: ``(| Functor Args |)``.
-
-    Example: ``(| :says :alice "hello" |)`` as the object of another triple.
-    """
+    """A formula as a term: ``(| Functor Args |)``."""
     functor: Term
     args: tuple[Term, ...] = ()
 
@@ -143,25 +220,25 @@ class FormulaTerm:
         return f"(|{self.functor} {args_str}|)"
 
     def is_ground(self) -> bool:
-        """Return True if no component contains a Variable."""
         if isinstance(self.functor, Variable):
             return False
         return not any(isinstance(a, Variable) for a in self.args)
 
 
+# ---------------------------------------------------------------------------
+# Deprecated: PathTerm stub (removed in step 2 when parser stops emitting it)
+# ---------------------------------------------------------------------------
+
 @dataclass(frozen=True)
 class PathTerm:
-    """A chained path expression: ``:a ! :p ! :q`` or ``:a ^ :p``.
-
-    C3 fix: Store the subject so the path can be resolved.
-    ``directions`` contains "forward" for ``!`` and "reverse" for ``^``.
-    """
-    subject: Term
-    terms: tuple[Term, ...]
+    """DEPRECATED — path expressions are compiled at parse time in the new
+    architecture.  This stub exists only so that existing imports don't break
+    until the parser is rewritten (step 2)."""
+    subject: Term = NamedNode("")  # type: ignore[assignment]
+    terms: tuple[Term, ...] = ()
     directions: tuple[TypingLiteral["forward", "reverse"], ...] = ()
 
     def __post_init__(self) -> None:
-        # Auto-fill directions: one per term
         if len(self.directions) != len(self.terms):
             object.__setattr__(
                 self, "directions",
@@ -179,7 +256,6 @@ class PathTerm:
         return "".join(parts)
 
     def is_ground(self) -> bool:
-        """Return True if no component contains a Variable."""
         if isinstance(self.subject, Variable):
             return False
         return not any(isinstance(t, Variable) for t in self.terms)
@@ -204,15 +280,16 @@ class Triple:
         for t in (self.subject, self.predicate, self.object):
             if isinstance(t, Variable):
                 return False
-            # Phase 2: check nested term types
-            if isinstance(t, (TripleTerm, FormulaTerm, PathTerm)):
+            if isinstance(t, (TripleTerm, FormulaTerm)):
                 if not t.is_ground():
                     return False
+            if isinstance(t, ListTerm) and not t.is_ground():
+                return False
         return True
 
 
 # ---------------------------------------------------------------------------
-# Quad (Phase 2: TriG / named graphs)
+# Quad (TriG / named graphs)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -228,15 +305,11 @@ class NegativeSurface:
         return hash(self.formula)
 
     def __str__(self) -> str:
-        return f"¬{self.formula}"
+        return f"~{self.formula}"
 
     def is_ground(self) -> bool:
         return all(t.is_ground() for t in self.formula.triples)
 
-
-# ---------------------------------------------------------------------------
-# Quad (Phase 2: TriG / named graphs)
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class Quad:
@@ -244,7 +317,7 @@ class Quad:
     subject: Term
     predicate: Term
     object: Term
-    graph: Term | None = None  # None = default graph
+    graph: Term | None = None
 
     def __hash__(self) -> int:
         return hash((self.subject, self.predicate, self.object, self.graph))
@@ -253,25 +326,19 @@ class Quad:
         return f"({self.subject} {self.predicate} {self.object} in {self.graph or 'default'})"
 
     def to_triple(self) -> Triple:
-        """Convert to a Triple (loses graph info)."""
         return Triple(self.subject, self.predicate, self.object)
 
 
 # ---------------------------------------------------------------------------
-# Set (Phase 2b: unordered collections)
+# Set (unordered collections)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class SetTerm:
-    """An unordered set: ``($ a b c $)``.
-
-    M5 fix: Unlike lists, sets have no inherent order. Elements can be
-    matched in any position for unification.
-    """
+    """An unordered set: ``($ a b c $)``."""
     elements: tuple[Term, ...]
 
     def __hash__(self) -> int:
-        # Hash is order-independent for set semantics
         return hash(frozenset(hash(e) for e in self.elements))
 
     def __str__(self) -> str:
@@ -282,5 +349,8 @@ class SetTerm:
         return not any(isinstance(e, Variable) for e in self.elements)
 
 
-# Backwards-compatible type alias used by the parser and engine.
-Binding = dict[str, Term]
+# ---------------------------------------------------------------------------
+# Binding type — keyed by Variable.id (int), NOT Variable.name (str)
+# ---------------------------------------------------------------------------
+
+Binding = dict[int, Term]
