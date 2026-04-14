@@ -2,25 +2,23 @@
 
 Given a *pattern* triple (which may contain ``Variable`` slots) and a
 *candidate* triple (typically ground, from the store), compute a
-``Binding`` — a mapping from variable names to terms — that makes the
+``Binding`` — a mapping from ``Variable.id`` to terms — that makes the
 pattern match the candidate.
 
 The unifier supports **occurs check**: a variable cannot bind to a term
 that recursively contains the same variable (prevents infinite loops in
 rule bodies that self-reference).
 
+Binding keys are ``Variable.id`` (int), NOT ``Variable.name`` (str).
+This matches the fresh-ID scoping model in ``term.py``.
+
 Public API
 ----------
 ``unify(pattern, candidate, binding) -> Binding | None``
-    Extend *binding* with bindings that make *pattern* match *candidate*.
-    Returns ``None`` if unification fails.
-
-``term_contains_var(term, var_name) -> bool``
-    Check whether a term (recursively) contains a variable with the given
-    name — used for occurs check.
-
+``unify_terms(t1, t2, binding) -> Binding | None``
+``term_contains_var(term, var_id) -> bool``
 ``apply_binding(term, binding) -> Term``
-    Substitute all variables in *term* that appear in *binding*.
+``apply_binding_to_triple(triple, binding) -> Triple``
 """
 
 from __future__ import annotations
@@ -34,6 +32,7 @@ from pyeye.term import (
     Triple,
     Binding,
     Term,
+    ListTerm,
     TripleTerm,
     FormulaTerm,
     PathTerm,
@@ -58,72 +57,138 @@ def unify(
     if binding is None:
         binding = {}
 
-    # Unify predicate first (most selective, indexed in store)
-    result = _unify_term(pattern.predicate, candidate.predicate, binding)
+    result = unify_terms(pattern.predicate, candidate.predicate, binding)
     if result is None:
         return None
-
-    result = _unify_term(pattern.subject, candidate.subject, result)
+    result = unify_terms(pattern.subject, candidate.subject, result)
     if result is None:
         return None
-
-    result = _unify_term(pattern.object, candidate.object, result)
+    result = unify_terms(pattern.object, candidate.object, result)
     if result is None:
         return None
-
     return result
 
 
-def term_contains_var(term: Term, var_name: str) -> bool:
-    """Return True if *term* recursively contains ``Variable(var_name)``."""
+def unify_terms(
+    pattern: Term,
+    candidate: Term,
+    binding: Binding,
+) -> Binding | None:
+    """Unify two terms, extending *binding*. Returns None on failure.
+
+    Handles Variables (bind by id), ListTerms (element-by-element),
+    Formulas (structural), and ground terms (equality).
+    """
+    # Resolve already-bound variables
+    if isinstance(pattern, Variable) and pattern.id in binding:
+        pattern = binding[pattern.id]
+    if isinstance(candidate, Variable) and candidate.id in binding:
+        candidate = binding[candidate.id]
+
+    # Both are variables → bind pattern to candidate
+    if isinstance(pattern, Variable) and isinstance(candidate, Variable):
+        if pattern.id == candidate.id:
+            return binding
+        return {**binding, pattern.id: candidate}
+
+    # Pattern is a variable → bind it (with occurs check)
+    if isinstance(pattern, Variable):
+        if term_contains_var(candidate, pattern.id):
+            return None
+        return {**binding, pattern.id: candidate}
+
+    # Candidate is a variable → bind it (symmetric, for backward chaining)
+    if isinstance(candidate, Variable):
+        if term_contains_var(pattern, candidate.id):
+            return None
+        return {**binding, candidate.id: pattern}
+
+    # Both are ListTerms → element-by-element
+    if isinstance(pattern, ListTerm) and isinstance(candidate, ListTerm):
+        if len(pattern.items) != len(candidate.items):
+            return None
+        b = binding
+        for p_item, c_item in zip(pattern.items, candidate.items):
+            b = unify_terms(p_item, c_item, b)
+            if b is None:
+                return None
+        return b
+
+    # ListTerm vs non-ListTerm → fail (except Variable, handled above)
+    if isinstance(pattern, ListTerm) or isinstance(candidate, ListTerm):
+        return None
+
+    # Both ground → check equality (with numeric cross-type handling)
+    if _terms_equivalent(pattern, candidate):
+        return binding
+
+    return None
+
+
+def term_contains_var(term: Term, var_id: int) -> bool:
+    """Return True if *term* recursively contains ``Variable`` with *var_id*."""
     if isinstance(term, Variable):
-        return term.name == var_name
+        return term.id == var_id
     if isinstance(term, (NamedNode, Literal, Existential)):
         return False
+    if isinstance(term, ListTerm):
+        return any(term_contains_var(item, var_id) for item in term.items)
     if isinstance(term, Formula):
         return any(
-            term_contains_var(t, var_name)
+            term_contains_var(t.subject, var_id)
+            or term_contains_var(t.predicate, var_id)
+            or term_contains_var(t.object, var_id)
             for t in term.triples
         )
     if isinstance(term, Triple):
         return (
-            term_contains_var(term.subject, var_name)
-            or term_contains_var(term.predicate, var_name)
-            or term_contains_var(term.object, var_name)
+            term_contains_var(term.subject, var_id)
+            or term_contains_var(term.predicate, var_id)
+            or term_contains_var(term.object, var_id)
         )
-    # Phase 2 extended types
     if isinstance(term, TripleTerm):
         return (
-            term_contains_var(term.subject, var_name)
-            or term_contains_var(term.predicate, var_name)
-            or term_contains_var(term.object, var_name)
+            term_contains_var(term.subject, var_id)
+            or term_contains_var(term.predicate, var_id)
+            or term_contains_var(term.object, var_id)
         )
     if isinstance(term, FormulaTerm):
-        if term_contains_var(term.functor, var_name):
+        if term_contains_var(term.functor, var_id):
             return True
-        return any(term_contains_var(a, var_name) for a in term.args)
+        return any(term_contains_var(a, var_id) for a in term.args)
     if isinstance(term, PathTerm):
-        return any(term_contains_var(t, var_name) for t in term.terms)
+        return any(term_contains_var(t, var_id) for t in term.terms)
     if isinstance(term, NegativeSurface):
         return any(
-            term_contains_var(t, var_name)
+            term_contains_var(t.subject, var_id)
+            or term_contains_var(t.predicate, var_id)
+            or term_contains_var(t.object, var_id)
             for t in term.formula.triples
         )
     if isinstance(term, SetTerm):
-        return any(term_contains_var(e, var_name) for e in term.elements)
-    return False  # pragma: no cover — all concrete Term subclasses handled above
+        return any(term_contains_var(e, var_id) for e in term.elements)
+    return False
 
 
 def apply_binding(term: Term, binding: Binding) -> Term:
-    """Return *term* with all variables substituted per *binding*."""
+    """Return *term* with all variables substituted per *binding*.
+
+    Follows Variable→Variable chains until a non-Variable is found.
+    """
     if isinstance(term, Variable):
-        return binding.get(term.name, term)
+        seen: set[int] = set()
+        while isinstance(term, Variable) and term.id in binding:
+            if term.id in seen:
+                break
+            seen.add(term.id)
+            term = binding[term.id]
+        return term
+    if isinstance(term, ListTerm):
+        new_items = tuple(apply_binding(item, binding) for item in term.items)
+        return ListTerm(items=new_items) if new_items != term.items else term
     if isinstance(term, Formula):
-        return Formula(tuple([
-            apply_binding_to_triple(t, binding)
-            for t in term.triples
-        ]))
-    # Phase 2 extended types
+        new_triples = tuple(apply_binding_to_triple(t, binding) for t in term.triples)
+        return Formula(triples=new_triples) if new_triples != term.triples else term
     if isinstance(term, TripleTerm):
         return TripleTerm(
             apply_binding(term.subject, binding),
@@ -137,6 +202,7 @@ def apply_binding(term: Term, binding: Binding) -> Term:
         )
     if isinstance(term, PathTerm):
         return PathTerm(
+            apply_binding(term.subject, binding),
             tuple(apply_binding(t, binding) for t in term.terms),
             term.directions,
         )
@@ -149,7 +215,6 @@ def apply_binding(term: Term, binding: Binding) -> Term:
         )
     if isinstance(term, SetTerm):
         return SetTerm(tuple(apply_binding(e, binding) for e in term.elements))
-    # NamedNode, Literal, Existential — ground, no substitution needed
     return term
 
 
@@ -163,48 +228,15 @@ def apply_binding_to_triple(triple: Triple, binding: Binding) -> Triple:
 
 
 # ---------------------------------------------------------------------------
-# Internal unification engine
+# Internal helpers
 # ---------------------------------------------------------------------------
 
-def _unify_term(
-    pattern: Term,
-    candidate: Term,
-    binding: Binding,
-) -> Binding | None:
-    """Core unification dispatch."""
-    # Resolve any already-bound variable in the pattern
-    if isinstance(pattern, Variable) and pattern.name in binding:
-        pattern = binding[pattern.name]
-
-    # Pattern is a ground term — check equality
-    if not isinstance(pattern, Variable):
-        if _terms_equivalent(pattern, candidate):
-            return binding
-        # M8 fix: List unification — if pattern has a variable that could match
-        # an RDF list, expand the list from the store
-        return _try_list_unification(pattern, candidate, binding)
-
-    # Pattern is an unbound variable — bind it (with occurs check)
-    var_name: str = pattern.name  # type: ignore[assignment]
-    if term_contains_var(candidate, var_name):
-        return None  # occurs check failure
-    return {**binding, var_name: candidate}
-
-
 def _terms_equivalent(a: Term, b: Term) -> bool:
-    """Check term equivalence with cross-datatype numeric handling.
-
-    C2 fix: "42"^^xsd:integer == "42.0"^^xsd:double
-    Also: "hello" == "hello"^^xsd:string (plain string equivalence)
-    """
-    # Exact match
+    """Check term equivalence with cross-datatype numeric handling."""
     if a == b:
         return True
-
-    # Numeric cross-datatype equivalence
     if isinstance(a, Literal) and isinstance(b, Literal):
         return _literals_equivalent(a, b)
-
     return False
 
 
@@ -233,85 +265,3 @@ def _literals_equivalent(a: Literal, b: Literal) -> bool:
             pass
 
     return False
-
-
-# ---------------------------------------------------------------------------
-# M8: List and Set unification helpers
-# ---------------------------------------------------------------------------
-
-_RDF_FIRST = "http://www.w3.org/1999/02/22-rdf-syntax-ns#first"
-_RDF_REST = "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"
-_RDF_NIL = "nil"
-
-
-def _try_list_unification(
-    pattern: Term,
-    candidate: Term,
-    binding: Binding,
-) -> Binding | None:
-    """M8 fix: Try to unify a pattern with a candidate by expanding RDF lists.
-
-    If the pattern has a Variable where the candidate is an Existential
-    that heads an RDF list, expand the list and bind the variable to the
-    list elements.
-    """
-    # Check if pattern has variables that could match an RDF list
-    vars_in_pattern: list[str] = []
-    _collect_vars(pattern, vars_in_pattern)
-
-    # If candidate is an Existential that might be a list head, try list expansion
-    if isinstance(candidate, Existential) and vars_in_pattern:
-        # Try to expand as RDF list
-        list_elements = _expand_rdf_list_from_binding(candidate, {})
-        if list_elements is not None and len(vars_in_pattern) == 1:  # pragma: no cover — _expand_rdf_list_from_binding always returns None (stub)
-            # Single variable can bind to the whole list
-            var_name = vars_in_pattern[0]
-            if not term_contains_var(candidate, var_name):
-                return {**binding, var_name: candidate}
-    return None
-
-
-def _collect_vars(term: Term, out: list[str]) -> None:
-    """Collect all variable names from a term."""
-    if isinstance(term, Variable):
-        out.append(term.name)
-    elif isinstance(term, Formula):
-        for t in term.triples:
-            _collect_vars(t.subject, out)
-            _collect_vars(t.predicate, out)
-            _collect_vars(t.object, out)
-    elif isinstance(term, Triple):
-        _collect_vars(term.subject, out)
-        _collect_vars(term.predicate, out)
-        _collect_vars(term.object, out)
-    elif isinstance(term, (TripleTerm, FormulaTerm, PathTerm, SetTerm)):
-        if hasattr(term, 'subject'):
-            _collect_vars(term.subject, out)  # type: ignore
-        if hasattr(term, 'predicate'):
-            _collect_vars(term.predicate, out)  # type: ignore
-        if hasattr(term, 'object'):
-            _collect_vars(term.object, out)  # type: ignore
-        if hasattr(term, 'functor'):
-            _collect_vars(term.functor, out)  # type: ignore
-        if hasattr(term, 'args'):
-            for a in term.args:  # type: ignore
-                _collect_vars(a, out)
-        if hasattr(term, 'terms'):
-            for t in term.terms:  # type: ignore
-                _collect_vars(t, out)
-        if hasattr(term, 'elements'):
-            for e in term.elements:  # type: ignore
-                _collect_vars(e, out)
-
-
-def _expand_rdf_list_from_binding(
-    head: Existential,
-    binding: Binding,
-) -> list[Term] | None:
-    """Expand an RDF list from the store starting at *head*.
-
-    This is a stub that returns None — full list expansion requires
-    access to the store, which unify() doesn't have. List expansion
-    is handled by the engine's _collect_builtin_args.
-    """
-    return None
