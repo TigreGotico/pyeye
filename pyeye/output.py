@@ -212,8 +212,7 @@ class N3Writer:
 
         lines: list[str] = []
         for pfx, uri in self._prefixes.items():
-            colon = ":" if pfx else ""
-            lines.append(f"@prefix {pfx}{colon} <{uri}> .")
+            lines.append(f"@prefix {pfx}: <{uri}> .")
         if self._prefixes:
             lines.append("")
 
@@ -235,8 +234,7 @@ class N3Writer:
         """Combine prefix declarations with body text."""
         lines: list[str] = []
         for pfx, uri in self._prefixes.items():
-            colon = ":" if pfx else ""
-            lines.append(f"@prefix {pfx}{colon} <{uri}> .")
+            lines.append(f"@prefix {pfx}: <{uri}> .")
         if self._prefixes:
             lines.append("")
         if body:

@@ -46,6 +46,7 @@ def execute(
     nope: bool = False,
     pass_mode: bool = False,
     pass_all: bool = False,
+    pass_only_new: bool = False,
     djiti_debug: bool = False,
     query: Triple | None = None,
     forward: bool = True,
@@ -237,7 +238,8 @@ def execute(
     # ``--nope`` only suppresses proof output; with a query it still runs and
     # returns the query answers.  Only short-circuit when there is nothing to
     # query and we are in pure pass-through.
-    if nope and not has_query_rules and not pass_mode and not pass_all:
+    if (nope and not has_query_rules and not pass_mode and not pass_all
+            and not pass_only_new):
         elapsed = time.monotonic() - start
         writer = N3Writer(all_prefixes)
         return Result(
@@ -301,7 +303,7 @@ def execute(
     # Run forward chaining. With a --query we always need to forward-chain so
     # the query rules can match the deductive closure, even under --nope (which
     # in EYE only suppresses proof output, not derivation).
-    run_forward = forward and (not nope or has_query_rules)
+    run_forward = forward and (not nope or has_query_rules or pass_only_new)
     if run_forward:
         engine.run()
 

@@ -36,6 +36,7 @@ try:
     kw = dict(
         rule_paths=cfg["inputs"] or None,
         nope=cfg["nope"], pass_mode=cfg["pass_mode"], pass_all=cfg["pass_all"],
+        pass_only_new=cfg["pass_only_new"],
         timeout_seconds=%(timeout)r,
     )
     if %(baseline)s:

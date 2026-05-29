@@ -102,6 +102,7 @@ def run_scenario(sc: Scenario) -> tuple[str, str]:
             nope=sc.nope,
             pass_mode=sc.pass_mode,
             pass_all=sc.pass_all,
+            pass_only_new=sc.pass_only_new,
             timeout_seconds=PER_SCENARIO_TIMEOUT,
         )
     except ReasoningTimeoutError:
