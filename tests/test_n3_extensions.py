@@ -105,3 +105,165 @@ class TestOfSugar:
         assert len(doc.triples) == 2
         assert doc.triples[0].subject == NN("http://ex.org/Alice")
         assert doc.triples[1].subject == NN("http://ex.org/Carol")
+
+
+class TestQueryOperator:
+    """EYE ``=^`` query operator (filter rule, answer-only)."""
+
+    def test_query_rule_parses(self):
+        text = (
+            '@prefix : <http://ex.org/> .\n'
+            '{ ?T :hasAnomaly ?A } =^ { ?T :hasAnomaly ?A } .'
+        )
+        doc = parse_n3(text)
+        assert len(doc.rules) == 1
+        assert doc.rules[0].is_query is True
+
+    def test_query_and_inference_rules_coexist(self):
+        text = (
+            '@prefix : <http://ex.org/> .\n'
+            '{ ?T :a :x } => { ?T :hasAnomaly :y } .\n'
+            '{ ?T :hasAnomaly ?A } =^ { ?T :hasAnomaly ?A } .'
+        )
+        doc = parse_n3(text)
+        assert len(doc.rules) == 2
+        assert [r.is_query for r in doc.rules] == [False, True]
+
+
+class TestBnodeLabelledGraph:
+    """N3-plus bnode/IRI-labelled graphs ``_:g { ... }``."""
+
+    def test_bnode_graph_to_quads(self):
+        text = (
+            '@prefix : <http://ex.org/> .\n'
+            '_:g { :a :b :c. :d :e :f. }'
+        )
+        doc = parse_n3(text)
+        assert len(doc.quads) == 2
+        gs = {q.graph for q in doc.quads}
+        assert len(gs) == 1
+        g = next(iter(gs))
+        assert g.name == "g"
+        q = doc.quads[0]
+        assert q.subject == NN("http://ex.org/a")
+
+    def test_iri_labelled_graph(self):
+        text = (
+            '@prefix : <http://ex.org/> .\n'
+            ':myGraph { :a :b :c. }'
+        )
+        doc = parse_n3(text)
+        assert len(doc.quads) == 1
+        assert doc.quads[0].graph == NN("http://ex.org/myGraph")
+
+
+class TestN3Quad:
+    """N3 quad ``s p o g .`` — a 4th term names the graph."""
+
+    def test_quad_with_bnode_graph(self):
+        text = (
+            '@prefix : <http://ex.org/> .\n'
+            ':s :p :o _:g .'
+        )
+        doc = parse_n3(text)
+        assert len(doc.triples) == 0
+        assert len(doc.quads) == 1
+        q = doc.quads[0]
+        assert q.subject == NN("http://ex.org/s")
+        assert q.object == NN("http://ex.org/o")
+        assert q.graph.name == "g"
+
+    def test_plain_triple_unaffected(self):
+        text = '@prefix : <http://ex.org/> .\n:s :p :o .'
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        assert len(doc.quads) == 0
+
+
+class TestReifier:
+    """RDF 1.2 reifier ``~`` is consumed without breaking the base triple."""
+
+    def test_reifier_after_object(self):
+        text = (
+            '@prefix : <http://ex.org/> .\n'
+            ':a :name "Alice" ~ :t .'
+        )
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        t = doc.triples[0]
+        assert t.subject == NN("http://ex.org/a")
+        assert t.object == L("Alice")
+
+    def test_reifier_inside_triple_term(self):
+        text = (
+            '@prefix : <http://ex.org/> .\n'
+            ':s :p << :g :h :i ~ :x >> .'
+        )
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        tt = doc.triples[0].object
+        from pyeye.term import TripleTerm
+        assert isinstance(tt, TripleTerm)
+        assert tt.subject == NN("http://ex.org/g")
+        assert tt.object == NN("http://ex.org/i")
+
+    def test_bare_triple_term_statement(self):
+        text = (
+            '@prefix : <http://ex.org/> .\n'
+            '<< :a :b :c ~ :r >> :p :o .'
+        )
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        from pyeye.term import TripleTerm
+        assert isinstance(doc.triples[0].subject, TripleTerm)
+
+
+class TestAnnotationBlocks:
+    """RDF 1.2 annotation blocks ``{| ... |}`` are skipped, base triple kept."""
+
+    def test_single_annotation(self):
+        text = (
+            '@prefix : <http://ex.org/> .\n'
+            ':s :p :o {| :j :k |} .'
+        )
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        assert doc.triples[0].predicate == NN("http://ex.org/p")
+
+    def test_repeated_annotations(self):
+        text = (
+            '@prefix : <http://ex.org/> .\n'
+            ':liz :marriedTo :richard {| :from 1964 |} {| :from 1980 |} .'
+        )
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+
+
+class TestPrefixedNameLexing:
+    """Single-token PNAME lexing: digits mid-name, percent-escapes, ':'."""
+
+    def test_percent_escape_local_name(self):
+        text = (
+            '@prefix res: <http://ex.org/> .\n'
+            'res:COUNTRY_United%20States res:label "US" .'
+        )
+        doc = parse_n3(text)
+        assert len(doc.triples) == 1
+        assert doc.triples[0].subject == NN("http://ex.org/COUNTRY_United%20States")
+
+    def test_digit_in_middle_of_local_name(self):
+        text = (
+            '@prefix res: <http://ex.org/> .\n'
+            'res:AIRLINE_100 res:label "X" .'
+        )
+        doc = parse_n3(text)
+        assert doc.triples[0].subject == NN("http://ex.org/AIRLINE_100")
+
+    def test_colon_in_local_name(self):
+        text = (
+            '@prefix log: <http://l#> .\n'
+            '@prefix : <http://ex.org/> .\n'
+            ':a log:equalTo :b .'
+        )
+        doc = parse_n3(text)
+        assert doc.triples[0].predicate == NN("http://l#equalTo")
