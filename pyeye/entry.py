@@ -89,6 +89,8 @@ def _execute_impl(
     not_entail: Triple | None = None,
     cache_dir: str | None = None,
     explain_format: Literal["n3", "dot", "html"] = "n3",
+    proof: bool = False,
+    source_urls: dict[str, str] | None = None,
 ) -> Result:
     """Run N3 reasoning and return derived triples as N3 text.
 
@@ -169,6 +171,17 @@ def _execute_impl(
     all_rules: list[Rule] = []
     all_prefixes: dict[str, str] = dict(prefixes or {})
 
+    # Proof-mode bookkeeping: facts/rules tagged with their source URL, plus
+    # the query rules whose firings the proof explains.
+    src_facts: list = []      # list[tuple[Triple, str]]
+    src_rules: list = []      # list[tuple[Rule, str]]
+    src_query_rules: list = []  # list[tuple[Rule, str]]
+
+    def _src_url(path: str) -> str:
+        if source_urls and path in source_urls:
+            return source_urls[path]
+        return path
+
     # -- helper: resolve path (HTTP with optional caching) -------------------
     def _validate_url(path: str) -> bool:
         """Reject URLs targeting private IPs or non-HTTP schemes."""
@@ -229,6 +242,10 @@ def _execute_impl(
             all_triples.extend(doc.triples)
             all_quads.extend(doc.quads)
             all_prefixes.update(doc.prefixes)
+            if proof:
+                url = _src_url(p)
+                for t in doc.triples:
+                    src_facts.append((t, url))
 
     if data_strings:
         for s in data_strings:
@@ -246,11 +263,17 @@ def _execute_impl(
         for p in rule_paths:
             resolved = _resolve_path(p)
             text = Path(resolved).read_text(encoding="utf-8")
-            doc = parse_n3(text, source=p)
+            url = _src_url(p)
+            doc = parse_n3(text, source=url)
             all_rules.extend(doc.rules)
             all_triples.extend(doc.triples)
             all_quads.extend(doc.quads)
             all_prefixes.update(doc.prefixes)
+            if proof:
+                for t in doc.triples:
+                    src_facts.append((t, url))
+                for r in doc.rules:
+                    src_rules.append((r, url))
 
     if rule_strings:
         for s in rule_strings:
@@ -267,14 +290,20 @@ def _execute_impl(
         for p in query_paths:
             resolved = _resolve_path(p)
             text = Path(resolved).read_text(encoding="utf-8")
-            doc = parse_n3(text, source=p)
+            url = _src_url(p)
+            doc = parse_n3(text, source=url)
             for r in doc.rules:
                 all_rules.append(_replace(r, is_query=True))
                 has_query_rules = True
+                if proof:
+                    src_query_rules.append((r, url))
             # A query file's bare triples (no rule) are also data.
             all_triples.extend(doc.triples)
             all_quads.extend(doc.quads)
             all_prefixes.update(doc.prefixes)
+            if proof:
+                for t in doc.triples:
+                    src_facts.append((t, url))
 
     # -- log:impliesAnswer rules are query/answer rules ----------------------
     # A ``{P} log:impliesAnswer {C}`` triple (whether inline in the data or
@@ -289,6 +318,20 @@ def _execute_impl(
         for t in all_triples
     ):
         has_query_rules = True
+
+    # -- proof mode ----------------------------------------------------------
+    # Emit an EYE-compatible proof trace (reason: vocabulary) of the query.
+    if proof:
+        from pyeye.eye_proof import ProofKB, build_proof, serialize_proof
+        kb = ProofKB(facts=list(src_facts), rules=list(src_rules))
+        proof_dag = build_proof(kb, src_query_rules)
+        _sys.setrecursionlimit(_prev_reclimit)
+        text = serialize_proof(proof_dag, all_prefixes)
+        return Result(
+            triples=text,
+            stats={"steps": 0, "derived": len(proof_dag.components),
+                   "time_ms": (time.monotonic() - start) * 1000},
+        )
 
     # -- nope mode -----------------------------------------------------------
     # ``--nope`` only suppresses proof output; with a query it still runs and

@@ -38,6 +38,8 @@ try:
         nope=cfg["nope"], pass_mode=cfg["pass_mode"], pass_all=cfg["pass_all"],
         pass_only_new=cfg["pass_only_new"],
         timeout_seconds=%(timeout)r,
+        proof=cfg.get("proof", False),
+        source_urls=cfg.get("source_urls") or None,
     )
     if %(baseline)s:
         # legacy: query file loaded as an ordinary rule file
@@ -78,6 +80,8 @@ def main() -> None:
             "query": str(sc.query) if sc.query else None,
             "nope": sc.nope, "pass_mode": sc.pass_mode, "pass_all": sc.pass_all,
             "pass_only_new": sc.pass_only_new,
+            "proof": is_proof,
+            "source_urls": sc.source_urls,
         })
         try:
             proc = subprocess.run(
