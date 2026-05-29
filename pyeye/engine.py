@@ -165,6 +165,10 @@ class Engine:
         self._proof_index: dict[Triple, ProofTree] = {}
         # Tabling cache for backward chaining
         self._tabling_cache: dict[str, list[Binding]] | None = None
+        # Answer table for SLG-style tabling, scoped to one top-level _solve.
+        # gk -> {"answers": list[Triple], "seen": set, "complete": bool}.
+        self._answer_table: dict[str, dict] | None = None
+        self._table_stack: list[str] = []
         # On-stack set for BC cycle detection (goal keys)
         self._bc_stack: set[str] = set()
         # Predicates declared with log:table
@@ -898,7 +902,208 @@ class Engine:
                 unique.append({k: v for k, v in b.items() if k in query_var_ids})
         return unique
 
+    # -- answer-table tabling (SLG-style) ------------------------------------
+
     def _solve(self, goals: list[Triple], binding: Binding) -> list[Binding]:
+        """Solve a conjunction of *goals*, returning every binding extension.
+
+        This is the tabled (memoising) front door for backward chaining.  A
+        per-session *answer table* maps each resolved goal — keyed by its ground
+        skeleton — to the set of answer substitutions proved for it.  A subgoal
+        solved once at one depth is reused (its answers shared) instead of being
+        recomputed, so overlapping recursion (ackermann, takeuchi, fibonacci) is
+        polynomial rather than exponential, and a deep linear recursion (sum of
+        the first n, deep taxonomies) stays linear because each level's answer is
+        materialised as a ground fact rather than threaded through an O(depth)
+        binding chain.
+
+        The table lives for one top-level ``_solve`` call; nested ``_solve``
+        invocations (NAF graphs, builtins that re-enter the engine) get their own
+        fresh table so a hypothetical sub-proof cannot leak answers into the main
+        derivation.  Conjunctions, negative surfaces and builtins are handled by
+        the iterative resolvent engine (:meth:`_solve_resolvent`); only the
+        per-goal rule expansion is rerouted through the table.
+        """
+        if not goals:
+            return [dict(binding)]
+
+        owns_table = self._answer_table is None
+        if owns_table:
+            self._answer_table = {}
+            self._table_stack = []
+        try:
+            return self._solve_conj(goals, dict(binding))
+        finally:
+            if owns_table:
+                self._answer_table = None
+                self._table_stack = []
+
+    def _solve_conj(self, goals: list[Triple], binding: Binding) -> list[Binding]:
+        """Recursively solve a conjunction left-to-right over the answer table.
+
+        Each goal's solutions extend the binding; the continuation is solved
+        under every extension.  The proof *depth* of a recursive predicate now
+        lives on the Python stack of nested ``_table_goal`` calls (run inside the
+        engine's large-stack worker thread), while each individual level does
+        O(1) work because its subgoals' answers come pre-computed from the table.
+        """
+        first, rest = goals[0], goals[1:]
+        results: list[Binding] = []
+        for b in self._solve_goal(first, binding):
+            if rest:
+                results.extend(self._solve_conj(rest, b))
+            else:
+                results.append(b)
+        return results
+
+    def _solve_goal(self, goal: Triple, binding: Binding) -> list[Binding]:
+        """Solve a single *goal*, returning binding extensions.
+
+        Negative surfaces, builtins, and goals whose predicate matches no rule
+        head fall through to the iterative resolvent solver (which also performs
+        the store lookup).  Goals whose predicate is rule-defined are tabled.
+        """
+        resolved = apply_binding_to_triple(goal, binding)
+
+        # Negative surface and builtins: defer to the resolvent solver, which
+        # handles NAF/builtin semantics for the single goal.
+        if isinstance(resolved.predicate, NamedNode):
+            if resolved.predicate.value in _NEG_SURFACE_IRIS:
+                return self._solve_resolvent([goal], binding)
+            builtin = self._builtins.get(resolved.predicate.value)
+            if builtin is not None and self._builtin_applies(resolved):
+                return self._solve_resolvent([goal], binding)
+
+        # Only rule-defined predicates benefit from (and need) tabling.  A goal
+        # that no rule head can unify with is a pure store lookup — solve it
+        # directly without a table entry.
+        if not self._goal_has_rule(resolved):
+            out: list[Binding] = []
+            for st in self._store_matches(resolved):
+                nb = unify(resolved, st, binding)
+                if nb is not None:
+                    out.append(nb)
+            return out
+
+        # Tabled goal: get answer skeletons, then unify each against the live
+        # goal under the caller's binding so the caller's variables are bound.
+        answers = self._table_goal(resolved)
+        out = []
+        for ans in answers:
+            nb = unify(resolved, ans, binding)
+            if nb is not None:
+                out.append(nb)
+        return out
+
+    def _goal_has_rule(self, resolved: Triple) -> bool:
+        """Return True if some rule head could unify with *resolved*.
+
+        A cheap predicate-level pre-filter (exact predicate match or a variable
+        predicate on either side) avoids creating table entries for pure facts.
+        """
+        gp = resolved.predicate
+        for rule in self._rules:
+            for ht in rule.head.triples:
+                hp = ht.predicate
+                if isinstance(gp, Variable) or isinstance(hp, Variable):
+                    return True
+                if isinstance(gp, NamedNode) and isinstance(hp, NamedNode):
+                    if gp.value == hp.value:
+                        return True
+                elif gp == hp:
+                    return True
+        return False
+
+    def _table_goal(self, resolved: Triple) -> list[Triple]:
+        """Return the set of answer triples for *resolved* via the answer table.
+
+        Each answer is the goal's pattern instantiated by one proof, with any
+        residual variables renamed to a private namespace so answers from
+        different proofs (and different callers) never alias.  Completed entries
+        are reused verbatim; an entry currently being generated (a recursive
+        re-entry on the same key) returns the answers known *so far* — the
+        generator's fixpoint loop reruns until that set stops growing, which is
+        what makes genuinely cyclic recursion terminate at the least fixpoint.
+        """
+        self._check_timeout()
+        gk = self._goal_key(resolved, {})
+        table = self._answer_table
+        entry = table.get(gk)
+
+        if entry is not None:
+            # Completed → reuse; in-progress (cycle) → current answers.
+            return list(entry["answers"])
+
+        entry = {"answers": [], "seen": set(), "complete": False}
+        table[gk] = entry
+        self._table_stack.append(gk)
+        try:
+            while True:
+                self._check_timeout()
+                grew = False
+
+                # Way 1: facts already in the store.
+                for st in self._store_matches(resolved):
+                    if unify(resolved, st, {}) is not None:
+                        if self._table_add_answer(entry, st):
+                            grew = True
+
+                # Way 2: each rule whose head unifies with the goal.
+                for rule in self._rules:
+                    renamed = copy_rule(rule)
+                    for head_triple in renamed.head.triples:
+                        hb = unify(resolved, head_triple, {})
+                        if hb is None:
+                            continue
+                        body = self._djiti_order(list(renamed.body.triples), hb)
+                        for sol in self._solve_conj(body, hb):
+                            ans = apply_binding_to_triple(head_triple, sol)
+                            ans = self._canonicalize_answer(ans)
+                            if self._table_add_answer(entry, ans):
+                                grew = True
+                if not grew:
+                    break
+            entry["complete"] = True
+            return list(entry["answers"])
+        finally:
+            self._table_stack.pop()
+
+    @staticmethod
+    def _table_add_answer(entry: dict, ans: Triple) -> bool:
+        """Add *ans* to a table entry if new (by canonical string). Returns True
+        if it was genuinely new."""
+        key = (str(ans.subject), str(ans.predicate), str(ans.object))
+        if key in entry["seen"]:
+            return False
+        entry["seen"].add(key)
+        entry["answers"].append(ans)
+        return True
+
+    def _canonicalize_answer(self, triple: Triple) -> Triple:
+        """Rename residual variables in an answer to a private namespace.
+
+        Answer triples are unified against fresh caller goals later; renaming to
+        fresh ids keeps two proofs' leftover variables from colliding and keeps
+        the answer independent of the ids used while proving it.
+        """
+        var_map: dict[int, Variable] = {}
+
+        def cv(t: Term) -> Term:
+            if isinstance(t, Variable):
+                if t.id not in var_map:
+                    var_map[t.id] = Variable(name=t.name, id=_next_var_id())
+                return var_map[t.id]
+            if isinstance(t, ListTerm):
+                return ListTerm(items=tuple(cv(i) for i in t.items))
+            if isinstance(t, Formula):
+                return Formula(triples=tuple(
+                    Triple(cv(tr.subject), cv(tr.predicate), cv(tr.object))
+                    for tr in t.triples))
+            return t
+
+        return Triple(cv(triple.subject), cv(triple.predicate), cv(triple.object))
+
+    def _solve_resolvent(self, goals: list[Triple], binding: Binding) -> list[Binding]:
         """Iterative SLD resolution of a conjunction of *goals*.
 
         Returns every binding (an extension of *binding*) under which all goals
