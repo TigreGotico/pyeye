@@ -94,6 +94,8 @@ class PrefixManager:
         ns = self._prefixes.get(prefix, "")
         if not ns and self._base:
             ns = self._base
+        # Percent-escapes (e.g. %20) and other PN_LOCAL escapes stay verbatim:
+        # they are part of the resulting IRI, matching EYE's behaviour.
         return NamedNode(ns + local)
 
 
@@ -107,6 +109,19 @@ class Tok:
     v: str  # value
 
 
+# Turtle prefixed-name (PNAME) regex.  A prefixed name is an optional prefix,
+# a ':', and a rich local part.  The local part allows letters, digits, '_',
+# '-', ':', percent-escapes (%XX), and internal '.' (not as the last char so a
+# trailing statement-terminating dot is not swallowed).
+_PN_BASE = r"A-Za-zÀ-￿"
+_PN_PREFIX = rf"(?:[{_PN_BASE}][\w{_PN_BASE}.\-]*[\w{_PN_BASE}\-]|[{_PN_BASE}])?"
+_PN_LOCAL_START = rf"(?:[{_PN_BASE}_0-9:]|%[0-9A-Fa-f]{{2}})"
+_PN_LOCAL_MID = rf"(?:[\w{_PN_BASE}.\-:]|%[0-9A-Fa-f]{{2}})"
+_PN_LOCAL_END = rf"(?:[\w{_PN_BASE}\-:]|%[0-9A-Fa-f]{{2}})"
+_PN_LOCAL = rf"(?:{_PN_LOCAL_START}(?:{_PN_LOCAL_MID}*{_PN_LOCAL_END})?)?"
+_PNAME_RE = rf"{_PN_PREFIX}:{_PN_LOCAL}"
+
+
 def tokenize(text: str) -> list[Tok]:
     """Lex N3 text into tokens.  Skips comments and whitespace.
 
@@ -117,6 +132,7 @@ def tokenize(text: str) -> list[Tok]:
         ("STR",     r'"(?:[^"\\]|\\.)*"'),
         ("TTOPEN",  r"<<"),         # Phase 2: triple term open — before IRI!
         ("TTCLOSE", r">>"),         # Phase 2: triple term close — before IRI!
+        ("IMPQ",    r"=\^"),        # EYE query operator =^ (filter rule, answer-only)
         ("IMPF",    r"=>"),
         ("IMPB",    r"<="),         # must be before IRI so <= is not swallowed as <...>
         ("PREDINV", r"<-"),         # must be before IRI so <-<IRI> is not swallowed as <...>
@@ -144,6 +160,7 @@ def tokenize(text: str) -> list[Tok]:
         ("DOT",     r"\."),
         ("OP_FWD",  r"!"),          # Phase 2: forward path
         ("OP_REV",  r"\^(?!\^)"),   # Phase 2: reverse path (not ^^)
+        ("TILDE",   r"~"),          # RDF 1.2 reifier: ``s p o ~ :id`` / ``<< s p o ~ :id >>``
         ("EQ",      r"="),          # C8 fix: owl:sameAs sugar
         ("OF_KW",   r"\bof\b"),     # Phase 2: "of" keyword
         ("HAS_KW",  r"\bhas\b"),    # Phase 2: "has" keyword
@@ -154,6 +171,11 @@ def tokenize(text: str) -> list[Tok]:
         ("VAR",     r"\?[^\W\d]\w*"),  # C9 fix: Unicode variable names
         ("BLANK",   r"_:[^\W\d]\w*"),  # C9 fix: Unicode blank node names
         ("LANG",    r"@[A-Za-z]+(-[A-Za-z0-9]+)*"),
+        # Prefixed name (Turtle PNAME): optional prefix, ':', rich local part
+        # (digits anywhere, percent-escapes %XX, internal dots, ':').  Matched
+        # as a single token so names like ``res:COUNTRY_United%20States`` and
+        # ``ex:AIRLINE_100`` are not fragmented into KW/NUM/COLON pieces.
+        ("PNAME",   _PNAME_RE),
         ("COLON",   r":"),
         ("NUM",     r"[+-]?(\d+\.\d+|\.\d+|\d+)([eE][+-]?\d+)?"),
         ("KW",      r"[^\W\d][\w\-]*"),  # C9 fix: Unicode keywords and local names (hyphens allowed per N3 spec)
@@ -179,6 +201,9 @@ def tokenize(text: str) -> list[Tok]:
 
 # Forbidden characters in IRIREF per N3 spec
 _IRI_FORBIDDEN = set('{}|^\\`"')
+
+# Token kinds that can begin a graph-label term in an N3 quad ``s p o g .``.
+_GRAPH_TERM_START = frozenset(("PNAME", "IRI", "BLANK", "COLON"))
 
 
 def _validate_iri(iri: str) -> None:
@@ -274,7 +299,10 @@ class Parser:
         else:
             self._eat("PFX")
         t = self._peek()
-        if t.t == "COLON":
+        if t.t == "PNAME":
+            # prefix ex: <...> or prefix : <...> (single PNAME token ``ex:``/``:``)
+            prefix = self._eat("PNAME").v.rstrip(":")
+        elif t.t == "COLON":
             # prefix : <...>
             self._eat("COLON")
             prefix = ""
@@ -348,6 +376,28 @@ class Parser:
     def _do_formula_top(self) -> None:
         body = self._formula()
         t = self._peek()
+        if t.t == "IMPQ":
+            # EYE query operator ``{P} =^ {C}`` — like ``=>`` but the conclusion
+            # is the query answer (a filter rule that only emits its head).
+            self._eat("IMPQ")
+            if self._peek().t in ("TRUE", "FALSE"):
+                self._eat_any()
+                head = Formula(())
+            elif self._peek().t == "LBR":
+                head = self._formula()
+            else:
+                self._eat_any()
+                head = Formula(())
+            if self._peek().t == "ANNOT_OPEN":
+                self._skip_annotation()
+            self._eat("DOT")
+            self._rules.append(Rule(
+                body, head, self._src,
+                for_some=tuple(self._for_some),
+                for_all=tuple(self._for_all),
+                is_query=True,
+            ))
+            return
         if t.t == "IMPF":
             self._eat("IMPF")
             # `=> false` is N3 contradiction syntax — marks a constraint rule
@@ -593,6 +643,11 @@ class Parser:
             if of_target is not None:
                 subj = of_target
 
+            # RDF 1.2 reifier on the object: ``s p o ~ :id`` — consume the
+            # reifier identifier (reification handled at use site for now).
+            if self._peek().t == "TILDE":
+                self._eat("TILDE")
+                self._item()
             if self._peek().t == "SC":
                 self._eat("SC")
                 # After semicolon, also check for `has`/`is`
@@ -602,8 +657,19 @@ class Parser:
                     break
             else:
                 break
+        # N3 quad: a 4th term after the object names the graph (top-level data
+        # only).  ``:s :p :o _:g .`` → quad with ``_:g`` as graph.
+        if (not self._formula_triples_stack
+                and self._peek().t in _GRAPH_TERM_START):
+            graph = self._item()
+            for tr in out:
+                self._quads.append(Quad(tr.subject, tr.predicate, tr.object, graph))
+            out = []
         # RDF 1.2 annotation syntax: triple {| prop val |} — skip annotation block
         if self._peek().t == "ANNOT_OPEN":
+            self._skip_annotation()
+        # Repeated annotation blocks: ``s p o {| ... |} {| ... |}``
+        while self._peek().t == "ANNOT_OPEN":
             self._skip_annotation()
         if self._peek().t == "DOT":
             self._eat("DOT")
@@ -668,6 +734,12 @@ class Parser:
                 f"Unexpected path operator {t.v!r} at {self._src}:{self._i} "
                 "— a path step must follow a subject term"
             )
+
+        # Single-token prefixed name (Turtle PNAME): ``ex:foo``, ``:foo``,
+        # ``res:COUNTRY_United%20States`` — expanded directly.
+        if t.t == "PNAME":
+            self._eat("PNAME")
+            return self._maybe_path(self._pm.expand(t.v))
 
         # Keyword tokens that can appear as local names in prefixed names
         _LOCAL_NAME_TOKENS = frozenset(("KW", "IS_KW", "HAS_KW", "OF_KW", "GRAPH_KW", "TRUE", "FALSE"))
@@ -783,6 +855,10 @@ class Parser:
         t = self._peek()
 
         _LOCAL_NAME_TOKENS = frozenset(("KW", "IS_KW", "HAS_KW", "OF_KW", "GRAPH_KW", "TRUE", "FALSE"))
+
+        if t.t == "PNAME":
+            self._eat("PNAME")
+            return self._pm.expand(t.v)
 
         if t.t == "COLON":
             self._eat("COLON")
@@ -929,10 +1005,11 @@ class Parser:
         s = self._item()
         p = self._item()
         o = self._item()
-        # Optional annotation marker: ~ :annotationGraph
-        if self._peek().t in ("OP_REV",):
-            self._eat("OP_REV")
-            self._item()  # consume annotation graph ref, ignore for now
+        # Optional reifier marker: ``<< s p o ~ :id >>`` names the reified
+        # statement; the identifier is consumed (reification handled at use site).
+        if self._peek().t == "TILDE":
+            self._eat("TILDE")
+            self._item()  # consume reifier id, ignore for now
         if paren:
             self._eat("RP")
         self._eat("TTCLOSE")
@@ -969,6 +1046,16 @@ class Parser:
 
     def _do_data(self) -> None:
         subj = self._item()
+        # Bnode/IRI-labelled graph: ``_:g { ... }`` or ``<g> { ... }`` at top
+        # level — the leading term names the graph, the block holds its triples.
+        # (N3-plus / TriG-in-N3, used by the ldes and n3plus1 scenarios.)
+        if self._peek().t == "LBR":
+            body = self._formula()
+            for tr in body.triples:
+                self._quads.append(Quad(tr.subject, tr.predicate, tr.object, subj))
+            if self._peek().t == "DOT":
+                self._eat("DOT")
+            return
         # A bare blank node `[ ... ] .` is a valid top-level statement in N3.
         # The blank node's properties are already added inside _bnode(), so if
         # the next token is just a DOT, eat it and return.
