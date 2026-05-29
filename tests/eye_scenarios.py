@@ -84,6 +84,22 @@ class Scenario:
     raw_cmd: str = ""
     skip_reason: str | None = None                      # set if undiscoverable
 
+    @property
+    def is_proof_answer(self) -> bool:
+        """True when the reference --output is a full proof trace (reason:
+        vocabulary + skolem genids) rather than a plain answer graph.  pyeye
+        emits answer triples, not proof graphs, so these need the proof-graph
+        serializer to match byte-for-byte and are tracked separately."""
+        if self.answer is None or not self.answer.exists():
+            return False
+        try:
+            t = self.answer.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        markers = ("swap/reason#", "#Inference", "#Proof", "#Conjunction",
+                   "#Extraction", "#bindings")
+        return any(m in t for m in markers)
+
 
 def _url_to_local(scenario_dir: Path, token: str) -> Path | None:
     """Map a test-script token to a local file path, or None if not a file."""

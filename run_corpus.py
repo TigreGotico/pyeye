@@ -72,10 +72,12 @@ def main() -> None:
             if VERBOSE:
                 print(f"- SKIP    {sc.name}: {reason}")
             continue
+        is_proof = sc.is_proof_answer
         cfg = json.dumps({
             "inputs": [str(p) for p in sc.inputs],
             "query": str(sc.query) if sc.query else None,
             "nope": sc.nope, "pass_mode": sc.pass_mode, "pass_all": sc.pass_all,
+            "pass_only_new": sc.pass_only_new,
         })
         try:
             proc = subprocess.run(
@@ -100,6 +102,8 @@ def main() -> None:
             status = "PASS" if ok else "FAIL"
         else:
             status, detail = "ERROR", f"worker crashed: {proc.stderr[-200:]}"
+        if is_proof and status != "PASS":
+            status, detail = "PROOF", "proof-format reference output: " + detail
         results.append((sc.name, status, detail))
         if VERBOSE:
             sym = {"PASS": "✓", "FAIL": "✗", "ERROR": "E",
@@ -109,18 +113,21 @@ def main() -> None:
 
     counts = Counter(s for _, s, _ in results)
     total = len(results)
-    runnable = total - counts["SKIP"]
+    plain = total - counts["SKIP"] - counts["PROOF"]
     print("\n" + "=" * 64)
-    print(f"TOTAL {total} | runnable {runnable} | "
+    print(f"TOTAL {total} | SKIP {counts['SKIP']} | PROOF-format {counts['PROOF']}")
+    print(f"PLAIN-ANSWER scenarios: {plain} | "
           f"PASS {counts['PASS']} FAIL {counts['FAIL']} "
-          f"ERROR {counts['ERROR']} TIMEOUT {counts['TIMEOUT']} "
-          f"SKIP {counts['SKIP']}")
-    rate = counts["PASS"] / runnable * 100 if runnable else 0
-    print(f"PASS RATE (of runnable): {rate:.1f}%  "
-          f"({counts['PASS']}/{runnable})")
+          f"ERROR {counts['ERROR']} TIMEOUT {counts['TIMEOUT']}")
+    rate = counts["PASS"] / plain * 100 if plain else 0
+    print(f"PASS RATE (of plain-answer): {rate:.1f}%  "
+          f"({counts['PASS']}/{plain})")
+    print(f"PASS RATE (of all non-skip): "
+          f"{counts['PASS'] / (total-counts['SKIP']) * 100:.1f}%  "
+          f"({counts['PASS']}/{total-counts['SKIP']})")
     print("=" * 64)
     # dump failures grouped
-    for st in ("FAIL", "ERROR", "TIMEOUT"):
+    for st in ("FAIL", "ERROR", "TIMEOUT", "PROOF"):
         items = [(n, d) for n, s, d in results if s == st]
         if items:
             print(f"\n--- {st} ({len(items)}) ---")

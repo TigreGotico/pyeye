@@ -2331,39 +2331,61 @@ def log_hasPrefix(args: list[Term], engine: EngineProto) -> Term | None:
     prefix = _str_val(args[1])
     return _bool_result(uri.startswith(prefix))
 
-def log_includes(args: list[Term], engine: EngineProto) -> Term | None:
-    """log:includes — check if the graph/scope contains a matching triple.
+def _scope_includes(scope: Term, pattern: Term, engine: EngineProto) -> bool:
+    """True iff *pattern* is satisfied within *scope*.
 
-    args[0]: scope (graph formula, priority integer, or Var → default store)
-    args[1]: pattern term (NamedNode predicate, Existential subject, or Literal)
+    The scope (args[0]) may be a Variable (unbound → the default graph / whole
+    store), a Formula (an explicit graph), or any term; only the default-store
+    case is currently supported for matching (EYE's most common usage).  The
+    pattern may be a single Triple, a Formula (conjunction of triples), a bare
+    predicate NamedNode, or an Existential subject.
 
-    Returns true if the pattern is found in the store, false otherwise.
+    Variables inside the pattern are resolved through the engine's current
+    binding first; remaining variables act as wildcards.  A Formula pattern is
+    satisfied iff *every* triple in it can be matched (jointly) against the
+    store.
     """
-    if _unground(args): return None
-    pattern = args[1] if len(args) > 1 else None
-    if pattern is None:
-        return _bool_result(True)
+    binding = getattr(engine, "_current_binding", {}) or {}
+
+    def matches_triple(t: Triple) -> bool:
+        from pyeye.unify import apply_binding_to_triple
+        rt = apply_binding_to_triple(t, binding)
+        s = None if isinstance(rt.subject, (Variable, ListTerm)) else rt.subject
+        p = None if isinstance(rt.predicate, Variable) else rt.predicate
+        o = None if isinstance(rt.object, (Variable, ListTerm)) else rt.object
+        return bool(list(engine.store.match(subject=s, predicate=p, object=o)))
+
     if isinstance(pattern, Literal) and pattern.value.lower() == "true":
-        return _bool_result(True)
-    if isinstance(pattern, NamedNode):
-        return _bool_result(bool(list(engine.store.match(predicate=pattern))))
-    if isinstance(pattern, Existential):
-        return _bool_result(bool(list(engine.store.match(subject=pattern))))
+        return True
+    if isinstance(pattern, Formula):
+        return all(matches_triple(t) for t in pattern.triples)
     if isinstance(pattern, Triple):
-        return _bool_result(bool(list(engine.store.match(
-            subject=pattern.subject,
-            predicate=pattern.predicate,
-            object=pattern.object,
-        ))))
-    return _bool_result(True)
+        return matches_triple(pattern)
+    if isinstance(pattern, NamedNode):
+        return bool(list(engine.store.match(predicate=pattern)))
+    if isinstance(pattern, Existential):
+        return bool(list(engine.store.match(subject=pattern)))
+    return True
+
+
+def log_includes(args: list[Term], engine: EngineProto) -> Term | None:
+    """log:includes — true iff the scope graph contains the pattern.
+
+    args[0]: scope (Formula graph, or unbound Variable → default store)
+    args[1]: pattern (Triple, Formula, predicate NamedNode, or Existential)
+    """
+    if len(args) < 2:
+        return _bool_result(True)
+    scope, pattern = args[0], args[1]
+    return _bool_result(_scope_includes(scope, pattern, engine))
+
 
 def log_notIncludes(args: list[Term], engine: EngineProto) -> Term | None:
-    """log:notIncludes — negation of log:includes."""
-    if _unground(args): return None
-    result = log_includes(args, engine)
-    if result is None:  # pragma: no cover — log_includes only returns None for unground; guarded above
-        return None
-    return _bool_result(result.value == "false")
+    """log:notIncludes — scoped negation as failure (true iff NOT included)."""
+    if len(args) < 2:
+        return _bool_result(False)
+    scope, pattern = args[0], args[1]
+    return _bool_result(not _scope_includes(scope, pattern, engine))
 
 def log_isBuiltin(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None

@@ -303,7 +303,12 @@ def execute(
     # Run forward chaining. With a --query we always need to forward-chain so
     # the query rules can match the deductive closure, even under --nope (which
     # in EYE only suppresses proof output, not derivation).
-    run_forward = forward and (not nope or has_query_rules or pass_only_new)
+    # ``--nope`` only suppresses proof output; it must not suppress derivation
+    # when the run still needs the closure (a query, --pass, --pass-all, or
+    # --pass-only-new).
+    run_forward = forward and (
+        not nope or has_query_rules or pass_only_new or pass_mode or pass_all
+    )
     if run_forward:
         engine.run()
 
