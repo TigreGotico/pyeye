@@ -432,12 +432,6 @@ class TestProofByCases:
 }.
 """
 
-    @pytest.mark.xfail(
-        reason="proof-by-cases needs log:allPossibleCases + nested log:forAllIn "
-               "over formula-quoted rules with list:member on formulas — a "
-               "meta-builtin combination not yet supported (see TODO.md).",
-        strict=False,
-    )
     def test_theorem1_proven(self):
         """:theorem1 :isProvenFor var:X (all 3 cases covered)."""
         out = _run(self.FACTS_AND_RULES)
