@@ -40,28 +40,32 @@ class TestBasicUnify:
         assert unify(p, c) is None
 
     def test_variable_subject(self):
-        p = T(V("X"), NN("p"), NN("b"))
+        x = V("X")
+        p = T(x, NN("p"), NN("b"))
         c = T(NN("a"), NN("p"), NN("b"))
         result = unify(p, c)
-        assert result == {"X": NN("a")}
+        assert result == {x.id: NN("a")}
 
     def test_variable_object(self):
-        p = T(NN("a"), NN("p"), V("Y"))
+        y = V("Y")
+        p = T(NN("a"), NN("p"), y)
         c = T(NN("a"), NN("p"), NN("b"))
         result = unify(p, c)
-        assert result == {"Y": NN("b")}
+        assert result == {y.id: NN("b")}
 
     def test_variable_both(self):
-        p = T(V("X"), NN("p"), V("Y"))
+        x, y = V("X"), V("Y")
+        p = T(x, NN("p"), y)
         c = T(NN("a"), NN("p"), NN("b"))
         result = unify(p, c)
-        assert result == {"X": NN("a"), "Y": NN("b")}
+        assert result == {x.id: NN("a"), y.id: NN("b")}
 
     def test_variable_predicate(self):
-        p = T(NN("a"), V("P"), NN("b"))
+        pv = V("P")
+        p = T(NN("a"), pv, NN("b"))
         c = T(NN("a"), NN("p"), NN("b"))
         result = unify(p, c)
-        assert result == {"P": NN("p")}
+        assert result == {pv.id: NN("p")}
 
 
 # ---------------------------------------------------------------------------
@@ -71,30 +75,33 @@ class TestBasicUnify:
 class TestBindingPropagation:
     def test_pre_existing_binding(self):
         """Existing binding is extended, not overwritten."""
-        p = T(V("X"), NN("p"), NN("b"))
+        x, z = V("X"), V("Z")
+        p = T(x, NN("p"), NN("b"))
         c = T(NN("a"), NN("p"), NN("b"))
-        result = unify(p, c, binding={"Z": NN("extra")})
-        assert result == {"X": NN("a"), "Z": NN("extra")}
+        result = unify(p, c, binding={z.id: NN("extra")})
+        assert result == {x.id: NN("a"), z.id: NN("extra")}
 
     def test_consistent_variable_reuse(self):
         """Same variable in pattern must bind consistently."""
+        x, y = V("X"), V("Y")
         # First unify binds X=a
-        p1 = T(V("X"), NN("p"), NN("b"))
+        p1 = T(x, NN("p"), NN("b"))
         c1 = T(NN("a"), NN("p"), NN("b"))
         binding = unify(p1, c1)
         assert binding is not None
 
-        # Second pattern also has X, must match a
-        p2 = T(V("X"), NN("q"), V("Y"))
+        # Second pattern reuses X (same id), must match a
+        p2 = T(x, NN("q"), y)
         c2 = T(NN("a"), NN("q"), NN("c"))
         result = unify(p2, c2, binding=binding)
-        assert result == {"X": NN("a"), "Y": NN("c")}
+        assert result == {x.id: NN("a"), y.id: NN("c")}
 
     def test_inconsistent_binding_fails(self):
         """Variable already bound to a different term → failure."""
-        p = T(V("X"), NN("p"), NN("c"))
+        x = V("X")
+        p = T(x, NN("p"), NN("c"))
         c = T(NN("b"), NN("p"), NN("c"))
-        binding = {"X": NN("a")}
+        binding = {x.id: NN("a")}
         assert unify(p, c, binding=binding) is None
 
 
@@ -104,13 +111,12 @@ class TestBindingPropagation:
 
 class TestOccursCheck:
     def test_simple_occurs_check(self):
-        """Variable in candidate that is the same as pattern variable → reject."""
-        # This case shouldn't happen with ground candidates from the store,
-        # but we test the mechanism anyway.
-        p = T(V("X"), NN("p"), NN("b"))
-        c = T(V("X"), NN("p"), NN("b"))
-        result = unify(p, c)
-        # Occurs check: X cannot bind to a term containing X.
+        """A variable cannot bind to a term that contains itself."""
+        from pyeye.term import ListTerm
+        from pyeye.unify import unify_terms
+        x = V("X")
+        # X unified with (X) — the list contains X, so occurs check rejects.
+        result = unify_terms(x, ListTerm((x,)), {})
         assert result is None
 
     def test_no_occurs_check_on_ground(self):
@@ -126,27 +132,30 @@ class TestOccursCheck:
 
 class TestTermContainsVar:
     def test_named_node(self):
-        assert not term_contains_var(NN("a"), "X")
+        assert not term_contains_var(NN("a"), V("X").id)
 
     def test_variable_yes(self):
-        assert term_contains_var(V("X"), "X")
+        x = V("X")
+        assert term_contains_var(x, x.id)
 
     def test_variable_no(self):
-        assert not term_contains_var(V("Y"), "X")
+        assert not term_contains_var(V("Y"), V("X").id)
 
     def test_triple_yes_subject(self):
-        assert term_contains_var(T(V("X"), NN("p"), NN("b")), "X")
+        x = V("X")
+        assert term_contains_var(T(x, NN("p"), NN("b")), x.id)
 
     def test_triple_no(self):
-        assert not term_contains_var(T(NN("a"), NN("p"), NN("b")), "X")
+        assert not term_contains_var(T(NN("a"), NN("p"), NN("b")), V("X").id)
 
     def test_formula_yes(self):
-        f = Formula((T(V("X"), NN("p"), NN("b")),))
-        assert term_contains_var(f, "X")
+        x = V("X")
+        f = Formula((T(x, NN("p"), NN("b")),))
+        assert term_contains_var(f, x.id)
 
     def test_formula_no(self):
         f = Formula((T(NN("a"), NN("p"), NN("b")),))
-        assert not term_contains_var(f, "X")
+        assert not term_contains_var(f, V("X").id)
 
 
 # ---------------------------------------------------------------------------
@@ -155,29 +164,33 @@ class TestTermContainsVar:
 
 class TestApplyBinding:
     def test_substitute_variable(self):
-        binding: Binding = {"X": NN("a")}
-        result = apply_binding(V("X"), binding)
+        x = V("X")
+        binding: Binding = {x.id: NN("a")}
+        result = apply_binding(x, binding)
         assert result == NN("a")
 
     def test_unbound_variable_unchanged(self):
-        binding: Binding = {"Y": NN("b")}
-        result = apply_binding(V("X"), binding)
-        assert result == V("X")
+        x = V("X")
+        binding: Binding = {V("Y").id: NN("b")}
+        result = apply_binding(x, binding)
+        assert result == x
 
     def test_ground_term_unchanged(self):
-        binding: Binding = {"X": NN("a")}
+        binding: Binding = {V("X").id: NN("a")}
         result = apply_binding(NN("b"), binding)
         assert result == NN("b")
 
     def test_apply_to_triple(self):
-        binding: Binding = {"X": NN("a"), "Y": NN("b")}
-        t = T(V("X"), NN("p"), V("Y"))
+        x, y = V("X"), V("Y")
+        binding: Binding = {x.id: NN("a"), y.id: NN("b")}
+        t = T(x, NN("p"), y)
         result = apply_binding_to_triple(t, binding)
         assert result == T(NN("a"), NN("p"), NN("b"))
 
     def test_apply_to_formula(self):
-        binding: Binding = {"X": NN("a"), "Y": NN("b")}
-        f = Formula((T(V("X"), NN("p"), V("Y")),))
+        x, y = V("X"), V("Y")
+        binding: Binding = {x.id: NN("a"), y.id: NN("b")}
+        f = Formula((T(x, NN("p"), y),))
         result = apply_binding(f, binding)
         assert result == Formula((T(NN("a"), NN("p"), NN("b")),))
 
@@ -188,10 +201,11 @@ class TestApplyBinding:
 
 class TestLiteralExistentialUnify:
     def test_literal_match(self):
-        p = T(NN("a"), NN("p"), V("X"))
+        x = V("X")
+        p = T(NN("a"), NN("p"), x)
         c = T(NN("a"), NN("p"), L("42"))
         result = unify(p, c)
-        assert result == {"X": L("42")}
+        assert result == {x.id: L("42")}
 
     def test_literal_datatype_mismatch(self):
         dt1 = NN("http://www.w3.org/2001/XMLSchema#integer")
@@ -201,7 +215,8 @@ class TestLiteralExistentialUnify:
         assert unify(p, c) is None
 
     def test_existential_match(self):
-        p = T(NN("a"), NN("p"), V("X"))
+        x = V("X")
+        p = T(NN("a"), NN("p"), x)
         c = T(NN("a"), NN("p"), E("genid-1"))
         result = unify(p, c)
-        assert result == {"X": E("genid-1")}
+        assert result == {x.id: E("genid-1")}

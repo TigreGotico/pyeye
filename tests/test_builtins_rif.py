@@ -55,25 +55,20 @@ class TestListOps:
     """Extended list builtins."""
 
     def test_select_first(self):
-        """Select first element from a list."""
+        """Select first element from a list (1-based index)."""
+        from pyeye.term import ListTerm
         engine = Engine()
-        # Create list: _b1 -> "apple" -> _b2 -> "banana" -> nil
-        engine.add_triple(T(E("_b1"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first"), L("apple")))
-        engine.add_triple(T(E("_b1"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"), E("_b2")))
-        engine.add_triple(T(E("_b2"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first"), L("banana")))
-        engine.add_triple(T(E("_b2"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"), E("nil")))
-        result = list_select([E("_b1"), L("1")], engine)
+        lst = ListTerm((L("apple"), L("banana")))
+        result = list_select([lst, L("1")], engine)
         assert result is not None
         assert result == L("apple")
 
     def test_select_second(self):
-        """Select second element from a list."""
+        """Select second element from a list (1-based index)."""
+        from pyeye.term import ListTerm
         engine = Engine()
-        engine.add_triple(T(E("_b1"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first"), L("apple")))
-        engine.add_triple(T(E("_b1"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"), E("_b2")))
-        engine.add_triple(T(E("_b2"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first"), L("banana")))
-        engine.add_triple(T(E("_b2"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"), E("nil")))
-        result = list_select([E("_b1"), L("2")], engine)
+        lst = ListTerm((L("apple"), L("banana")))
+        result = list_select([lst, L("2")], engine)
         assert result is not None
         assert result == L("banana")
 

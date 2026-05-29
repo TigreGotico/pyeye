@@ -63,9 +63,20 @@ class TestVariable:
     def test_str(self):
         assert str(Variable("X")) == "?X"
 
-    def test_hashable(self):
-        s = {Variable("X"), Variable("X")}
-        assert len(s) == 1
+    def test_fresh_id_per_construction(self):
+        """Two Variables with the same name get distinct ids and are unequal."""
+        a = Variable("X")
+        b = Variable("X")
+        assert a.id != b.id
+        assert a != b
+        assert len({a, b}) == 2
+
+    def test_hashable_by_id(self):
+        """Variables sharing an id are equal and hash together."""
+        a = Variable("X")
+        b = Variable("X", id=a.id)
+        assert a == b
+        assert len({a, b}) == 1
 
 
 class TestExistential:

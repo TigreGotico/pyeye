@@ -144,13 +144,13 @@ class TestBindingType:
         assert b[v1.id] != b[v2.id]
 
 
-class TestPathTermDeprecated:
-    """PathTerm exists as a deprecated stub until parser rewrite (step 2)."""
+class TestPathTermRemoved:
+    """Path expressions are compiled to intermediate triples at parse time;
+    there is no PathTerm in the term model."""
 
-    def test_pathterm_is_deprecated_stub(self):
-        from pyeye.term import PathTerm
-        # Still importable (backward compat) but will be removed in step 2
-        assert hasattr(PathTerm, "__dataclass_fields__")
+    def test_pathterm_not_exported(self):
+        import pyeye.term as term_mod
+        assert not hasattr(term_mod, "PathTerm")
 
 
 class TestExistingTypesUnchanged:

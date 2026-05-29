@@ -21,9 +21,10 @@ class TestIncrementalReasoning:
     def test_single_pattern_rule(self):
         """Add triple triggers single-pattern rule."""
         engine = Engine()
+        X, Y = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/p"), V("Y")),)),
-            head=F((T(V("Y"), NN("http://x/q"), V("X")),)),
+            body=F((T(X, NN("http://x/p"), Y),)),
+            head=F((T(Y, NN("http://x/q"), X),)),
         ))
         # Add fact after rule is set
         engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
@@ -34,12 +35,13 @@ class TestIncrementalReasoning:
     def test_multi_pattern_rule_partial_match(self):
         """Add triple that completes a multi-pattern rule body."""
         engine = Engine()
+        X, Y, Z = V("X"), V("Y"), V("Z")
         engine.add_rule(Rule(
             body=F((
-                T(V("X"), NN("http://x/p"), V("Y")),
-                T(V("Y"), NN("http://x/q"), V("Z")),
+                T(X, NN("http://x/p"), Y),
+                T(Y, NN("http://x/q"), Z),
             )),
-            head=F((T(V("X"), NN("http://x/r"), V("Z")),)),
+            head=F((T(X, NN("http://x/r"), Z),)),
         ))
         # Add first fact
         engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
@@ -54,14 +56,16 @@ class TestIncrementalReasoning:
         """Derived facts trigger more rules incrementally."""
         engine = Engine()
         # Rule 1: :p → :q
+        X1, Y1 = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/p"), V("Y")),)),
-            head=F((T(V("X"), NN("http://x/q"), V("Y")),)),
+            body=F((T(X1, NN("http://x/p"), Y1),)),
+            head=F((T(X1, NN("http://x/q"), Y1),)),
         ))
         # Rule 2: :q → :r
+        X2, Y2 = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/q"), V("Y")),)),
-            head=F((T(V("X"), NN("http://x/r"), V("Y")),)),
+            body=F((T(X2, NN("http://x/q"), Y2),)),
+            head=F((T(X2, NN("http://x/r"), Y2),)),
         ))
         # Add fact
         engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
@@ -79,9 +83,10 @@ class TestIncrementalReasoning:
         assert len(engine.derived_triples) == 0
         # Now add rule — should not re-evaluate existing facts incrementally
         # (incremental only triggers on add_triple AFTER rules exist)
+        X, Y = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/p"), V("Y")),)),
-            head=F((T(V("Y"), NN("http://x/q"), V("X")),)),
+            body=F((T(X, NN("http://x/p"), Y),)),
+            head=F((T(Y, NN("http://x/q"), X),)),
         ))
         assert len(engine.derived_triples) == 0
         # But a full run would derive
@@ -91,9 +96,10 @@ class TestIncrementalReasoning:
     def test_incremental_with_run(self):
         """Incremental + run() together."""
         engine = Engine()
+        X, Y = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/p"), V("Y")),)),
-            head=F((T(V("X"), NN("http://x/q"), V("Y")),)),
+            body=F((T(X, NN("http://x/p"), Y),)),
+            head=F((T(X, NN("http://x/q"), Y),)),
         ))
         # Add some facts incrementally
         engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
@@ -109,13 +115,14 @@ class TestIncrementalReasoning:
         When C is added incrementally, the rule should fire.
         """
         engine = Engine()
+        X, Y, Z, W = V("X"), V("Y"), V("Z"), V("W")
         engine.add_rule(Rule(
             body=F((
-                T(V("X"), NN("http://x/p"), V("Y")),
-                T(V("Y"), NN("http://x/q"), V("Z")),
-                T(V("Z"), NN("http://x/r"), V("W")),
+                T(X, NN("http://x/p"), Y),
+                T(Y, NN("http://x/q"), Z),
+                T(Z, NN("http://x/r"), W),
             )),
-            head=F((T(V("X"), NN("http://x/derived"), V("W")),)),
+            head=F((T(X, NN("http://x/derived"), W),)),
         ))
         # Add first two facts (not enough to fire)
         engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
@@ -131,17 +138,20 @@ class TestIncrementalReasoning:
     def test_incremental_cascading_multi_rules(self):
         """M12 fix: Multiple rules cascade from single incremental add."""
         engine = Engine()
+        Xa, Ya = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/p"), V("Y")),)),
-            head=F((T(V("X"), NN("http://x/q"), V("Y")),)),
+            body=F((T(Xa, NN("http://x/p"), Ya),)),
+            head=F((T(Xa, NN("http://x/q"), Ya),)),
         ))
+        Xb, Yb = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/q"), V("Y")),)),
-            head=F((T(V("X"), NN("http://x/r"), V("Y")),)),
+            body=F((T(Xb, NN("http://x/q"), Yb),)),
+            head=F((T(Xb, NN("http://x/r"), Yb),)),
         ))
+        Xc, Yc = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/r"), V("Y")),)),
-            head=F((T(V("X"), NN("http://x/s"), V("Y")),)),
+            body=F((T(Xc, NN("http://x/r"), Yc),)),
+            head=F((T(Xc, NN("http://x/s"), Yc),)),
         ))
         # Single add should cascade through all three rules
         engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))

@@ -15,7 +15,7 @@ import pytest
 
 from pyeye.term import (
     NamedNode, Literal, Variable, Existential, Formula, Triple,
-    TripleTerm, FormulaTerm, PathTerm, NegativeSurface, SetTerm, Quad,
+    TripleTerm, FormulaTerm, NegativeSurface, SetTerm, Quad,
 )
 from pyeye.store import TripleStore
 from pyeye.engine import Engine
@@ -45,9 +45,8 @@ class TestTermMissingLines:
         assert hash(ns) == hash(ns.formula)
 
     def test_negative_surface_str(self):
-        # line 226
         ns = NegativeSurface(F((T(NN("http://x/a"), NN("http://x/b"), NN("http://x/c")),)))
-        assert str(ns).startswith("¬")
+        assert str(ns).startswith("~")
 
     def test_negative_surface_is_ground_false(self):
         # line 229 (triple with variable → not ground)
@@ -98,32 +97,25 @@ class TestUnifyMissingLines:
     """Lines 103, 114, 268-270."""
 
     def test_term_contains_var_in_formula_term_functor(self):
-        # line 103: FormulaTerm with var in functor
-        ft = FormulaTerm(V("X"), (NN("http://x/a"),))
-        assert term_contains_var(ft, "X") is True
+        x = V("X")
+        ft = FormulaTerm(x, (NN("http://x/a"),))
+        assert term_contains_var(ft, x.id) is True
 
     def test_term_contains_var_in_set_term(self):
-        # line 113: SetTerm branch
-        st = SetTerm((V("Y"), NN("http://x/a")))
-        assert term_contains_var(st, "Y") is True
+        y = V("Y")
+        st = SetTerm((y, NN("http://x/a")))
+        assert term_contains_var(st, y.id) is True
 
     def test_term_contains_var_fallback_false(self):
-        # line 114: returns False for unknown type (covered by Literal)
-        assert term_contains_var(L("hello"), "X") is False
+        assert term_contains_var(L("hello"), V("X").id) is False
 
-    def test_unify_existential_with_vars_list_expand(self):
-        # lines 268-270: _try_list_unification with Existential candidate and single var
-        # When candidate is Existential and pattern has exactly one variable,
-        # and the existential doesn't contain the variable → bind var to candidate
-        from pyeye.unify import _try_list_unification
-        # Existential candidate, pattern is a Variable → single var
-        candidate = E("mylist")
-        pattern = V("X")
-        result = _try_list_unification(pattern, candidate, {})
-        # _expand_rdf_list_from_binding with no store will return None
-        # (the list has no triples), so overall result is None
-        # But the branch at 263 IS entered, and 266 checks list_elements
-        assert result is None  # _expand_rdf_list_from_binding returns None → no binding
+    def test_unify_list_with_variable_element(self):
+        """Unifying a ListTerm binds variables in its elements."""
+        from pyeye.term import ListTerm
+        from pyeye.unify import unify_terms
+        x = V("X")
+        result = unify_terms(ListTerm((x,)), ListTerm((NN("http://x/a"),)), {})
+        assert result == {x.id: NN("http://x/a")}
 
 
 # ===========================================================================
@@ -179,14 +171,17 @@ class TestEngineExplainIncremental:
     """Lines 109-120, 132-143: incremental derivation with explain=True."""
 
     def test_incremental_explain_multi_pattern(self):
-        # lines 109-120: explain=True in incremental multi-pattern branch
+        # explain=True in incremental multi-pattern branch.  A rule's body and
+        # head must share the same Variable instances (same ids) so the body's
+        # binding instantiates the head — this is what the parser produces.
         engine = Engine(explain=True)
+        X, Y, Z = V("X"), V("Y"), V("Z")
         engine.add_rule(Rule(
             body=F((
-                T(V("X"), NN("http://x/p"), V("Y")),
-                T(V("Y"), NN("http://x/q"), V("Z")),
+                T(X, NN("http://x/p"), Y),
+                T(Y, NN("http://x/q"), Z),
             )),
-            head=F((T(V("X"), NN("http://x/r"), V("Z")),)),
+            head=F((T(X, NN("http://x/r"), Z),)),
         ))
         engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
         engine.add_triple(T(NN("http://x/b"), NN("http://x/q"), NN("http://x/c")))
@@ -194,11 +189,11 @@ class TestEngineExplainIncremental:
         assert len(engine._proof_trees) >= 1
 
     def test_incremental_explain_single_pattern(self):
-        # lines 132-143: explain=True in incremental single-pattern branch
         engine = Engine(explain=True)
+        X, Y = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/p"), V("Y")),)),
-            head=F((T(V("X"), NN("http://x/q"), V("Y")),)),
+            body=F((T(X, NN("http://x/p"), Y),)),
+            head=F((T(X, NN("http://x/q"), Y),)),
         ))
         engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
         assert len(engine.derived_triples) == 1
@@ -214,9 +209,10 @@ class TestEngineApplyRuleEdgeCases:
         # We can exercise this by running a rule that would match the same binding
         # twice if not for the brake — just run() which internally uses the brake.
         engine = Engine()
+        X, Y = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/p"), V("Y")),)),
-            head=F((T(V("X"), NN("http://x/q"), V("Y")),)),
+            body=F((T(X, NN("http://x/p"), Y),)),
+            head=F((T(X, NN("http://x/q"), Y),)),
         ))
         engine.store.add(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
         engine.run()
@@ -266,9 +262,10 @@ class TestEngineApplyRuleEdgeCases:
         engine.store.add(T(NN("http://x/a"), NEG_PRED, NN("http://x/b")))
         # Pattern with variable subject, the predicate is the neg-surface pred,
         # but the object is not a Formula — should match normally
-        pattern = T(V("S"), NEG_PRED, V("O"))
+        S, O = V("S"), V("O")
+        pattern = T(S, NEG_PRED, O)
         results = engine._match_formula(F((pattern,)), {})
-        assert any(r.get("S") == NN("http://x/a") for r in results)
+        assert any(r.get(S.id) == NN("http://x/a") for r in results)
 
     def test_neg_surface_non_formula_object_no_match(self):
         # line 369: break when neg-surface non-formula pattern has no store matches
@@ -398,98 +395,40 @@ class TestEngineBackwardChain:
     """Lines 557, 598, 602, 614, 636, 639 in engine.py."""
 
     def test_backward_chain_hits_rule_head(self):
-        # line 557: backward chain via rule head + body matching
+        # Backward chain through a rule head: body and head share variables.
         engine = Engine()
+        X, Y = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/p"), V("Y")),)),
-            head=F((T(V("X"), NN("http://x/q"), V("Y")),)),
+            body=F((T(X, NN("http://x/p"), Y),)),
+            head=F((T(X, NN("http://x/q"), Y),)),
         ))
         engine.store.add(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
-        # Query: ?A :q ?B — backward chains through rule
-        query = T(V("A"), NN("http://x/q"), V("B"))
+        A, B = V("A"), V("B")
+        query = T(A, NN("http://x/q"), B)
         results = engine.backward_chain(query)
         assert len(results) >= 1
-        # After chain resolution, query var A should be bound to http://x/a
-        assert any(r.get("A") == NN("http://x/a") for r in results)
+        # The query variable A resolves to http://x/a.
+        assert any(r.get(A.id) == NN("http://x/a") for r in results)
 
-    def test_backward_chain_tabling_cache_hit(self):
-        # tabling cache hit — inject a cache entry with the correct key then query
+    def test_backward_chain_resolves_object_variable(self):
+        """A ground-subject query binds the object variable from the store."""
         engine = Engine()
         engine.store.add(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
-        # Pre-populate the cache with the correct key format (includes binding_key)
-        q_resolved = T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b"))
-        engine._tabling_cache = {}
-        cache_key = engine._tabling_key(q_resolved, {})
-        expected = [{"X": NN("http://x/a"), "Y": NN("http://x/b")}]
-        engine._tabling_cache[cache_key] = expected
-        # Query the same triple — should hit cache
-        results = engine._backward_chain_triple(q_resolved, {})
-        assert results == expected
+        Y = V("Y")
+        results = engine.backward_chain(T(NN("http://x/a"), NN("http://x/p"), Y))
+        assert any(r.get(Y.id) == NN("http://x/b") for r in results)
 
-    def test_unify_backward_t1_bound_in_binding(self):
-        # line 614: t1 is a Variable already bound → resolve it
+    def test_backward_chain_subject_mismatch_no_result(self):
         engine = Engine()
-        binding = {"X": NN("http://x/a")}
-        # V("X") is in binding → t1 = NN("http://x/a")
-        result = engine._unify_terms_backward(V("X"), NN("http://x/a"), binding)
-        assert result == binding  # Both resolve to same NamedNode
+        engine.store.add(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
+        results = engine.backward_chain(T(NN("http://x/c"), NN("http://x/p"), V("Y")))
+        assert results == []
 
-    def test_unify_backward_both_variables_same(self):
-        # line 625: t1.name == t2.name → same variable, return binding
+    def test_backward_chain_object_mismatch_no_result(self):
         engine = Engine()
-        binding = {"A": NN("http://x/a")}
-        result = engine._unify_terms_backward(V("X"), V("X"), binding)
-        assert result == binding
-
-    def test_unify_backward_both_variables_different(self):
-        # line 627: different variables → bind t1 to t2
-        engine = Engine()
-        result = engine._unify_terms_backward(V("X"), V("Y"), {})
-        assert result == {"X": V("Y")}
-
-    def test_unify_backward_subject_mismatch(self):
-        # line 598: subject unification fails → return None
-        engine = Engine()
-        query = T(NN("http://x/a"), NN("http://x/p"), V("Y"))
-        head = T(NN("http://x/b"), NN("http://x/p"), V("Z"))  # subject mismatch
-        result = engine._unify_backward(query, head, {})
-        assert result is None
-
-    def test_unify_backward_object_mismatch(self):
-        # line 602: object unification fails → return None
-        engine = Engine()
-        query = T(V("X"), NN("http://x/p"), NN("http://x/a"))
-        head = T(V("Y"), NN("http://x/p"), NN("http://x/b"))  # object mismatch
-        result = engine._unify_backward(query, head, {})
-        assert result is None
-
-    def test_unify_backward_t1_variable_occurs_check(self):
-        # line 631-632: occurs check when t1 is variable and appears in t2
-        engine = Engine()
-        ft = FormulaTerm(V("X"), (NN("http://x/a"),))
-        result = engine._unify_terms_backward(V("X"), ft, {})
-        assert result is None
-
-    def test_unify_backward_t2_variable_occurs_check(self):
-        # line 635-636: occurs check when t2 is variable and appears in t1
-        engine = Engine()
-        ft = FormulaTerm(V("Y"), (NN("http://x/a"),))
-        result = engine._unify_terms_backward(ft, V("Y"), {})
-        assert result is None
-
-    def test_unify_backward_t2_variable_binds(self):
-        # line 637: t2 is variable, no occurs check → bind t2 to t1
-        engine = Engine()
-        result = engine._unify_terms_backward(NN("http://x/a"), V("Y"), {})
-        assert result == {"Y": NN("http://x/a")}
-
-    def test_tabling_key_with_existential_and_other(self):
-        # line 658-659: Existential and fallback "O:" branch
-        engine = Engine()
-        triple = T(E("myblank"), NN("http://x/p"), F(()))
-        key = engine._tabling_key(triple)
-        assert "E:myblank" in key
-        assert "O:Formula" in key
+        engine.store.add(T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b")))
+        results = engine.backward_chain(T(V("X"), NN("http://x/p"), NN("http://x/c")))
+        assert results == []
 
 
 # ===========================================================================
@@ -972,21 +911,9 @@ class TestBuiltinsListIn:
     """builtins.py lines 276, 281-287: list_in traversal."""
 
     def _make_list_engine(self, items):
-        """Build RDF list in engine store, return (engine, head)."""
-        engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        NIL = E("nil")
-        if not items:
-            return engine, NIL
-        nodes = [E(f"ln{i}") for i in range(len(items))]
-        for i, item in enumerate(items):
-            engine.store.add(T(nodes[i], RDF_FIRST, item))
-            if i < len(items) - 1:
-                engine.store.add(T(nodes[i], RDF_REST, nodes[i + 1]))
-            else:
-                engine.store.add(T(nodes[i], RDF_REST, NIL))
-        return engine, nodes[0]
+        """Return (engine, ListTerm) — list builtins take a ListTerm directly."""
+        from pyeye.term import ListTerm
+        return Engine(), ListTerm(items=tuple(items))
 
     def test_list_in_found(self):
         # line 276: item is the first element → returns True
@@ -1057,18 +984,8 @@ class TestBuiltinsListLength:
     """builtins.py lines 294-319: list_length (first version)."""
 
     def _make_list_engine(self, items):
-        engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        NIL = E("nil")
-        nodes = [E(f"ll{i}") for i in range(len(items))]
-        for i, item in enumerate(items):
-            engine.store.add(T(nodes[i], RDF_FIRST, item))
-            if i < len(items) - 1:
-                engine.store.add(T(nodes[i], RDF_REST, nodes[i + 1]))
-            else:
-                engine.store.add(T(nodes[i], RDF_REST, NIL))
-        return engine, nodes[0] if nodes else E("nil")
+        from pyeye.term import ListTerm
+        return Engine(), ListTerm(items=tuple(items))
 
     def test_list_length_unground(self):
         # line 294-295: unground args
@@ -1170,18 +1087,8 @@ class TestBuiltinsListSelect:
     """builtins.py lines 578-608: list_select (first version)."""
 
     def _make_list_engine(self, items):
-        engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        NIL = E("nil")
-        nodes = [E(f"ls{i}") for i in range(len(items))]
-        for i, item in enumerate(items):
-            engine.store.add(T(nodes[i], RDF_FIRST, item))
-            if i < len(items) - 1:
-                engine.store.add(T(nodes[i], RDF_REST, nodes[i + 1]))
-            else:
-                engine.store.add(T(nodes[i], RDF_REST, NIL))
-        return engine, nodes[0] if nodes else E("nil")
+        from pyeye.term import ListTerm
+        return Engine(), ListTerm(items=tuple(items))
 
     def test_list_select_unground(self):
         # line 578-579
@@ -1245,29 +1152,14 @@ class TestBuiltinsListCarCdr:
     """builtins.py lines 635-637, 647, 654-663, 668-677."""
 
     def _make_list_engine(self, items):
-        engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        NIL = E("nil")
-        nodes = [E(f"lcc{i}") for i in range(len(items))]
-        for i, item in enumerate(items):
-            engine.store.add(T(nodes[i], RDF_FIRST, item))
-            if i < len(items) - 1:
-                engine.store.add(T(nodes[i], RDF_REST, nodes[i + 1]))
-            else:
-                engine.store.add(T(nodes[i], RDF_REST, NIL))
-        return engine, nodes[0] if nodes else E("nil")
+        from pyeye.term import ListTerm
+        return Engine(), ListTerm(items=tuple(items))
 
-    def test_list_length_else_break(self):
-        # line 637: else: break when no rest matches
+    def test_list_length_single_element(self):
         from pyeye.builtins import list_length
-        from pyeye.term import Triple as T, NamedNode as N
+        from pyeye.term import ListTerm
         engine = Engine()
-        head = E("lne")
-        RDF_FIRST = N("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        # Add one element with rdf:first but no rdf:rest → else: break after first elem
-        engine.store.add(T(head, RDF_FIRST, N("http://ex.org/item")))
-        result = list_length([head], engine)
+        result = list_length([ListTerm((NN("http://ex.org/item"),))], engine)
         assert result.value == "1"
 
     def test_list_length_unground_at_647(self):
@@ -1490,142 +1382,90 @@ class TestBuiltinsEBecomes:
         # Should have asserted the inner triple
         assert inner in engine.store or result is not None
 
-    def test_e_becomes_simplified_with_existential(self):
-        # lines 1053-1054: new_t is Existential → _assert_list_as_triples
+    def test_e_becomes_simplified_with_list(self):
+        # Two-arg e:becomes — new triples supplied as a ListTerm of Triples.
         from pyeye.builtins import e_becomes
+        from pyeye.term import ListTerm
         engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        NIL = E("nil")
-        inner = T(NN("http://x/c"), NN("http://x/p"), NN("http://x/d"))
-        head = E("bhead2")
-        engine.store.add(T(head, RDF_FIRST, inner))
-        engine.store.add(T(head, RDF_REST, NIL))
-
-        old_t = E("old_blank")
-        result = e_becomes([old_t, head], engine)
-        assert result is not None or result == []
+        old_t = T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b"))
+        engine.store.add(old_t)
+        new_t = T(NN("http://x/c"), NN("http://x/p"), NN("http://x/d"))
+        result = e_becomes([old_t, ListTerm((new_t,))], engine)
+        assert result == [new_t]
+        assert old_t not in engine.store
+        assert new_t in engine.store
 
 
 class TestBuiltinsRetractList:
-    """builtins.py lines 1072, 1078-1083: _retract_list."""
+    """_retract_list retracts the Triple items held in a ListTerm."""
 
     def test_retract_list_with_triple_object(self):
-        # line 1071-1072: first.object is a Triple → retract it
         from pyeye.builtins import _retract_list
+        from pyeye.term import ListTerm
         engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        NIL = E("nil")
         inner = T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b"))
         engine.store.add(inner)
-        head = E("rh")
-        engine.store.add(T(head, RDF_FIRST, inner))
-        engine.store.add(T(head, RDF_REST, NIL))
-        _retract_list(head, engine)
+        _retract_list(ListTerm((inner,)), engine)
         assert inner not in engine.store
 
-    def test_retract_list_rest_non_existential(self):
-        # lines 1080-1081: nxt not Existential → break
+    def test_retract_list_ignores_non_triple_items(self):
         from pyeye.builtins import _retract_list
+        from pyeye.term import ListTerm
         engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        head = E("rh2")
-        engine.store.add(T(head, RDF_FIRST, L("val")))
-        engine.store.add(T(head, RDF_REST, NN("http://x/bad")))
-        _retract_list(head, engine)  # Should not crash
+        _retract_list(ListTerm((L("val"),)), engine)  # no crash, nothing retracted
 
-    def test_retract_list_no_rest_match(self):
-        # line 1082-1083: else: break (no rest matches)
+    def test_retract_list_empty(self):
         from pyeye.builtins import _retract_list
+        from pyeye.term import ListTerm
         engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        head = E("rh3")
-        engine.store.add(T(head, RDF_FIRST, L("val")))
-        # No rdf:rest
-        _retract_list(head, engine)  # Should not crash
+        _retract_list(ListTerm(()), engine)  # no crash
 
     def test_retract_list_multi_node(self):
-        # line 1079: cur = nxt (advance to next node in multi-node list)
         from pyeye.builtins import _retract_list
+        from pyeye.term import ListTerm
         engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        NIL = E("nil")
         inner1 = T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b"))
         inner2 = T(NN("http://x/c"), NN("http://x/p"), NN("http://x/d"))
         engine.store.add(inner1)
         engine.store.add(inner2)
-        head = E("rh4")
-        n1 = E("rh4n1")
-        engine.store.add(T(head, RDF_FIRST, inner1))
-        engine.store.add(T(head, RDF_REST, n1))   # Existential → cur = n1 (line 1079)
-        engine.store.add(T(n1, RDF_FIRST, inner2))
-        engine.store.add(T(n1, RDF_REST, NIL))
-        _retract_list(head, engine)
+        _retract_list(ListTerm((inner1, inner2)), engine)
         assert inner1 not in engine.store
         assert inner2 not in engine.store
 
 
 class TestBuiltinsAssertList:
-    """builtins.py lines 1088-1113: _assert_list_as_triples."""
+    """_assert_list_as_triples asserts the Triple items held in a ListTerm."""
 
     def test_assert_list_with_triple_object(self):
-        # lines 1096-1101: first.object is a Triple → add it
         from pyeye.builtins import _assert_list_as_triples
+        from pyeye.term import ListTerm
         engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        NIL = E("nil")
         inner = T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b"))
-        head = E("ah")
-        engine.store.add(T(head, RDF_FIRST, inner))
-        engine.store.add(T(head, RDF_REST, NIL))
-        result = _assert_list_as_triples(head, engine)
+        result = _assert_list_as_triples(ListTerm((inner,)), engine)
         assert inner in engine.store
         assert result == [inner]
 
-    def test_assert_list_rest_non_existential_breaks(self):
-        # lines 1109-1110: nxt not Existential → break
+    def test_assert_list_ignores_non_triple_items(self):
         from pyeye.builtins import _assert_list_as_triples
+        from pyeye.term import ListTerm
         engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        head = E("ah2")
-        inner = T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b"))
-        engine.store.add(T(head, RDF_FIRST, inner))
-        engine.store.add(T(head, RDF_REST, NN("http://x/bad")))
-        result = _assert_list_as_triples(head, engine)
-        assert inner in engine.store
+        result = _assert_list_as_triples(ListTerm((L("val"),)), engine)
+        assert result == []
 
-    def test_assert_list_no_rest_breaks(self):
-        # lines 1111-1112: else: break (no rest)
+    def test_assert_list_empty(self):
         from pyeye.builtins import _assert_list_as_triples
+        from pyeye.term import ListTerm
         engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        head = E("ah3")
-        inner = T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b"))
-        engine.store.add(T(head, RDF_FIRST, inner))
-        result = _assert_list_as_triples(head, engine)
-        assert inner in engine.store
+        result = _assert_list_as_triples(ListTerm(()), engine)
+        assert result == []
 
     def test_assert_list_multi_node(self):
-        # line 1108: cur = nxt (advance to next node in multi-node list)
         from pyeye.builtins import _assert_list_as_triples
+        from pyeye.term import ListTerm
         engine = Engine()
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        NIL = E("nil")
         inner1 = T(NN("http://x/a"), NN("http://x/p"), NN("http://x/b"))
         inner2 = T(NN("http://x/c"), NN("http://x/p"), NN("http://x/d"))
-        head = E("ah4")
-        n1 = E("ah4n1")
-        engine.store.add(T(head, RDF_FIRST, inner1))
-        engine.store.add(T(head, RDF_REST, n1))   # Existential → cur = n1 (line 1108)
-        engine.store.add(T(n1, RDF_FIRST, inner2))
-        engine.store.add(T(n1, RDF_REST, NIL))
-        result = _assert_list_as_triples(head, engine)
+        result = _assert_list_as_triples(ListTerm((inner1, inner2)), engine)
         assert inner1 in engine.store
         assert inner2 in engine.store
 
@@ -1748,10 +1588,10 @@ class TestBuiltinsMassiveMissing:
         assert result.value == "false"
 
     def test_list_isList_true(self):
-        # line 1831: true branch
         from pyeye.builtins import list_isList
+        from pyeye.term import ListTerm
         engine = Engine()
-        result = list_isList([E("somelist")], engine)
+        result = list_isList([ListTerm((L("a"), L("b")))], engine)
         assert result.value == "true"
 
     def test_log_call_returns_none(self):
@@ -2404,22 +2244,11 @@ class TestBuiltinsLines2283_2503:
         assert result is not None
 
     def test_e_std_with_list(self):
-        # line 2281-2282: e_std with Existential list → expand and compute std
+        # e_std over a ListTerm → standard deviation literal
         from pyeye.builtins import e_std
+        from pyeye.term import ListTerm
         engine = Engine()
-        # Make a list [2, 4, 4, 4, 5, 5, 7, 9]
-        items = [L("2"), L("4"), L("4")]
-        RDF_FIRST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        RDF_REST = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        NIL = E("nil")
-        nodes = [E(f"std{i}") for i in range(len(items))]
-        for i, item in enumerate(items):
-            engine.store.add(T(nodes[i], RDF_FIRST, item))
-            if i < len(items) - 1:
-                engine.store.add(T(nodes[i], RDF_REST, nodes[i + 1]))
-            else:
-                engine.store.add(T(nodes[i], RDF_REST, NIL))
-        result = e_std([nodes[0]], engine)
+        result = e_std([ListTerm((L("2"), L("4"), L("4")))], engine)
         assert result is not None
 
     def test_time_hour_value_error(self):

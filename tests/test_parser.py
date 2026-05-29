@@ -64,10 +64,14 @@ class TestParseN3:
 """
         doc = parse_n3(text)
         rule = doc.rules[0]
-        assert rule.body.triples[0].subject == V("X")
-        assert rule.body.triples[0].object == V("Y")
-        assert rule.head.triples[0].subject == V("Y")
-        assert rule.head.triples[0].object == V("X")
+        # Variables carry fresh ids, so compare by name (and check head reuses
+        # the same Variable instances the body introduced).
+        b_subj = rule.body.triples[0].subject
+        b_obj = rule.body.triples[0].object
+        assert isinstance(b_subj, Variable) and b_subj.name == "X"
+        assert isinstance(b_obj, Variable) and b_obj.name == "Y"
+        assert rule.head.triples[0].subject == b_obj  # ?Y shared by id
+        assert rule.head.triples[0].object == b_subj  # ?X shared by id
 
     # -- reversed rule (<=) --------------------------------------------------
 
@@ -104,7 +108,8 @@ class TestParseN3:
         doc = parse_n3(text)
         rule = doc.rules[0]
         assert len(rule.head.triples) == 2
-        assert rule.head.triples[0].subject == V("X")
+        h_subj = rule.head.triples[0].subject
+        assert isinstance(h_subj, Variable) and h_subj.name == "X"
         assert rule.head.triples[1].predicate == NN("http://ex.org/c")
 
     # -- 'a' as rdf:type -----------------------------------------------------
@@ -136,9 +141,13 @@ class TestParseN3:
 {[ :p :o ] :q :r} => {:a :b :c} .
 """
         doc = parse_n3(text)
-        # The blank node content generates an extra triple in the document
-        assert any(isinstance(t.subject, Existential) for t in doc.triples)
         assert len(doc.rules) == 1
+        # The blank node and its content live inside the rule body (formula-local),
+        # not in the top-level document triples.
+        body = doc.rules[0].body.triples
+        assert any(isinstance(t.subject, Existential) for t in body)
+        # The bnode's content triple [ :p :o ] appears in the body.
+        assert any(t.predicate == NN("http://ex.org/p") for t in body)
 
     # -- literals ------------------------------------------------------------
 
@@ -173,21 +182,25 @@ class TestParseN3:
 @prefix : <http://ex.org/> .
 {:a :list (:x :y :z)} => {:a :hasList true} .
 """
+        from pyeye.term import ListTerm
         doc = parse_n3(text)
         rule = doc.rules[0]
         list_node = rule.body.triples[0].object
-        assert isinstance(list_node, Existential)
-        # List creates rdf:first and rdf:rest triples in doc.triples
-        assert any(isinstance(t.subject, Existential) for t in doc.triples)
+        # Lists are native ListTerms, not rdf:first/rdf:rest chains.
+        assert isinstance(list_node, ListTerm)
+        assert list_node.items == (
+            NN("http://ex.org/x"), NN("http://ex.org/y"), NN("http://ex.org/z"),
+        )
 
     def test_empty_list(self):
+        from pyeye.term import ListTerm
         text = """
 @prefix : <http://ex.org/> .
 {:a :list ()} => {:a :empty true} .
 """
         doc = parse_n3(text)
         rule = doc.rules[0]
-        assert rule.body.triples[0].object == E("nil")
+        assert rule.body.triples[0].object == ListTerm(())
 
     # -- backwards rule ------------------------------------------------------
 

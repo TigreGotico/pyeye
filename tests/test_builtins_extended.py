@@ -124,21 +124,18 @@ class TestGraphBuiltins:
 
 class TestListExtended:
     def test_car(self):
+        from pyeye.term import ListTerm
         engine = Engine()
-        # Create a list: _b1 :first "apple" ; :rest _b2
-        engine.add_triple(T(E("_b1"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first"), L("apple")))
-        engine.add_triple(T(E("_b1"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"), E("_b2")))
-        result = list_car([E("_b1")], engine)
+        result = list_car([ListTerm((L("apple"), L("banana")))], engine)
         assert result is not None
         assert result == L("apple")
 
     def test_cdr(self):
+        from pyeye.term import ListTerm
         engine = Engine()
-        engine.add_triple(T(E("_b1"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first"), L("apple")))
-        engine.add_triple(T(E("_b1"), NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"), E("_b2")))
-        result = list_cdr([E("_b1")], engine)
+        result = list_cdr([ListTerm((L("apple"), L("banana")))], engine)
         assert result is not None
-        assert result == E("_b2")
+        assert result == ListTerm((L("banana"),))
 
 
 class TestEBuiltins:

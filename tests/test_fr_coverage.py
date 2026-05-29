@@ -101,12 +101,13 @@ class TestForSomeBehavior:
         engine.add_triple(Triple(
             NamedNode("http://ex.org/a"), NamedNode("http://ex.org/p"), NamedNode("http://ex.org/b"),
         ))
+        X, Y, S = Variable("X"), Variable("Y"), Variable("S")
         engine.add_rule(Rule(
             body=Formula((
-                Triple(Variable("X"), NamedNode("http://ex.org/p"), Variable("Y")),
+                Triple(X, NamedNode("http://ex.org/p"), Y),
             )),
             head=Formula((
-                Triple(Variable("X"), NamedNode("http://ex.org/hasSkolem"), Variable("S")),
+                Triple(X, NamedNode("http://ex.org/hasSkolem"), S),
             )),
             for_some=("S",),
         ))

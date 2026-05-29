@@ -15,7 +15,7 @@ import pytest
 
 from pyeye.term import (
     NamedNode, Literal, Variable, Existential, Formula, Triple,
-    TripleTerm, FormulaTerm, PathTerm, NegativeSurface, SetTerm, Quad,
+    TripleTerm, FormulaTerm, NegativeSurface, SetTerm, Quad,
 )
 from pyeye.store import TripleStore
 from pyeye.engine import Engine
@@ -164,65 +164,63 @@ class TestStoreRetract:
 
 class TestUnifyPhase2Types:
     def test_triple_term_contains_var(self):
-        tt = TripleTerm(V("X"), NN("p"), NN("b"))
-        assert term_contains_var(tt, "X") is True
-        assert term_contains_var(tt, "Z") is False
+        x = V("X")
+        tt = TripleTerm(x, NN("p"), NN("b"))
+        assert term_contains_var(tt, x.id) is True
+        assert term_contains_var(tt, V("Z").id) is False
 
     def test_formula_term_contains_var(self):
-        ft = FormulaTerm(NN("f"), (V("X"),))
-        assert term_contains_var(ft, "X") is True
-
-    def test_path_term_contains_var(self):
-        # term_contains_var checks PathTerm.terms (not subject)
-        pt = PathTerm(NN("a"), (V("X"),), ("forward",))
-        assert term_contains_var(pt, "X") is True
+        x = V("X")
+        ft = FormulaTerm(NN("f"), (x,))
+        assert term_contains_var(ft, x.id) is True
 
     def test_negative_surface_contains_var(self):
-        ns = NegativeSurface(F((T(V("X"), NN("p"), NN("b")),)))
-        assert term_contains_var(ns, "X") is True
+        x = V("X")
+        ns = NegativeSurface(F((T(x, NN("p"), NN("b")),)))
+        assert term_contains_var(ns, x.id) is True
 
     def test_set_term_contains_var(self):
-        st = SetTerm((V("X"), NN("a")))
-        assert term_contains_var(st, "X") is True
-        assert term_contains_var(st, "Z") is False
+        x = V("X")
+        st = SetTerm((x, NN("a")))
+        assert term_contains_var(st, x.id) is True
+        assert term_contains_var(st, V("Z").id) is False
 
     def test_existential_contains_var_false(self):
-        assert term_contains_var(E("foo"), "X") is False
+        assert term_contains_var(E("foo"), V("X").id) is False
 
     def test_apply_binding_triple_term(self):
-        tt = TripleTerm(V("X"), NN("p"), NN("b"))
-        result = apply_binding(tt, {"X": NN("a")})
+        x = V("X")
+        tt = TripleTerm(x, NN("p"), NN("b"))
+        result = apply_binding(tt, {x.id: NN("a")})
         assert isinstance(result, TripleTerm)
         assert result.subject == NN("a")
 
     def test_apply_binding_formula_term(self):
-        ft = FormulaTerm(NN("f"), (V("X"),))
-        result = apply_binding(ft, {"X": NN("a")})
+        x = V("X")
+        ft = FormulaTerm(NN("f"), (x,))
+        result = apply_binding(ft, {x.id: NN("a")})
         assert isinstance(result, FormulaTerm)
         assert result.args[0] == NN("a")
 
-    def test_apply_binding_path_term(self):
-        pt = PathTerm(NN("a"), (V("X"),), ("forward",))
-        result = apply_binding(pt, {"X": NN("p")})
-        assert isinstance(result, PathTerm)
-
     def test_apply_binding_negative_surface(self):
-        ns = NegativeSurface(F((T(V("X"), NN("p"), NN("b")),)))
-        result = apply_binding(ns, {"X": NN("a")})
+        x = V("X")
+        ns = NegativeSurface(F((T(x, NN("p"), NN("b")),)))
+        result = apply_binding(ns, {x.id: NN("a")})
         assert isinstance(result, NegativeSurface)
 
     def test_apply_binding_set_term(self):
-        st = SetTerm((V("X"), NN("a")))
-        result = apply_binding(st, {"X": NN("z")})
+        x = V("X")
+        st = SetTerm((x, NN("a")))
+        result = apply_binding(st, {x.id: NN("z")})
         assert isinstance(result, SetTerm)
         assert result.elements[0] == NN("z")
 
     def test_apply_binding_named_node_unchanged(self):
-        result = apply_binding(NN("foo"), {"X": NN("a")})
+        result = apply_binding(NN("foo"), {V("X").id: NN("a")})
         assert result == NN("foo")
 
     def test_apply_binding_literal_unchanged(self):
-        result = apply_binding(L("hello"), {"X": NN("a")})
+        result = apply_binding(L("hello"), {V("X").id: NN("a")})
         assert result == L("hello")
 
     def test_literals_equivalent_plain_and_xsd_string(self):
@@ -285,18 +283,6 @@ class TestN3WriterPhase2:
         result = w._term(ft)
         assert "(|" in result
 
-    def test_path_term_in_output(self):
-        w = N3Writer()
-        pt = PathTerm(NN("http://ex/a"), (NN("http://ex/p"), NN("http://ex/q")), ("forward", "forward"))
-        result = w._term(pt)
-        assert "!" in result
-
-    def test_path_term_backward_direction(self):
-        w = N3Writer()
-        # directions[0] is between terms[0] and terms[1]; backward → ^
-        pt = PathTerm(NN("http://ex/a"), (NN("http://ex/p"), NN("http://ex/q")), ("backward", "forward"))
-        result = w._term(pt)
-        assert "^" in result
 
     def test_negative_surface_in_output(self):
         w = N3Writer()
@@ -459,16 +445,6 @@ class TestProofSerializers:
         result = _term_to_n3_str(ft)
         assert "(|" in result
 
-    def test_term_to_n3_str_path_term_forward(self):
-        pt = PathTerm(NN("http://ex/a"), (NN("http://ex/p"), NN("http://ex/q")), ("forward", "forward"))
-        result = _term_to_n3_str(pt)
-        assert "!" in result
-
-    def test_term_to_n3_str_path_term_backward(self):
-        pt = PathTerm(NN("http://ex/a"), (NN("http://ex/p"), NN("http://ex/q")), ("backward", "forward"))
-        result = _term_to_n3_str(pt)
-        assert "^" in result
-
     def test_term_to_n3_str_fallback(self):
         # Formula (not in TripleTerm/etc) falls through to str()
         result = _term_to_n3_str(L("42"))
@@ -518,9 +494,10 @@ class TestEngineEdgeCases:
     def test_backward_chain_direct_store_match(self):
         e = Engine()
         e.add_triple(T(NN("http://ex/a"), NN("http://ex/p"), NN("http://ex/b")))
-        results = e.backward_chain(T(V("X"), NN("http://ex/p"), V("Y")))
+        x, y = V("X"), V("Y")
+        results = e.backward_chain(T(x, NN("http://ex/p"), y))
         assert len(results) >= 1
-        assert any(b.get("X") == NN("http://ex/a") for b in results)
+        assert any(b.get(x.id) == NN("http://ex/a") for b in results)
 
     def test_backward_chain_via_rule_head(self):
         e = Engine()
@@ -541,53 +518,20 @@ class TestEngineEdgeCases:
         results2 = e.backward_chain(q)
         assert results1 == results2
 
-    def test_unify_backward_both_ground_equal(self):
+    def test_backward_unification_via_public_api(self):
+        """Backward chaining unifies a goal variable against store facts."""
         e = Engine()
-        result = e._unify_terms_backward(NN("a"), NN("a"), {})
-        assert result == {}
+        e.add_triple(T(NN("a"), NN("p"), NN("b")))
+        x = V("X")
+        results = e.backward_chain(T(x, NN("p"), NN("b")))
+        assert any(b.get(x.id) == NN("a") for b in results)
 
-    def test_unify_backward_both_ground_unequal(self):
+    def test_backward_unification_ground_mismatch(self):
+        """A ground goal absent from the store yields no bindings."""
         e = Engine()
-        result = e._unify_terms_backward(NN("a"), NN("b"), {})
-        assert result is None
-
-    def test_unify_backward_both_variables_same(self):
-        e = Engine()
-        result = e._unify_terms_backward(V("X"), V("X"), {})
-        assert result == {}
-
-    def test_unify_backward_both_variables_different(self):
-        e = Engine()
-        result = e._unify_terms_backward(V("X"), V("Y"), {})
-        assert "X" in result
-
-    def test_unify_backward_t1_var_occurs_check(self):
-        # X cannot bind to a term that contains X
-        e = Engine()
-        formula = F((T(V("X"), NN("p"), NN("b")),))
-        result = e._unify_terms_backward(V("X"), formula, {})
-        # NB: formula is not a Variable so standard occurs check may not trigger
-        # but the function should return a binding anyway
-        # This tests the branch where t1 is variable
-        result = e._unify_terms_backward(V("X"), NN("a"), {})
-        assert result == {"X": NN("a")}
-
-    def test_unify_backward_t2_var(self):
-        e = Engine()
-        result = e._unify_terms_backward(NN("a"), V("Y"), {})
-        assert result == {"Y": NN("a")}
-
-    def test_tabling_key_existential(self):
-        e = Engine()
-        t = T(E("b0"), NN("p"), L("v"))
-        key = e._tabling_key(t)
-        assert "E:b0" in key
-
-    def test_tabling_key_literal_with_datatype(self):
-        e = Engine()
-        t = T(NN("a"), NN("p"), L("42", datatype=NN("http://www.w3.org/2001/XMLSchema#integer")))
-        key = e._tabling_key(t)
-        assert "L:42" in key
+        e.add_triple(T(NN("a"), NN("p"), NN("b")))
+        results = e.backward_chain(T(NN("a"), NN("p"), NN("c")))
+        assert results == []
 
     def test_djiti_debug_log(self):
         e = Engine(djiti_debug=True)
@@ -2378,61 +2322,22 @@ class TestOWLEntailment:
 # ===========================================================================
 
 class TestCollectVarsAndListUnification:
-    def test_collect_vars_from_triple_term(self):
-        from pyeye.unify import _collect_vars
-        tt = TripleTerm(V("X"), NN("p"), V("Y"))
-        out = []
-        _collect_vars(tt, out)
-        assert "X" in out
-        assert "Y" in out
+    def test_list_unification_element_by_element(self):
+        """ListTerm unifies element by element, binding contained variables."""
+        from pyeye.term import ListTerm
+        from pyeye.unify import unify_terms
+        x = V("X")
+        pat = ListTerm((x, NN("b")))
+        cand = ListTerm((NN("a"), NN("b")))
+        result = unify_terms(pat, cand, {})
+        assert result == {x.id: NN("a")}
 
-    def test_collect_vars_from_formula_term(self):
-        from pyeye.unify import _collect_vars
-        ft = FormulaTerm(V("F"), (V("A"),))
-        out = []
-        _collect_vars(ft, out)
-        assert "F" in out
-        assert "A" in out
-
-    def test_collect_vars_from_path_term(self):
-        from pyeye.unify import _collect_vars
-        # PathTerm.terms attribute
-        pt = PathTerm(NN("a"), (V("X"),), ("forward",))
-        out = []
-        _collect_vars(pt, out)
-        assert "X" in out
-
-    def test_collect_vars_from_set_term(self):
-        from pyeye.unify import _collect_vars
-        st = SetTerm((V("X"), NN("a")))
-        out = []
-        _collect_vars(st, out)
-        assert "X" in out
-
-    def test_collect_vars_from_formula(self):
-        from pyeye.unify import _collect_vars
-        f = F((T(V("X"), NN("p"), V("Y")),))
-        out = []
-        _collect_vars(f, out)
-        assert "X" in out
-        assert "Y" in out
-
-    def test_collect_vars_from_triple(self):
-        from pyeye.unify import _collect_vars
-        t = T(V("S"), V("P"), V("O"))
-        out = []
-        _collect_vars(t, out)
-        assert "S" in out
-        assert "P" in out
-        assert "O" in out
-
-    def test_try_list_unification_with_existential_candidate(self):
-        """_try_list_unification: pattern with var, candidate is Existential."""
-        from pyeye.unify import _try_list_unification
-        # _expand_rdf_list_from_binding always returns None so this returns None
-        result = _try_list_unification(V("X"), E("list-head"), {})
-        # returns None because _expand_rdf_list_from_binding stub returns None
-        assert result is None
+    def test_list_unification_length_mismatch_fails(self):
+        from pyeye.term import ListTerm
+        from pyeye.unify import unify_terms
+        pat = ListTerm((NN("a"),))
+        cand = ListTerm((NN("a"), NN("b")))
+        assert unify_terms(pat, cand, {}) is None
 
     def test_literals_equivalent_invalid_numeric(self):
         """Numeric equivalence with invalid value returns False."""
@@ -2678,39 +2583,19 @@ class TestEBuiltinsExtended:
                 self._limit_answers = -1
 
             def _expand_list(self, head):
-                rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-                rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-                nil = Existential("nil")
-                items = []
-                cur = head
-                visited = set()
-                while cur != nil and str(cur) not in visited:
-                    visited.add(str(cur))
-                    m1 = list(self.store.match(subject=cur, predicate=rdf_first))
-                    m2 = list(self.store.match(subject=cur, predicate=rdf_rest))
-                    if m1:
-                        items.append(m1[0].object)
-                    if m2:
-                        cur = m2[0].object
-                    else:
-                        break
-                return items
+                from pyeye.term import ListTerm
+                return list(head.items) if isinstance(head, ListTerm) else []
 
         self.engine = ME()
 
     def _make_list_in_engine(self, items):
-        """Build an RDF list in self.engine.store, return head Existential."""
-        rdf_first = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        rdf_rest = NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        nil = Existential("nil")
-        if not items:
-            return nil
-        nodes = [Existential(f"_b{i}") for i in range(len(items))]
-        for i, (node, item) in enumerate(zip(nodes, items)):
-            self.engine.store.add(Triple(node, rdf_first, item))
-            nxt = nodes[i + 1] if i + 1 < len(nodes) else nil
-            self.engine.store.add(Triple(node, rdf_rest, nxt))
-        return nodes[0]
+        """Return a native ListTerm for *items*.
+
+        List builtins take a ``ListTerm`` argument directly; lists are no
+        longer rdf:first/rdf:rest chains in the store.
+        """
+        from pyeye.term import ListTerm
+        return ListTerm(items=tuple(items))
 
     def test_e_call(self):
         from pyeye.builtins import e_call
@@ -4413,8 +4298,7 @@ class TestBuiltinsCoverageBoost:
         h2 = self._make_list(["c"])
         r = list_append([h1, h2], self.engine)
         assert r is not None
-        items = self.engine._expand_list(r)
-        assert len(items) == 3
+        assert len(r.items) == 3
 
     def test_list_member_ok(self):
         from pyeye.builtins import list_member
@@ -6376,13 +6260,16 @@ class TestBuiltinsRemainingCoverage:
 
     def test_log_includes_unground(self):
         from pyeye.builtins import log_includes
+        # With no pattern argument the scope vacuously includes nothing-to-check,
+        # so log:includes is true.
         r = log_includes([V("x")], self.engine)
-        assert r is None
+        assert r is not None and r.value == "true"
 
     def test_log_notIncludes_unground(self):
         from pyeye.builtins import log_notIncludes
+        # Dual of log:includes — vacuously false when no pattern is given.
         r = log_notIncludes([V("x")], self.engine)
-        assert r is None
+        assert r is not None and r.value == "false"
 
     def test_log_isomorphic_unground(self):
         from pyeye.builtins import log_isomorphic
@@ -7003,34 +6890,6 @@ class TestEngineRemainingCoverage:
         r2 = self.engine.backward_chain(query)
         assert r2 is not None
 
-    def test_engine_unify_backward_same_var(self):
-        """Cover _unify_terms_backward same variable path (line 625)."""
-        v1 = Variable("x")
-        v2 = Variable("x")
-        r = self.engine._unify_terms_backward(v1, v2, {})
-        assert r == {}
-
-    def test_engine_unify_backward_diff_vars(self):
-        """Cover _unify_terms_backward different variables path (line 627)."""
-        v1 = Variable("x")
-        v2 = Variable("y")
-        r = self.engine._unify_terms_backward(v1, v2, {})
-        assert "x" in r
-
-    def test_engine_unify_backward_ground_mismatch(self):
-        """Cover _unify_terms_backward ground mismatch (line 620)."""
-        r = self.engine._unify_terms_backward(
-            Literal("a"), Literal("b"), {}
-        )
-        assert r is None
-
-    def test_engine_unify_backward_t2_variable(self):
-        """Cover _unify_terms_backward t2 is variable (line 634-637)."""
-        r = self.engine._unify_terms_backward(
-            Literal("a"), Variable("y"), {}
-        )
-        assert "y" in r
-
     def test_engine_skolemize_non_bn(self):
         """Cover _skolemize path where Existential doesn't start with _b (no replacement)."""
         t = Triple(
@@ -7041,17 +6900,6 @@ class TestEngineRemainingCoverage:
         result = self.engine._skolemize(t)
         assert result.subject.name == "named_existential"
 
-    def test_engine_expand_list_break_non_existential(self):
-        """Cover _expand_list break when rest is not Existential (line 485-487)."""
-        rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-        first_p = NamedNode(rdf + "first")
-        rest_p = NamedNode(rdf + "rest")
-        node = Existential("eng_expand_test")
-        self.engine.store.add(Triple(node, first_p, Literal("item")))
-        self.engine.store.add(Triple(node, rest_p, Literal("not_existential")))
-        result = self.engine._expand_list(node)
-        assert Literal("item") in result
-
     def test_engine_derived_triples_property(self):
         """Cover derived_triples property (line 665)."""
         from pyeye.entry import execute
@@ -7061,24 +6909,3 @@ class TestEngineRemainingCoverage:
         )
         assert result is not None
 
-    def test_engine_tabling_key_existential(self):
-        """Cover _tabling_key with Existential term (line 658)."""
-        t = Triple(
-            Existential("test_blank"),
-            NamedNode("http://ex.org/p"),
-            Literal("val"),
-        )
-        key = self.engine._tabling_key(t)
-        assert "E:test_blank" in key
-
-    def test_engine_tabling_key_other_type(self):
-        """Cover _tabling_key with formula/other type (line 659)."""
-        from pyeye.term import Formula
-        f = Formula([])
-        t = Triple(
-            f,
-            NamedNode("http://ex.org/p"),
-            Literal("val"),
-        )
-        key = self.engine._tabling_key(t)
-        assert "O:" in key

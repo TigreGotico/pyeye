@@ -158,35 +158,19 @@ class TestLogIfThenElseIn:
         assert log_ifThenElseIn([V("X")], None) is None
 
     def test_true_condition_returns_then_branch(self):
+        from pyeye.term import ListTerm
         e = _make_engine()
-        # Build [cond=true, then=then_val, else=else_val] as RDF list
-        rdf_first = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        rdf_rest = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        nil = E("nil")
-        b0, b1, b2 = E("b0"), E("b1"), E("b2")
-        e.store.add(T(b0, rdf_first, L("true")))
-        e.store.add(T(b0, rdf_rest, b1))
-        e.store.add(T(b1, rdf_first, L("then_result")))
-        e.store.add(T(b1, rdf_rest, b2))
-        e.store.add(T(b2, rdf_first, L("else_result")))
-        e.store.add(T(b2, rdf_rest, nil))
-        result = log_ifThenElseIn([b0, L("scope")], e)
+        # [cond=true, then, else] supplied as a native ListTerm.
+        lst = ListTerm((L("true"), L("then_result"), L("else_result")))
+        result = log_ifThenElseIn([lst, L("scope")], e)
         assert result is not None
         assert result.value == "then_result"
 
     def test_false_condition_returns_else_branch(self):
+        from pyeye.term import ListTerm
         e = _make_engine()
-        rdf_first = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        rdf_rest = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        nil = E("nil")
-        b0, b1, b2 = E("c0"), E("c1"), E("c2")
-        e.store.add(T(b0, rdf_first, L("false")))
-        e.store.add(T(b0, rdf_rest, b1))
-        e.store.add(T(b1, rdf_first, L("then_result")))
-        e.store.add(T(b1, rdf_rest, b2))
-        e.store.add(T(b2, rdf_first, L("else_result")))
-        e.store.add(T(b2, rdf_rest, nil))
-        result = log_ifThenElseIn([b0, L("scope")], e)
+        lst = ListTerm((L("false"), L("then_result"), L("else_result")))
+        result = log_ifThenElseIn([lst, L("scope")], e)
         assert result is not None
         assert result.value == "else_result"
 
@@ -420,8 +404,10 @@ class TestLogIncludes:
         assert result is not None
         assert result.value == "false"
 
-    def test_unground_returns_none(self):
-        assert log_includes([V("X"), V("Y")], None) is None
+    def test_variable_pattern_is_wildcard_true(self):
+        # A bare-variable pattern acts as a wildcard, so the scope includes it.
+        result = log_includes([V("X"), V("Y")], _make_engine())
+        assert result is not None and result.value == "true"
 
 
 # ---------------------------------------------------------------------------
@@ -443,8 +429,10 @@ class TestLogNotIncludes:
         assert result is not None
         assert result.value == "true"
 
-    def test_unground_returns_none(self):
-        assert log_notIncludes([V("X"), V("Y")], None) is None
+    def test_variable_pattern_is_wildcard_false(self):
+        # Dual of log:includes — a wildcard pattern is included, so notIncludes is false.
+        result = log_notIncludes([V("X"), V("Y")], _make_engine())
+        assert result is not None and result.value == "false"
 
 
 # ---------------------------------------------------------------------------
@@ -477,37 +465,21 @@ class TestLogIncludesCoverage:
 class TestLogIfThenElseInCoverage:
     def test_named_node_condition_true_when_in_store(self):
         """NamedNode condition is true if it has triples in the store."""
+        from pyeye.term import ListTerm
         cond_node = NN("http://ex/cond")
         e = _make_engine(T(cond_node, NN("http://ex/p"), L("v")))
-        rdf_first = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        rdf_rest = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        nil = E("nil")
-        b0, b1, b2 = E("nn0"), E("nn1"), E("nn2")
-        e.store.add(T(b0, rdf_first, cond_node))
-        e.store.add(T(b0, rdf_rest, b1))
-        e.store.add(T(b1, rdf_first, L("then_val")))
-        e.store.add(T(b1, rdf_rest, b2))
-        e.store.add(T(b2, rdf_first, L("else_val")))
-        e.store.add(T(b2, rdf_rest, nil))
-        result = log_ifThenElseIn([b0, L("scope")], e)
+        lst = ListTerm((cond_node, L("then_val"), L("else_val")))
+        result = log_ifThenElseIn([lst, L("scope")], e)
         assert result is not None
         assert result.value == "then_val"
 
     def test_existential_condition_true_when_in_store(self):
         """Existential condition is true if it is a subject in the store."""
+        from pyeye.term import ListTerm
         cond_ex = E("cond_bnode")
         e = _make_engine(T(cond_ex, NN("http://ex/p"), L("v")))
-        rdf_first = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-        rdf_rest = NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
-        nil = E("nil")
-        b0, b1, b2 = E("ex0"), E("ex1"), E("ex2")
-        e.store.add(T(b0, rdf_first, cond_ex))
-        e.store.add(T(b0, rdf_rest, b1))
-        e.store.add(T(b1, rdf_first, L("then_val")))
-        e.store.add(T(b1, rdf_rest, b2))
-        e.store.add(T(b2, rdf_first, L("else_val")))
-        e.store.add(T(b2, rdf_rest, nil))
-        result = log_ifThenElseIn([b0, L("scope")], e)
+        lst = ListTerm((cond_ex, L("then_val"), L("else_val")))
+        result = log_ifThenElseIn([lst, L("scope")], e)
         assert result is not None
         assert result.value == "then_val"
 

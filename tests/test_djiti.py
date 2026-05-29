@@ -80,12 +80,13 @@ class TestDJITIOrdering:
         engine = Engine(djiti_debug=True)
         engine.add_triple(T(NN("a"), NN("p"), NN("b")))
         engine.add_triple(T(NN("a"), NN("q"), NN("c")))
+        X, Y, Z = V("X"), V("Y"), V("Z")
         engine.add_rule(Rule(
             body=F((
-                T(V("X"), NN("q"), V("Y")),
-                T(V("X"), NN("p"), V("Z")),
+                T(X, NN("q"), Y),
+                T(X, NN("p"), Z),
             )),
-            head=F((T(V("X"), NN("result"), V("Y")),)),
+            head=F((T(X, NN("result"), Y),)),
         ))
         engine.run()
 

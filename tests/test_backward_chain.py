@@ -24,22 +24,25 @@ class TestBackwardChaining:
         """Query a triple that exists in the store."""
         engine = Engine()
         engine.add_triple(T(NN("http://x/alice"), NN("http://x/age"), L("30")))
-        results = engine.backward_chain(T(V("X"), NN("http://x/age"), L("30")))
+        x = V("X")
+        results = engine.backward_chain(T(x, NN("http://x/age"), L("30")))
         assert len(results) == 1
-        assert results[0]["X"] == NN("http://x/alice")
+        assert results[0][x.id] == NN("http://x/alice")
 
     def test_backward_chain_via_rules(self):
         """Query a derived triple via rule matching."""
         engine = Engine()
         engine.add_triple(T(NN("http://x/alice"), NN("http://x/parent"), NN("http://x/bob")))
+        X, Y = V("X"), V("Y")
         engine.add_rule(Rule(
-            body=F((T(V("X"), NN("http://x/parent"), V("Y")),)),
-            head=F((T(V("Y"), NN("http://x/child"), V("X")),)),
+            body=F((T(X, NN("http://x/parent"), Y),)),
+            head=F((T(Y, NN("http://x/child"), X),)),
         ))
-        results = engine.backward_chain(T(NN("http://x/bob"), NN("http://x/child"), V("X")))
+        q = V("X")
+        results = engine.backward_chain(T(NN("http://x/bob"), NN("http://x/child"), q))
         assert len(results) >= 1
         # Should find alice through the rule
-        found = any(r.get("X") == NN("http://x/alice") for r in results)
+        found = any(r.get(q.id) == NN("http://x/alice") for r in results)
         assert found
 
     def test_backward_chain_no_match(self):

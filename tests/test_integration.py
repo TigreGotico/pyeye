@@ -187,12 +187,13 @@ class TestSpecAcceptance:
         engine = Engine(max_steps=2)
         # Data triple to bind ?S, then skolem generates fresh ID
         engine.add_triple(Triple(NN("http://x/a"), NN("http://x/exists"), NN("http://x/true")))
+        S, SID = Variable("S"), Variable("SID")
         engine.add_rule(Rule(
             body=Formula((
-                Triple(Variable("S"), NN("http://x/exists"), NN("http://x/true")),
-                Triple(Variable("S"), NN(NS_LOG + "skolem"), Variable("SID")),
+                Triple(S, NN("http://x/exists"), NN("http://x/true")),
+                Triple(S, NN(NS_LOG + "skolem"), SID),
             )),
-            head=Formula((Triple(Variable("S"), NN("http://x/hasId"), Variable("SID")),)),
+            head=Formula((Triple(S, NN("http://x/hasId"), SID),)),
         ))
         engine.run()
         # Skolem with key produces deterministic ID within run

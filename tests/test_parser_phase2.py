@@ -7,7 +7,7 @@ import pytest
 from pyeye.parser import parse_n3, parse_rules, ParseError
 from pyeye.term import (
     NamedNode, Literal, Variable, Existential, Triple,
-    TripleTerm, FormulaTerm, PathTerm, Formula,
+    TripleTerm, FormulaTerm, ListTerm, Formula,
 )
 
 
@@ -18,7 +18,6 @@ L = Literal
 T = Triple
 TT = TripleTerm
 FT = FormulaTerm
-PT = PathTerm
 F = Formula
 
 
@@ -256,8 +255,13 @@ class TestBackwardCompatibility:
     def test_phase1_list(self):
         text = '@prefix : <http://ex.org/> .\n:a :p (:x :y :z) .'
         doc = parse_n3(text)
-        assert any(t.predicate == NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#first")
-                   for t in doc.triples)
+        # Lists are native ListTerms, not rdf:first/rdf:rest chains.
+        assert len(doc.triples) == 1
+        obj = doc.triples[0].object
+        assert isinstance(obj, ListTerm)
+        assert obj.items == (
+            NN("http://ex.org/x"), NN("http://ex.org/y"), NN("http://ex.org/z"),
+        )
 
 
 class TestBooleanLiterals:
