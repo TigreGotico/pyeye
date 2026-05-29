@@ -83,6 +83,8 @@ class Scenario:
     strings: bool = False                               # --strings: non-N3 output
     raw_cmd: str = ""
     skip_reason: str | None = None                      # set if undiscoverable
+    # Map local path (str) -> original URL, for proof r:source attribution.
+    source_urls: dict[str, str] = field(default_factory=dict)
 
     @property
     def is_proof_answer(self) -> bool:
@@ -99,6 +101,21 @@ class Scenario:
         markers = ("swap/reason#", "#Inference", "#Proof", "#Conjunction",
                    "#Extraction", "#bindings")
         return any(m in t for m in markers)
+
+
+def _canonical_url(scenario_dir: Path, token: str, local: Path) -> str:
+    """Return the canonical eyereasoner.github.io URL for *token*.
+
+    URL tokens are normalised onto the canonical host; bare relative tokens are
+    reconstructed from the scenario directory name and the local file name so
+    proof ``r:source`` attribution matches EYE's output.
+    """
+    for pref in _URL_PREFIXES:
+        if token.startswith(pref):
+            tail = token[len(pref):]
+            return f"https://eyereasoner.github.io/eye/reasoning/{tail}"
+    return ("https://eyereasoner.github.io/eye/reasoning/"
+            f"{scenario_dir.name}/{local.name}")
 
 
 def _url_to_local(scenario_dir: Path, token: str) -> Path | None:
@@ -174,6 +191,9 @@ def parse_test_script(scenario_dir: Path) -> Scenario:
         if tok == "--query":
             if i + 1 < len(tokens):
                 sc.query = _url_to_local(scenario_dir, tokens[i + 1])
+                if sc.query is not None:
+                    sc.source_urls[str(sc.query)] = _canonical_url(
+                        scenario_dir, tokens[i + 1], sc.query)
             i += 2
             continue
         if tok == "--output":
@@ -203,6 +223,7 @@ def parse_test_script(scenario_dir: Path) -> Scenario:
         p = _url_to_local(scenario_dir, tok)
         if p is not None:
             sc.inputs.append(p)
+            sc.source_urls[str(p)] = _canonical_url(scenario_dir, tok, p)
         i += 1
 
     # Expand shell globs (e.g. ``*.n3``) and keep only existing files.
@@ -220,6 +241,8 @@ def parse_test_script(scenario_dir: Path) -> Scenario:
         if p.exists() and p not in seen:
             sc.inputs.append(p)
             seen.add(p)
+            if str(p) not in sc.source_urls:
+                sc.source_urls[str(p)] = _canonical_url(scenario_dir, p.name, p)
 
     if sc.answer is None and redirect_target is not None:
         sc.answer = scenario_dir / redirect_target

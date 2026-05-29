@@ -106,6 +106,8 @@ def run_scenario(sc: Scenario) -> tuple[str, str]:
             pass_all=sc.pass_all,
             pass_only_new=sc.pass_only_new,
             timeout_seconds=PER_SCENARIO_TIMEOUT,
+            proof=sc.is_proof_answer,
+            source_urls=sc.source_urls or None,
         )
     except ReasoningTimeoutError:
         return "TIMEOUT", f"exceeded {PER_SCENARIO_TIMEOUT}s"
