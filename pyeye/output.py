@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from pyeye.term import NamedNode, Literal, Variable, Existential, Formula, Triple, Term
-from pyeye.term import TripleTerm, FormulaTerm, PathTerm, Quad, NegativeSurface, SetTerm, ListTerm
+from pyeye.term import TripleTerm, FormulaTerm, Quad, NegativeSurface, SetTerm, ListTerm
 
 
 class N3Writer:
@@ -302,12 +302,6 @@ class N3Writer:
         if isinstance(t, FormulaTerm):
             args_str = " ".join(self._term(a) for a in t.args)
             return f"(|{self._term(t.functor)} {args_str}|)"
-        if isinstance(t, PathTerm):
-            parts = [self._term(t.terms[0])]
-            for i, term in enumerate(t.terms[1:]):
-                op = "!" if not t.directions or t.directions[i] == "forward" else "^"
-                parts.append(f" {op} {self._term(term)}")
-            return "".join(parts)
         if isinstance(t, NegativeSurface):
             inner = "; ".join(
                 f"{self._term(tr.subject)} {self._term(tr.predicate)} {self._term(tr.object)}"

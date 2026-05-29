@@ -153,6 +153,19 @@ def _num_val(t: Term) -> float:
     raise TypeError(f"Non-numeric term: {t}")
 
 
+def _num_exact(t: Term):
+    """Like ``_num_val`` but preserves Python ``int`` for integer-typed
+    literals so arbitrary-precision integer arithmetic does not lose
+    precision by round-tripping through ``float`` (e.g. fib(3674), which has
+    several hundred digits and overflows a float to ``inf``)."""
+    if isinstance(t, Literal) and _is_integer_term(t):
+        try:
+            return int(t.value)
+        except ValueError:
+            pass
+    return _num_val(t)
+
+
 def _bool_result(v: bool) -> Literal:
     """Return XSD boolean literal."""
     return Literal("true" if v else "false",
@@ -178,10 +191,13 @@ def _is_integer_term(t: Term) -> bool:
             and isinstance(t.datatype, NamedNode)
             and t.datatype.value == _XSD_INTEGER)
 
-def _typed_num_result(v: float, inputs: list[Term]) -> Literal:
-    if all(_is_integer_term(t) for t in inputs) and v == int(v):
+def _typed_num_result(v, inputs: list[Term]) -> Literal:
+    if all(_is_integer_term(t) for t in inputs):
+        if isinstance(v, int):
+            return _int_result(v)
         try:
-            return _int_result(int(v))
+            if v == int(v):
+                return _int_result(int(v))
         except (OverflowError, ValueError):
             pass
     return _num_result(v)
@@ -238,19 +254,19 @@ def math_notEqualTo(args: list[Term], engine: EngineProto) -> Term | None:
 def math_plus(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args):
         return None
-    return _num_result(_num_val(args[0]) + _num_val(args[1]))
+    return _typed_num_result(_num_exact(args[0]) + _num_exact(args[1]), args[:2])
 
 
 def math_minus(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args):
         return None
-    return _num_result(_num_val(args[0]) - _num_val(args[1]))
+    return _typed_num_result(_num_exact(args[0]) - _num_exact(args[1]), args[:2])
 
 
 def math_times(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args):
         return None
-    return _num_result(_num_val(args[0]) * _num_val(args[1]))
+    return _typed_num_result(_num_exact(args[0]) * _num_exact(args[1]), args[:2])
 
 
 def math_divide(args: list[Term], engine: EngineProto) -> Term | None:
@@ -1585,13 +1601,13 @@ def _expand_if_list(args: list[Term], engine: EngineProto) -> list[Term]:
 def math_sum(args: list[Term], engine: EngineProto) -> Term | None:
     inputs = _expand_if_list(args, engine)
     if _unground(inputs): return None
-    return _typed_num_result(sum(_num_val(a) for a in inputs), inputs)
+    return _typed_num_result(sum(_num_exact(a) for a in inputs), inputs)
 
 def math_product(args: list[Term], engine: EngineProto) -> Term | None:
     inputs = _expand_if_list(args, engine)
     if _unground(inputs): return None
-    r = 1.0
-    for a in inputs: r *= _num_val(a)
+    r = 1
+    for a in inputs: r *= _num_exact(a)
     return _typed_num_result(r, inputs)
 
 def _input_args(args: list[Term], n_inputs: int) -> list[Term]:
@@ -1649,7 +1665,7 @@ def math_difference(args: list[Term], engine: EngineProto) -> Term | None:
     yr = _date_difference_years(v0, v1)
     if yr is not None:
         return _num_result(yr)
-    return _typed_num_result(_num_val(inp[0]) - _num_val(inp[1]), inp)
+    return _typed_num_result(_num_exact(inp[0]) - _num_exact(inp[1]), inp)
 
 def math_quotient(args: list[Term], engine: EngineProto) -> Term | None:
     inp = _input_args(args, 2)

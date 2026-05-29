@@ -32,7 +32,6 @@ from pyeye.term import (
     # Phase 2 extended types
     TripleTerm,
     FormulaTerm,
-    PathTerm,
     NegativeSurface,
     Quad,
     SetTerm,
@@ -652,23 +651,23 @@ class Parser:
 
         # Phase 2: triple term << S P O >>
         if t.t == "TTOPEN":
-            return self._triple_term()
+            return self._maybe_path(self._triple_term())
 
         # Phase 2: formula term (| Functor Args |)
         if t.t == "FTOPEN":
-            return self._formula_term()
+            return self._maybe_path(self._formula_term())
 
         # Phase 2: set ($ a b $)
         if t.t == "SETOPEN":
-            return self._set_term()
+            return self._maybe_path(self._set_term())
 
-        # Phase 2: path expression starting with !
-        if t.t == "OP_FWD":
-            return self._path_expression()
-
-        # Phase 2: path expression starting with ^
-        if t.t == "OP_REV":
-            return self._path_expression()
+        # A path operator must follow a subject term; a bare leading !/^ is
+        # invalid.  Path expressions after a term are compiled by _maybe_path.
+        if t.t in ("OP_FWD", "OP_REV"):
+            raise ParseError(
+                f"Unexpected path operator {t.v!r} at {self._src}:{self._i} "
+                "— a path step must follow a subject term"
+            )
 
         # Keyword tokens that can appear as local names in prefixed names
         _LOCAL_NAME_TOKENS = frozenset(("KW", "IS_KW", "HAS_KW", "OF_KW", "GRAPH_KW", "TRUE", "FALSE"))
@@ -726,11 +725,11 @@ class Parser:
             self._eat("FALSE")
             return Literal("false", datatype=NamedNode("http://www.w3.org/2001/XMLSchema#boolean"))
         if t.t == "LBK":
-            return self._bnode()
+            return self._maybe_path(self._bnode())
         if t.t == "LP":
-            return self._rdf_list()
+            return self._maybe_path(self._rdf_list())
         if t.t == "LBR":
-            return self._formula()
+            return self._maybe_path(self._formula())
         if t.t in ("STR", "LONGSTR", "NUM"):
             return self._literal()
         if t.t == "KW" and t.v == "a":
@@ -758,7 +757,15 @@ class Parser:
         while self._peek().t in ("OP_FWD", "OP_REV"):
             op = self._eat_any().t
             pred = self._item_no_path()
-            nxt = Existential(f"_b{self._bn}")
+            # Inside a formula (rule body/head) the fresh path node is a logic
+            # Variable: it is the output slot the path step binds (e.g. a builtin
+            # result) and must propagate to wherever the path term is used.  In
+            # top-level data a path introduces an existential blank node, which
+            # is asserted as a ground fact rather than bound.
+            if self._formula_triples_stack:
+                nxt: Term = Variable(f"_p{self._bn}")
+            else:
+                nxt = Existential(f"_b{self._bn}")
             self._bn += 1
             if op == "OP_FWD":
                 self._current_triples.append(Triple(cur, pred, nxt))
@@ -957,28 +964,6 @@ class Parser:
             items.append(self._item())
         self._eat("SETCLOSE")
         return SetTerm(tuple(items))
-
-    # -- Phase 2: path expressions :a ! :p ! :q / :a ^ :p --------------------
-
-    def _path_expression(self) -> Term:
-        """Parse ``! :p ! :q`` or ``^ :p`` into a PathTerm.
-
-        The caller has already consumed the initial ``!`` or ``^`` token.
-        C3 fix: Store a dummy subject; the real subject comes from the triple context.
-        """
-        terms: list[Term] = []
-        directions: list[str] = []
-
-        while self._peek().t in ("OP_FWD", "OP_REV"):
-            op = self._eat_any().t
-            directions.append("forward" if op == "OP_FWD" else "reverse")
-            terms.append(self._item())
-
-        if not terms:  # pragma: no cover — _path_expression always called with OP_FWD/OP_REV pending
-            raise ParseError(f"Expected term after path operator at {self._src}:{self._i}")
-
-        # C3 fix: Use None-like placeholder; actual subject comes from triple context
-        return PathTerm(Existential("_path_placeholder"), tuple(terms), tuple(directions))
 
     # -- data triples (no rules) ---------------------------------------------
 

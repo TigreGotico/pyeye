@@ -101,7 +101,7 @@ def _count_nodes(tree: ProofTree) -> list[int]:
 
 def _term_to_n3_str(term) -> str:
     """Convert a term to an N3 string representation."""
-    from pyeye.term import NamedNode, Literal, Variable, Existential, TripleTerm, FormulaTerm, PathTerm
+    from pyeye.term import NamedNode, Literal, Variable, Existential, TripleTerm, FormulaTerm
     if isinstance(term, NamedNode):
         return f"<{term.value}>"
     if isinstance(term, Literal):
@@ -115,12 +115,6 @@ def _term_to_n3_str(term) -> str:
     if isinstance(term, FormulaTerm):
         args = " ".join(_term_to_n3_str(a) for a in term.args)
         return f"(|{_term_to_n3_str(term.functor)} {args}|)"
-    if isinstance(term, PathTerm):
-        parts = [_term_to_n3_str(term.terms[0])]
-        for i, t in enumerate(term.terms[1:]):
-            op = "!" if not term.directions or term.directions[i] == "forward" else "^"
-            parts.append(f" {op} {_term_to_n3_str(t)}")
-        return "".join(parts)
     return str(term)
 
 

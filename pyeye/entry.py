@@ -31,7 +31,41 @@ class Result:
     query_answers: list = field(default_factory=list)  # populated when query is set
 
 
-def execute(
+def execute(*args, **kwargs) -> Result:
+    """Run reasoning in a worker thread with an enlarged C stack.
+
+    Deeply recursive rule sets (ackermann, takeuchi, deep subclass chains) drive
+    the backward-chaining call stack far past CPython's default limit even though
+    they terminate.  Raising ``sys.setrecursionlimit`` alone risks a hard C-stack
+    overflow (segfault) on the main thread, so the work runs on a thread whose
+    stack is sized to match the high recursion limit set inside it.  The thread's
+    result (or exception) is propagated back to the caller unchanged.
+    """
+    import threading as _threading
+    import sys as _sys
+
+    box: dict[str, object] = {}
+
+    def _worker() -> None:
+        _sys.setrecursionlimit(400_000)
+        try:
+            box["result"] = _execute_impl(*args, **kwargs)
+        except BaseException as exc:  # noqa: BLE001 — re-raised in caller thread
+            box["error"] = exc
+
+    try:
+        _threading.stack_size(512 * 1024 * 1024)  # 512 MiB
+    except (ValueError, RuntimeError):  # pragma: no cover — platform-dependent
+        pass
+    t = _threading.Thread(target=_worker)
+    t.start()
+    t.join()
+    if "error" in box:
+        raise box["error"]  # type: ignore[misc]
+    return box["result"]  # type: ignore[return-value]
+
+
+def _execute_impl(
     data_paths: list[str] | None = None,
     data_strings: list[str] | None = None,
     rule_paths: list[str] | None = None,

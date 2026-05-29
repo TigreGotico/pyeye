@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass
-from typing import Literal as TypingLiteral, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 # ---------------------------------------------------------------------------
@@ -223,42 +223,6 @@ class FormulaTerm:
         if isinstance(self.functor, Variable):
             return False
         return not any(isinstance(a, Variable) for a in self.args)
-
-
-# ---------------------------------------------------------------------------
-# Deprecated: PathTerm stub (removed in step 2 when parser stops emitting it)
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class PathTerm:
-    """DEPRECATED — path expressions are compiled at parse time in the new
-    architecture.  This stub exists only so that existing imports don't break
-    until the parser is rewritten (step 2)."""
-    subject: Term = NamedNode("")  # type: ignore[assignment]
-    terms: tuple[Term, ...] = ()
-    directions: tuple[TypingLiteral["forward", "reverse"], ...] = ()
-
-    def __post_init__(self) -> None:
-        if len(self.directions) != len(self.terms):
-            object.__setattr__(
-                self, "directions",
-                tuple(["forward"] * len(self.terms))
-            )
-
-    def __hash__(self) -> int:
-        return hash((self.subject, self.terms, self.directions))
-
-    def __str__(self) -> str:
-        parts = [str(self.subject)]
-        for i, t in enumerate(self.terms):
-            op = "!" if not self.directions or self.directions[i] == "forward" else "^"
-            parts.append(f" {op} {t}")
-        return "".join(parts)
-
-    def is_ground(self) -> bool:
-        if isinstance(self.subject, Variable):
-            return False
-        return not any(isinstance(t, Variable) for t in self.terms)
 
 
 # ---------------------------------------------------------------------------

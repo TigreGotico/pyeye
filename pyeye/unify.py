@@ -35,7 +35,6 @@ from pyeye.term import (
     ListTerm,
     TripleTerm,
     FormulaTerm,
-    PathTerm,
     NegativeSurface,
     SetTerm,
 )
@@ -156,8 +155,6 @@ def term_contains_var(term: Term, var_id: int) -> bool:
         if term_contains_var(term.functor, var_id):
             return True
         return any(term_contains_var(a, var_id) for a in term.args)
-    if isinstance(term, PathTerm):
-        return any(term_contains_var(t, var_id) for t in term.terms)
     if isinstance(term, NegativeSurface):
         return any(
             term_contains_var(t.subject, var_id)
@@ -199,12 +196,6 @@ def apply_binding(term: Term, binding: Binding) -> Term:
         return FormulaTerm(
             apply_binding(term.functor, binding),
             tuple(apply_binding(a, binding) for a in term.args),
-        )
-    if isinstance(term, PathTerm):
-        return PathTerm(
-            apply_binding(term.subject, binding),
-            tuple(apply_binding(t, binding) for t in term.terms),
-            term.directions,
         )
     if isinstance(term, NegativeSurface):
         return NegativeSurface(

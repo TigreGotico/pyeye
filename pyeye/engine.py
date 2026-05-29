@@ -298,22 +298,28 @@ class Engine:
             if self._max_steps > 0 and self._step_count >= self._max_steps:
                 return
 
-            # Handle @forSome variables — replace unbound vars with fresh skolems
+            # Handle @forSome variables — bind each unbound head variable whose
+            # name is existentially quantified to a fresh skolem.  Bindings are
+            # keyed by Variable.id, so the head's own variable ids are used.
             for_some_binding = dict(binding)
-            for var_name in for_some_vars:
-                # Find variable IDs with this name that are unbound
-                found = False
-                for vid, val in binding.items():
-                    if isinstance(val, Variable) and val.name == var_name:
-                        found = True
-                        break
-                if not found:
-                    self._bn_counter += 1
-                    for_some_binding[var_name] = Existential(f"forsome-{self._bn_counter}")
+            skolem_ids: set[int] = set()
+            if for_some_vars:
+                for head_triple in rule.head.triples:
+                    for term in (head_triple.subject,
+                                 head_triple.predicate,
+                                 head_triple.object):
+                        if (isinstance(term, Variable)
+                                and term.name in for_some_vars
+                                and term.id not in for_some_binding):
+                            self._bn_counter += 1
+                            for_some_binding[term.id] = Existential(
+                                f"forsome-{self._bn_counter}")
+                            skolem_ids.add(term.id)
 
-            # Brake — skip duplicate bindings
+            # Brake — skip duplicate bindings (exclude the fresh skolems, which
+            # differ on every pass and would otherwise defeat the brake).
             brake_binding = {k: v for k, v in for_some_binding.items()
-                            if not isinstance(k, str) or k not in for_some_vars}
+                            if k not in skolem_ids}
             binding_key = frozenset((k, str(v)) for k, v in brake_binding.items())
             brake_hash = hash(binding_key)
             brake_key = (rule_idx, brake_hash)
@@ -481,8 +487,7 @@ class Engine:
                         found = True
 
                 if not found:
-                    bc_results = self._resolve_bc(resolved, b)
-                    new_results.extend(bc_results)
+                    new_results.extend(self._solve([pattern], b))
 
             results = new_results
             if not results:
@@ -819,13 +824,8 @@ class Engine:
     # -- backward chaining ---------------------------------------------------
 
     def backward_chain(self, query: Triple) -> list[Binding]:
-        """Goal-directed reasoning: find all bindings that satisfy *query*.
-
-        Uses tabling (memoization) and on-stack cycle detection.
-        """
-        self._tabling_cache = {}
-        self._bc_stack = set()
-        raw = self._resolve_bc(query, {})
+        """Goal-directed reasoning: find all bindings that satisfy *query*."""
+        raw = self._solve([query], {})
 
         # Resolve Variable chains in results
         resolved = [self._resolve_binding_chains(b) for b in raw]
@@ -842,67 +842,188 @@ class Engine:
                 unique.append({k: v for k, v in b.items() if k in query_var_ids})
         return unique
 
-    def _resolve_bc(
-        self,
-        pattern: Triple,
-        binding: Binding,
-    ) -> list[Binding]:
-        """Backward-chain resolution for a single pattern.
+    def _solve(self, goals: list[Triple], binding: Binding) -> list[Binding]:
+        """Iterative SLD resolution of a conjunction of *goals*.
 
-        For each backward (and forward) rule: copy_rule(), unify_terms()
-        against each head triple, then _match_formula(body, head_binding).
+        Returns every binding (an extension of *binding*) under which all goals
+        hold.  Proving a goal via a backward/forward rule rewrites the resolvent
+        — the goal is replaced by the rule's body — so proof *depth* lives on an
+        explicit heap stack, never the Python call stack.  This is the structural
+        reason deep recursion (fibonacci, deep taxonomies) needs no raised
+        recursion limit and no oversized thread stack.
 
-        On-stack tabling: check if the fully-resolved goal key is on
-        _bc_stack.  If yes, return [].  Cache results.
+        Resolvent entries are either ``Triple`` goals or ``("POP", gk, mark)``
+        markers that close a goal's scope.
+
+        * **Cycle termination.** Each branch carries an ``ancestors`` frozenset of
+          goal keys currently being expanded.  A goal already among its own
+          ancestors is matched against facts but not re-expanded through rules,
+          which bounds left/self-recursive rules.
+        * **Compact bindings.** ``mark`` records the variable-id watermark taken
+          before a rule's fresh variables are allocated.  When the goal's scope
+          closes, every variable introduced inside that subtree is dropped (after
+          the goal's own variables are resolved to ground), so a linear recursion
+          keeps an O(1) binding per level instead of accumulating O(depth).
         """
-        resolved = apply_binding_to_triple(pattern, binding)
+        solutions: list[Binding] = []
+        # The resolvent is an immutable cons list of cells ``(item, tail, live)``
+        # / ``None``.  Popping the next goal and prepending a rule body are both
+        # O(1), and forked branches share tails without copying.  ``live`` caches
+        # the set of variable ids referenced by every goal from this cell onward,
+        # computed incrementally on prepend; it lets scope-exit GC keep only the
+        # variables the *continuation* still needs (O(width)) instead of scanning
+        # the whole binding (O(depth)) — the difference between linear and
+        # quadratic on deep recursion.
+        def _cell(item, tail):
+            tail_live = tail[2] if tail is not None else frozenset()
+            if isinstance(item, tuple):  # POP marker — references no variables
+                return (item, tail, tail_live)
+            ids: set[int] = set()
+            self._collect_var_ids(item.subject, ids)
+            self._collect_var_ids(item.predicate, ids)
+            self._collect_var_ids(item.object, ids)
+            return (item, tail, frozenset(ids) | tail_live)
 
-        # Goal key for cycle detection and caching
-        goal_key = self._goal_key(resolved, binding)
+        def _prepend(items: list, tail):
+            for it in reversed(items):
+                tail = _cell(it, tail)
+            return tail
 
-        # On-stack cycle detection
-        if goal_key in self._bc_stack:
-            return []
+        # The caller reads back the bindings of the top-level goals' variables,
+        # so those must survive every scope-exit GC even after their goal has
+        # been consumed and is no longer in the continuation's live set.
+        root_live: set[int] = set()
+        for g in goals:
+            self._collect_var_ids(g.subject, root_live)
+            self._collect_var_ids(g.predicate, root_live)
+            self._collect_var_ids(g.object, root_live)
+        root_live_fs = frozenset(root_live)
 
-        # Tabling cache lookup
-        if self._tabling_cache is None:
-            self._tabling_cache = {}
-        if goal_key in self._tabling_cache:
-            return self._tabling_cache[goal_key]
+        # Each work item: (resolvent_conslist, binding, ancestors)
+        stack: list[tuple] = [(_prepend(list(goals), None), dict(binding), frozenset())]
 
-        self._bc_stack.add(goal_key)
+        while stack:
+            self._check_timeout()
+            resolvent, b, anc = stack.pop()
+            if resolvent is None:
+                solutions.append(b)
+                continue
 
-        results: list[Binding] = []
+            item, rest, live = resolvent
 
-        # 1. Try direct store match
-        for store_triple in self._store_matches(resolved):
-            ub = unify(resolved, store_triple, binding)
-            if ub is not None:
-                results.append(ub)
+            # Keep the binding from accumulating on a deep descent: once it
+            # grows well past what the resolvent still references, compact it to
+            # the live variables (plus the top-level query's), each resolved to
+            # ground.  Guarding on size means shallow proofs — the vast majority
+            # — never pay for GC, while deep linear recursion stays O(width) per
+            # level instead of O(depth), keeping the whole proof linear.
+            b = self._gc_binding(b, live | root_live_fs)
 
-        # 2. Try matching against rule heads
-        for rule in self._rules:
-            renamed = copy_rule(rule)
-            for head_triple in renamed.head.triples:
-                ub = unify_terms(resolved.predicate, head_triple.predicate, binding)
-                if ub is None:
+            # Scope-close marker: just leave the goal's ancestor scope.
+            if isinstance(item, tuple):
+                _tag, gk = item
+                stack.append((rest, b, anc - {gk}))
+                continue
+
+            goal: Triple = item
+            resolved = apply_binding_to_triple(goal, b)
+
+            # 1. Negative surface (NAF) — succeeds iff the negated graph has no proof.
+            if (isinstance(resolved.predicate, NamedNode)
+                    and resolved.predicate.value in _NEG_SURFACE_IRIS):
+                neg: list[Triple] | None = None
+                if isinstance(resolved.object, Formula):
+                    neg = list(resolved.object.triples)
+                elif isinstance(resolved.object, NegativeSurface):
+                    neg = list(resolved.object.formula.triples)
+                if neg is not None:
+                    if not self._solve(neg, b):
+                        stack.append((rest, b, anc))
                     continue
-                ub = unify_terms(resolved.subject, head_triple.subject, ub)
-                if ub is None:
-                    continue
-                ub = unify_terms(resolved.object, head_triple.object, ub)
-                if ub is None:
-                    continue
-                # Head unified — now match the body
-                body_bindings = self._match_formula(renamed.body, ub)
-                results.extend(body_bindings)
+                # object is not a formula: fall through to a normal match
 
-        # Resolve chains before caching
-        results = [self._resolve_binding_chains(b) for b in results]
+            # 2. Builtin predicate.
+            if isinstance(resolved.predicate, NamedNode):
+                builtin = self._builtins.get(resolved.predicate.value)
+                if builtin is not None:
+                    for nb in self._handle_builtin(builtin, goal, [b]):
+                        stack.append((rest, nb, anc))
+                    continue
 
-        self._tabling_cache[goal_key] = results
-        self._bc_stack.discard(goal_key)
-        return results
+            # 3. Normal goal: match facts, then expand rules.
+            gk = self._goal_key(resolved, {})
+
+            for st in self._store_matches(resolved):
+                nb = unify(resolved, st, b)
+                if nb is not None:
+                    stack.append((rest, nb, anc))
+
+            if gk in anc:
+                # Already on this branch's proof path — do not re-expand (cycle).
+                continue
+
+            child_anc = anc | {gk}
+            for rule in self._rules:
+                renamed = copy_rule(rule)
+                for head_triple in renamed.head.triples:
+                    ub = unify_terms(resolved.predicate, head_triple.predicate, b)
+                    if ub is None:
+                        continue
+                    ub = unify_terms(resolved.subject, head_triple.subject, ub)
+                    if ub is None:
+                        continue
+                    ub = unify_terms(resolved.object, head_triple.object, ub)
+                    if ub is None:
+                        continue
+                    body = self._djiti_order(list(renamed.body.triples), ub)
+                    new_resolvent = _prepend(body + [("POP", gk)], rest)
+                    stack.append((new_resolvent, ub, child_anc))
+
+        return solutions
+
+    def _gc_binding(self, b: Binding, live: frozenset) -> Binding:
+        """Garbage-collect the binding when a goal's scope closes.
+
+        Only the variables the continuation still references (*live*) are kept,
+        each resolved to ground through the chains that pass through the dropped
+        subtree variables.  Any variable still referenced by a kept value is
+        retained transitively so no binding dangles.  Because *live* is the
+        continuation's variable set (O(width)) rather than the whole binding
+        (O(depth)), a linear recursion stays linear.
+        """
+        kept: Binding = {}
+        pending = [vid for vid in live if vid in b]
+        while pending:
+            vid = pending.pop()
+            if vid in kept:
+                continue
+            rv = self._resolve_term(b[vid], b)
+            kept[vid] = rv
+            ref: set[int] = set()
+            self._collect_var_ids(rv, ref)
+            for r in ref:
+                if r in b and r not in kept:
+                    pending.append(r)
+        return kept
+
+    @staticmethod
+    def _collect_var_ids(term: Term, out: set[int]) -> None:
+        """Collect every Variable id occurring anywhere in *term*."""
+        if isinstance(term, Variable):
+            out.add(term.id)
+        elif isinstance(term, ListTerm):
+            for it in term.items:
+                Engine._collect_var_ids(it, out)
+        elif isinstance(term, Formula):
+            for tr in term.triples:
+                Engine._collect_var_ids(tr.subject, out)
+                Engine._collect_var_ids(tr.predicate, out)
+                Engine._collect_var_ids(tr.object, out)
+        elif isinstance(term, NegativeSurface):
+            for tr in term.formula.triples:
+                Engine._collect_var_ids(tr.subject, out)
+                Engine._collect_var_ids(tr.predicate, out)
+                Engine._collect_var_ids(tr.object, out)
 
     def _resolve_binding_chains(self, binding: Binding) -> Binding:
         """Follow Variable→Variable chains in a binding to ground values."""
