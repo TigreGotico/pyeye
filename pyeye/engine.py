@@ -561,16 +561,34 @@ class Engine:
         builtin_patterns: list[tuple[int, Triple]] = []
         deferred_patterns: list[tuple[int, Triple]] = []
 
+        # Variables produced as the OUTPUT of a builtin pattern.  A store
+        # pattern that references such a variable as an *input* must wait for
+        # the producing builtin, otherwise it would match unrelated store
+        # triples (e.g. the recursive ``?N1 :sum ?Sum1`` greedily matching the
+        # base fact ``0 :sum 0`` before ``math:difference`` binds ?N1).
+        produced_ids: set[int] = set()
+        for i, pattern in enumerate(patterns):
+            if self._is_builtin_pattern(pattern):
+                pvars = self._pattern_var_ids(pattern)
+                inputs = self._pattern_input_var_ids(pattern)
+                produced_ids.update(pvars - inputs)
+
         for i, pattern in enumerate(patterns):
             if self._is_builtin_pattern(pattern):
                 builtin_patterns.append((i, pattern))
+                continue
+            input_vars = self._pattern_input_var_ids(pattern)
+            unbound_inputs = input_vars - set(binding.keys())
+            if unbound_inputs & produced_ids:
+                # An input is produced by a builtin → defer to the topo phase.
+                deferred_patterns.append((i, pattern))
+                continue
+            resolved = apply_binding_to_triple(pattern, binding)
+            count = len(self._store_matches(resolved))
+            if count == 0:
+                deferred_patterns.append((i, pattern))
             else:
-                resolved = apply_binding_to_triple(pattern, binding)
-                count = len(self._store_matches(resolved))
-                if count == 0:
-                    deferred_patterns.append((i, pattern))
-                else:
-                    store_patterns.append((i, pattern, count))
+                store_patterns.append((i, pattern, count))
 
         # Sort store patterns by match count ascending
         store_patterns.sort(key=lambda x: x[2])
