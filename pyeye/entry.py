@@ -122,6 +122,14 @@ def execute(
     """
     start = time.monotonic()
 
+    # Deep subclass chains and recursive rules (deep-taxonomy, ackermann,
+    # takeuchi) drive the matching/backward-chaining stack well past CPython's
+    # default 1000-frame limit even though they terminate.  Raise it for the
+    # duration of the run and restore afterwards.
+    import sys as _sys
+    _prev_reclimit = _sys.getrecursionlimit()
+    _sys.setrecursionlimit(max(_prev_reclimit, 50000))
+
     all_triples: list[Triple] = []
     all_quads: list[Quad] = []
     all_rules: list[Rule] = []
@@ -256,6 +264,7 @@ def execute(
             and not pass_only_new):
         elapsed = time.monotonic() - start
         writer = N3Writer(all_prefixes)
+        _sys.setrecursionlimit(_prev_reclimit)
         return Result(
             triples=writer.write_triples(all_triples),
             stats={"steps": 0, "derived": 0, "time_ms": elapsed * 1000},
@@ -359,6 +368,7 @@ def execute(
                 not_entail_failed = True
                 break
 
+    _sys.setrecursionlimit(_prev_reclimit)
     return Result(
         triples=triples_text,
         stats={
