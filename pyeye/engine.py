@@ -31,7 +31,7 @@ from pyeye.term import (
 from pyeye.unify import unify, unify_terms, apply_binding_to_triple, apply_binding, term_contains_var
 from pyeye.store import TripleStore
 from pyeye.parser import Rule
-from pyeye.builtins import Builtin, BUILTIN_REGISTRY, MultiResult
+from pyeye.builtins import Builtin, BUILTIN_REGISTRY, MultiResult, BindingsList
 from pyeye.proof import ProofStep, ProofTree
 
 
@@ -473,7 +473,7 @@ class Engine:
                 # Builtin predicate
                 if isinstance(resolved.predicate, NamedNode):
                     builtin = self._builtins.get(resolved.predicate.value)
-                    if builtin is not None:
+                    if builtin is not None and self._builtin_applies(resolved):
                         builtin_results = self._handle_builtin(builtin, pattern, [b])
                         new_results.extend(builtin_results)
                         continue
@@ -538,14 +538,28 @@ class Engine:
         """
         ids: set[int] = set()
         s = pattern.subject
+        pred = (pattern.predicate.value
+                if isinstance(pattern.predicate, NamedNode) else "")
+        is_forallin = pred.endswith("/log#forAllIn")
         if isinstance(s, Variable):
             ids.add(s.id)
         elif isinstance(s, ListTerm):
             items = list(s.items)
-            # last item is the conventional output slot for collect-style builtins
-            for item in items[:-1] if len(items) > 1 else items:
+            # The trailing list item is an OUTPUT slot only for collect-style
+            # builtins whose subject embeds a quoted Formula pattern, e.g.
+            # ``(Tmpl {Pattern} ?Out) log:collectAllIn ?Scope``.  For ordinary
+            # list-subject builtins (``(?A ?B ?C) math:sum ?S``) every list
+            # item is a required input.
+            has_formula = any(isinstance(it, Formula) for it in items)
+            scan = (items[:-1] if (has_formula and len(items) > 1) else items)
+            for item in scan:
                 if isinstance(item, Variable):
                     ids.add(item.id)
+                elif is_forallin and isinstance(item, Formula):
+                    # log:forAllIn's condition formula may reference outer
+                    # variables produced by an earlier builtin (e.g. ?B from
+                    # log:allPossibleCases); those must be bound before it runs.
+                    self._collect_var_ids(item, ids)
         if isinstance(pattern.predicate, Variable):
             ids.add(pattern.predicate.id)
         # object is the output slot — not a required input
@@ -614,8 +628,19 @@ class Engine:
 
         ordered_late: list[Triple] = []
         while remaining:
+            # Variables produced as the output of a *still-remaining* builtin.
+            # A consumer whose unbound input is produced by another remaining
+            # builtin must wait for that producer, even if it superficially has
+            # fewer unbound inputs (e.g. ``?C math:notLessThan 3`` must not run
+            # before ``(?C1 ?C2 ?C3) math:sum ?C`` produces ?C).
+            pending_outputs: set[int] = set()
+            for _oi, pat, _k in remaining:
+                pvars = self._pattern_var_ids(pat)
+                inputs = self._pattern_input_var_ids(pat)
+                pending_outputs.update(pvars - inputs)
+
             best_idx = -1
-            best_key = (float('inf'), float('inf'), float('inf'))
+            best_key = (1, float('inf'), float('inf'), float('inf'))
             for i, (orig_idx, pattern, kind) in enumerate(remaining):
                 pvars = self._pattern_var_ids(pattern)
                 unbound = len(pvars - bound_ids)
@@ -625,8 +650,12 @@ class Engine:
                 # binds ?List) schedule before its consumer (math:sum on ?List),
                 # which the plain fewest-unbound heuristic gets backwards.
                 input_vars = self._pattern_input_var_ids(pattern)
-                unbound_inputs = len(input_vars - bound_ids)
-                key = (unbound_inputs, unbound, orig_idx)
+                unbound_inputs = input_vars - bound_ids
+                # Blocked iff an unbound input is produced by another remaining
+                # builtin (exclude this pattern's own outputs from the set).
+                own_outputs = pvars - input_vars
+                blocked = 1 if (unbound_inputs & (pending_outputs - own_outputs)) else 0
+                key = (blocked, len(unbound_inputs), unbound, orig_idx)
                 if key < best_key:
                     best_key = key
                     best_idx = i
@@ -657,6 +686,23 @@ class Engine:
 
     # -- builtin handling ----------------------------------------------------
 
+    # rdf:first / rdf:rest double as list accessors over a native ListTerm
+    # subject AND as ordinary RDF-list store data (``_:b rdf:first :a``).  They
+    # act as builtins only when the subject is a native list; otherwise they
+    # must be matched against the store like any data triple.
+    _LIST_ACCESSOR_IRIS = frozenset({
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#first",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest",
+    })
+
+    def _builtin_applies(self, resolved: Triple) -> bool:
+        """Whether the builtin for *resolved*'s predicate should fire here."""
+        pred = resolved.predicate
+        if (isinstance(pred, NamedNode)
+                and pred.value in self._LIST_ACCESSOR_IRIS):
+            return isinstance(resolved.subject, ListTerm)
+        return True
+
     def _collect_builtin_args(self, resolved: Triple, binding: Binding) -> list[Term]:
         """Extract arguments for a builtin from the resolved triple.
 
@@ -667,11 +713,14 @@ class Engine:
         s = self._resolve_term(resolved.subject, binding)
         o = self._resolve_term(resolved.object, binding)
 
-        if isinstance(s, ListTerm):
+        if isinstance(s, ListTerm) and s.items:
             for item in s.items:
                 resolved_item = apply_binding(item, binding)
                 args.append(resolved_item)
         else:
+            # Keep an empty ListTerm as a single argument so builtins such as
+            # ``() list:length ?L`` see the (empty) list rather than nothing —
+            # expanding it away is indistinguishable from an unbound subject.
             args.append(s)
         args.append(o)
         return args
@@ -699,6 +748,13 @@ class Engine:
             b = self._current_binding
 
             if result is None:
+                continue
+
+            if isinstance(result, BindingsList):
+                # Meta-builtin produced several full binding extensions
+                # (e.g. generative list:member that unifies a pattern object
+                # carrying variables against each list element).
+                results.extend(result.bindings)
                 continue
 
             if isinstance(result, MultiResult):
@@ -945,7 +1001,7 @@ class Engine:
             # 2. Builtin predicate.
             if isinstance(resolved.predicate, NamedNode):
                 builtin = self._builtins.get(resolved.predicate.value)
-                if builtin is not None:
+                if builtin is not None and self._builtin_applies(resolved):
                     for nb in self._handle_builtin(builtin, goal, [b]):
                         stack.append((rest, nb, anc))
                     continue
