@@ -2367,7 +2367,38 @@ def log_callWithCleanup(args: list[Term], engine: EngineProto) -> Term | None:
     return None
 
 def log_callWithCut(args: list[Term], engine: EngineProto) -> Term | None:
-    return None
+    """log:callWithCut — prove the subject goal, committing to it (a cut).
+
+    ``{ G } log:callWithCut true`` succeeds iff the subject formula ``G`` holds
+    under the current binding; the first proof's bindings are applied.  The cut
+    semantics (commit to this clause, discard alternatives) are realised by the
+    tabled solver treating the clause as deterministic: only the first solution
+    of ``G`` is taken.  The object is the goal flag (``true``) and is ignored
+    beyond requiring the call to be attempted.
+
+    This is what makes guarded base cases (takeuchi, ackermann) terminate: the
+    base clause fires exactly when its guard holds rather than being treated as
+    an unsatisfiable stub.
+    """
+    if not args:
+        return None
+    goal = args[0]
+    cur = getattr(engine, "_current_binding", {}) or {}
+
+    if isinstance(goal, Formula):
+        if not hasattr(engine, "_match_formula"):
+            return None
+        solutions = engine._match_formula(goal, dict(cur))
+        if not solutions:
+            return None
+        engine._current_binding = solutions[0]
+        return _bool_result(True)
+    # A bare ``true`` (or any ground non-formula) is trivially satisfied.
+    if isinstance(goal, Literal) and goal.value.lower() == "true":
+        return _bool_result(True)
+    if isinstance(goal, Variable):
+        return None
+    return _bool_result(True)
 
 def log_callWithDisjunction(args: list[Term], engine: EngineProto) -> Term | None:
     return None
