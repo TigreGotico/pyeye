@@ -433,9 +433,36 @@ def log_content(args: list[Term], engine: EngineProto) -> list[Triple]:
 
 
 def log_equalTo(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args):
+    """log:equalTo — unification (EYE ``unify(X, Y)``), not bare comparison.
+
+    When exactly one side is an unbound Variable and the other is ground, the
+    variable is bound to the ground value (mutating the engine's current
+    binding) and the builtin succeeds.  When both sides are ground it is an
+    equality test.
+    """
+    if len(args) < 2:
         return None
-    return _bool_result(args[0] == args[1])
+    a, b = args[0], args[1]
+    a_var = isinstance(a, Variable)
+    b_var = isinstance(b, Variable)
+    # Binding a variable requires an engine to mutate the current binding.
+    if (a_var or b_var) and engine is None:
+        return None
+    if a_var and not b_var:
+        cur = getattr(engine, "_current_binding", {})
+        nb = dict(cur)
+        nb[a.id] = b
+        engine._current_binding = nb
+        return _bool_result(True)
+    if b_var and not a_var:
+        cur = getattr(engine, "_current_binding", {})
+        nb = dict(cur)
+        nb[b.id] = a
+        engine._current_binding = nb
+        return _bool_result(True)
+    if a_var and b_var:
+        return None
+    return _bool_result(a == b)
 
 
 def log_notEqualTo(args: list[Term], engine: EngineProto) -> Term | None:
@@ -903,101 +930,112 @@ def log_implies(args: list[Term], engine: EngineProto) -> Term | None:
     return _bool_result(args[0] == args[1])
 
 
-def log_forAllIn(args: list[Term], engine: EngineProto) -> Term | None:
-    """log:forAllIn — proof-by-cases: check that all possible cases are covered.
+_LOG_IMPLIES_IRI = "http://www.w3.org/2000/10/swap/log#implies"
 
-    Subject: list of [cond1_formula, cond2_formula]
-    Object: scope variable (bound to True on success)
 
-    cond1 generates case formulas from the cases list (allPossibleCases);
-    cond2 checks that each case is covered by a rule in the engine.
+def _prove_implication(impl_triple: Triple, binding: dict, engine: EngineProto) -> bool:
+    """Prove a quoted ``{A} log:implies {C}`` goal under *binding*.
 
-    The implementation inspects engine._current_binding for ?Y (cases list)
-    and ?T (theorem), then checks engine._rules for coverage.
+    The antecedent A is generally hypothetical (e.g. ``?X a :Negative`` for a
+    case that is not asserted in the store), so we reason by *assumption*:
+    temporarily assert the ground antecedent triples, attempt to prove the
+    consequent, then retract.  This matches EYE's behaviour where the case
+    rules ``{?X a :Negative} => {:t :isProvenFor ?X}`` license the conclusion.
     """
-    binding = getattr(engine, '_current_binding', {})
+    from pyeye.unify import apply_binding as _apply
+    ante = _apply(impl_triple.subject, binding)
+    cons = _apply(impl_triple.object, binding)
+    if not isinstance(ante, Formula) or not isinstance(cons, Formula):
+        return False
 
-    # args = [Formula(cond1), Formula(cond2), Variable(SCOPE)]
-    # or just [Variable(SCOPE)] if no conditions
-    if not args:
+    # Collect ground antecedent triples to assert as hypotheses.
+    hypotheses: list[Triple] = []
+    for t in ante.triples:
+        if t.is_ground():
+            hypotheses.append(t)
+
+    added: list[Triple] = []
+    for h in hypotheses:
+        if engine.store.add(h):
+            added.append(h)
+    try:
+        sols = engine._match_formula(cons, dict(binding))
+        ok = bool(sols)
+    finally:
+        for h in added:
+            engine.store.retract(h)
+    return ok
+
+
+def _prove_subformula(formula: Formula, binding: dict, engine: EngineProto) -> list[dict]:
+    """Prove *formula* under *binding*, returning all solution bindings.
+
+    Triples whose predicate is ``log:implies`` are proven via
+    :func:`_prove_implication` (hypothetical reasoning); everything else is
+    delegated to the engine's pattern matcher.
+    """
+    impl_triples = [t for t in formula.triples
+                    if isinstance(t.predicate, NamedNode)
+                    and t.predicate.value == _LOG_IMPLIES_IRI]
+    plain_triples = [t for t in formula.triples if t not in impl_triples]
+
+    if plain_triples:
+        base = Formula(triples=tuple(plain_triples))
+        solutions = engine._match_formula(base, dict(binding))
+    else:
+        solutions = [dict(binding)]
+
+    if not impl_triples:
+        return solutions
+
+    out: list[dict] = []
+    for sol in solutions:
+        if all(_prove_implication(it, sol, engine) for it in impl_triples):
+            out.append(sol)
+    return out
+
+
+def log_forAllIn(args: list[Term], engine: EngineProto) -> Term | None:
+    """log:forAllIn — ``forall(Cond, Action)`` over a quoted ``(Cond Action)``.
+
+    EYE: ``forAllIn([Cond, Action], Scope) :- forall(Cond, Action)`` which is
+    ``\\+ (call(Cond), \\+ call(Action))`` — for *every* solution of the Cond
+    formula, the Action formula must also hold (under the Cond solution's
+    bindings).  The Cond formula may bind variables (e.g. via ``list:member``)
+    that the Action then consumes; the builtin itself binds nothing in the
+    outer scope (it is a pure guard) and the Scope object is ignored.
+    """
+    if len(args) < 2:
+        return None
+    cond, action = args[0], args[1]
+    if not isinstance(cond, Formula) or not isinstance(action, Formula):
+        return None
+    if not hasattr(engine, "_match_formula"):
         return None
 
-    # Get the cases list (Y) and theorem (T) from current binding
-    _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
-
-    # Find Y and T in binding — binding is dict[int, Term] keyed by Variable.id.
-    # We search for Variable objects whose name is Y or T among the args or
-    # by scanning the binding values (the engine stores Variable.id -> Term).
-    # The args themselves may contain the Variable objects we need.
-    y_val = None
-    t_val = None
-    # Try to find Y and T variables from the formula args
-    for a in args:
-        if isinstance(a, Formula):
-            for tri in a.triples:
-                for slot in (tri.subject, tri.predicate, tri.object):
-                    if isinstance(slot, Variable):
-                        bound = binding.get(slot.id)
-                        if bound is not None:
-                            if slot.name == 'Y' and y_val is None:
-                                y_val = bound
-                            elif slot.name == 'T' and t_val is None:
-                                t_val = bound
-
-    if y_val is None or t_val is None:
+    # Re-entry guard: proving an Action implication may try to derive the very
+    # conclusion that the enclosing proof-by-cases rule produces, which would
+    # re-fire this forAllIn.  EYE isolates each forAllIn in a sub-reasoner; we
+    # approximate that by refusing to recurse into forAllIn while one is active.
+    if getattr(engine, "_in_forallin", False):
         return None
-
-    # Expand the cases list
-    if not isinstance(y_val, ListTerm):
-        return None
-    cases = list(y_val.items)
-
-    # For each case formula, extract the type class and check for a covering rule
-    for case_formula in cases:
-        if not isinstance(case_formula, Formula):
-            return None
-
-        # Extract object of rdf:type triple (the case class)
-        type_class = None
-        for t in case_formula.triples:
-            if isinstance(t.predicate, NamedNode) and t.predicate.value == _RDF_TYPE:
-                type_class = t.object
-                break
-
-        if type_class is None:
-            return None
-
-        # Check if engine has a rule covering this case for theorem T
-        # Rule pattern: body has {?X a type_class}, head has {T :isProvenFor ?X}
-        _ISPF = "isProvenFor"
-        rule_found = False
-        for rule in engine._rules:
-            body_ok = any(
-                isinstance(bt.predicate, NamedNode) and bt.predicate.value == _RDF_TYPE
-                and isinstance(bt.object, NamedNode) and bt.object == type_class
-                for bt in rule.body.triples
-            )
-            if not body_ok:
-                continue
-            head_ok = any(
-                isinstance(ht.subject, NamedNode) and ht.subject == t_val
-                and isinstance(ht.predicate, NamedNode) and _ISPF in ht.predicate.value
-                for ht in rule.head.triples
-            )
-            if head_ok:
-                rule_found = True
-                break
-
-        if not rule_found:
-            return None  # This case is not covered
-
-    # All cases covered — bind scope variable and succeed
-    scope_var = args[-1]
-    new_b = dict(binding)
-    if isinstance(scope_var, Variable):
-        new_b[scope_var.id] = NamedNode("urn:true")
-    engine._current_binding = new_b
-    return _bool_result(True)
+    engine._in_forallin = True
+    # forAllIn is a pure guard: it binds nothing in the outer scope.  Its
+    # internal proofs (via _match_formula / list:member) mutate
+    # engine._current_binding, so snapshot and restore it afterwards.
+    saved = getattr(engine, "_current_binding", {})
+    binding = saved or {}
+    try:
+        cond_solutions = _prove_subformula(cond, dict(binding), engine)
+        # Empty Cond → vacuously true (forall over empty set).
+        for sol in cond_solutions:
+            action_solutions = _prove_subformula(action, sol, engine)
+            if not action_solutions:
+                return None  # Cond holds but Action fails → forall fails
+        return _bool_result(True)
+    finally:
+        engine._in_forallin = False
+        engine._current_binding = saved
 
 
 # ---------------------------------------------------------------------------
@@ -1326,6 +1364,7 @@ def log_collectAllIn(args: list[Term], engine: EngineProto) -> Term | None:
     _handle_builtin before each builtin call).
     """
     from pyeye.term import Formula as _Formula
+    from pyeye.unify import apply_binding as _apply
     # args layout: [Template, Pattern, OutputList, Scope]
     # (the object of the triple — Scope — is appended last by _collect_builtin_args)
     if len(args) < 3:
@@ -1339,54 +1378,31 @@ def log_collectAllIn(args: list[Term], engine: EngineProto) -> Term | None:
         return None
 
     # Get current binding (set by engine before calling us)
-    binding = getattr(engine, '_current_binding', {})
+    binding = getattr(engine, '_current_binding', {}) or {}
+    saved = dict(binding)
 
-    # Apply current binding to pattern triples, collect all satisfying bindings
-    from pyeye.unify import unify as _unify
-    # Match each triple in the pattern formula against the store (with binding applied)
-    # We do a simple nested-loop join over the formula's triples.
-    all_bindings: list[dict] = [dict(binding)]
-    for pat_triple in pattern.triples:
-        new_bindings: list[dict] = []
-        for b in all_bindings:
-            # Resolve the pattern triple under current binding
-            def _res(t: Term, bnd: dict) -> Term:
-                while isinstance(t, Variable) and t.id in bnd:
-                    t = bnd[t.id]
-                return t
-            s = _res(pat_triple.subject, b)
-            p = _res(pat_triple.predicate, b)
-            o = _res(pat_triple.object, b)
-            sv = s if not isinstance(s, Variable) else None
-            pv = p if not isinstance(p, Variable) else None
-            ov = o if not isinstance(o, Variable) else None
-            for store_t in engine.store.match(subject=sv, predicate=pv, object=ov):
-                # Unify pattern with store triple
-                from pyeye.term import Triple as _Triple
-                ub = _unify(_Triple(s, p, o), store_t, b)
-                if ub is not None:
-                    new_bindings.append(ub)
-        all_bindings = new_bindings
+    # findall(Template, Pattern, Results): every solution of Pattern (proved
+    # against the store, with builtins and backward rules) contributes one
+    # Template instance.  Delegate to the engine's formula matcher so that
+    # builtins inside Pattern (e.g. string:lessThan) and backward rules are
+    # evaluated, not just plain store joins.
+    if not hasattr(engine, "_match_formula"):
+        return None
+    solutions = engine._match_formula(pattern, dict(binding))
 
-    # Apply template to each binding to get result items
     results: list[Term] = []
-    for b in all_bindings:
-        def _res_term(t: Term, bnd: dict) -> Term:
-            while isinstance(t, Variable) and t.id in bnd:
-                t = bnd[t.id]
-            return t
-        item = _res_term(template, b)
-        results.append(item)
+    for b in solutions:
+        results.append(_apply(template, b))
 
     # Build RDF list from results
     result_list = _make_list(results, engine)
 
-    # Bind or verify output slot
+    # The internal _match_formula mutates engine._current_binding; restore the
+    # caller's binding and add only this builtin's output.
     if isinstance(output_slot, Variable):
-        # Update the engine's current binding so _handle_builtin picks it up
-        if hasattr(engine, '_current_binding'):
-            engine._current_binding = dict(engine._current_binding)
-            engine._current_binding[output_slot.id] = result_list
+        nb = dict(saved)
+        nb[output_slot.id] = result_list
+        engine._current_binding = nb
         return _bool_result(True)
     else:
         # Verify existing binding matches
@@ -1891,12 +1907,101 @@ def list_append(args: list[Term], engine: EngineProto) -> Term | None:
             items.append(a)
     return _make_list(items, engine)
 
-def list_member(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    head, item = args[0], args[1]
-    if isinstance(head, ListTerm):
-        return _bool_result(item in list(head.items))
-    return _bool_result(False)
+def list_member(args: list[Term], engine: EngineProto):
+    """list:member — ``getlist(List, C), member(Member, C)`` (EYE).
+
+    The list subject is expanded by the engine into the leading args, with the
+    member candidate as the final arg.  ``member/2`` *unifies* the candidate
+    with each list element, so:
+
+    * a ground member → boolean membership test;
+    * a variable member → generative (one binding per element);
+    * a member carrying variables (e.g. a Formula pattern ``{?X a ?Z}``) →
+      unify against every element, yielding one binding per match.
+    """
+    if not args:
+        return None
+    if len(args) == 1:
+        # Empty list (nil expanded away) — nothing is a member.
+        return _bool_result(False)
+
+    items = args[:-1]
+    member = args[-1]
+
+    # Single ListTerm passed directly (direct/test-style call): treat as the
+    # list and require a separate member — fall back to boolean form.
+    if len(args) == 2 and isinstance(items[0], ListTerm):
+        return _bool_result(member in list(items[0].items))
+
+    # Unbound list subject (``?L list:member X``) — cannot enumerate.
+    if len(args) == 2 and isinstance(items[0], Variable):
+        return None
+
+    binding = getattr(engine, "_current_binding", {}) or {}
+
+    # Ground member → boolean membership.
+    member_has_var = _term_has_var(member)
+    if not member_has_var:
+        return _bool_result(any(member == it for it in items))
+
+    # Variable / pattern member → unify with each element, collect bindings.
+    out: list[dict] = []
+    for it in items:
+        nb = _unify_member(member, it, dict(binding))
+        if nb is not None:
+            out.append(nb)
+    return BindingsList(out)
+
+
+def _unify_member(pattern: Term, candidate: Term, binding: dict) -> dict | None:
+    """Structural unification covering Formula/ListTerm/Variable terms.
+
+    The stock ``unify_terms`` treats Formula equality structurally only when
+    ground; list:member needs to unify a quoted-Formula *pattern* (carrying
+    variables such as ``{?X a ?Z}``) against ground case formulas, so this
+    helper recurses into Formula triples.
+    """
+    from pyeye.unify import unify_terms as _ut
+    if isinstance(pattern, Variable) and pattern.id in binding:
+        pattern = binding[pattern.id]
+    if isinstance(candidate, Variable) and candidate.id in binding:
+        candidate = binding[candidate.id]
+    if isinstance(pattern, Formula) and isinstance(candidate, Formula):
+        if len(pattern.triples) != len(candidate.triples):
+            return None
+        b = binding
+        for pt, ct in zip(pattern.triples, candidate.triples):
+            for ps, cs in ((pt.subject, ct.subject),
+                           (pt.predicate, ct.predicate),
+                           (pt.object, ct.object)):
+                b = _unify_member(ps, cs, b)
+                if b is None:
+                    return None
+        return b
+    if isinstance(pattern, ListTerm) and isinstance(candidate, ListTerm):
+        if len(pattern.items) != len(candidate.items):
+            return None
+        b = binding
+        for pi, ci in zip(pattern.items, candidate.items):
+            b = _unify_member(pi, ci, b)
+            if b is None:
+                return None
+        return b
+    return _ut(pattern, candidate, binding)
+
+
+def _term_has_var(t: Term) -> bool:
+    if isinstance(t, Variable):
+        return True
+    if isinstance(t, ListTerm):
+        return any(_term_has_var(i) for i in t.items)
+    if isinstance(t, Formula):
+        for tr in t.triples:
+            if (_term_has_var(tr.subject) or _term_has_var(tr.predicate)
+                    or _term_has_var(tr.object)):
+                return True
+        return False
+    return False
 
 def list_notMember(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
@@ -2268,7 +2373,47 @@ def log_callWithDisjunction(args: list[Term], engine: EngineProto) -> Term | Non
     return None
 
 def log_callWithOptional(args: list[Term], engine: EngineProto) -> Term | None:
-    return None
+    """log:callWithOptional — ``call(A), (\\+ call(B) -> true ; call(B))``.
+
+    The subject A is a mandatory goal; the object B is an *optional* goal.  A
+    must succeed; then B is attempted.  If B cannot be proven the builtin still
+    succeeds (B is skipped, no bindings from B).  If B can be proven, the first
+    solution's bindings are applied to the current binding.
+
+    Both A and B may be Formula graphs (proven via ``_match_formula``), or the
+    literal ``true`` (trivially satisfied).
+    """
+    if len(args) < 2:
+        return None
+    a, b = args[0], args[1]
+    cur = getattr(engine, "_current_binding", {}) or {}
+
+    def _prove(goal: Term, binding: dict):
+        if isinstance(goal, Formula):
+            if not hasattr(engine, "_match_formula"):
+                return None
+            res = engine._match_formula(goal, dict(binding))
+            return res
+        # A bare "true" (or any ground non-formula) is trivially satisfied.
+        if isinstance(goal, Literal) and goal.value.lower() == "true":
+            return [dict(binding)]
+        if isinstance(goal, Variable):
+            return None
+        return [dict(binding)]
+
+    # Mandatory goal A.
+    a_solutions = _prove(a, cur)
+    if not a_solutions:
+        return None
+    base = a_solutions[0]
+
+    # Optional goal B.
+    b_solutions = _prove(b, base)
+    if b_solutions:
+        engine._current_binding = b_solutions[0]
+    else:
+        engine._current_binding = base
+    return _bool_result(True)
 
 def log_copy(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
@@ -3273,6 +3418,50 @@ def string_setCharAt(args: list[Term], engine: EngineProto) -> Term | None:
 
 
 # ---------------------------------------------------------------------------
+# rdf: list accessors over native ListTerm subjects
+# ---------------------------------------------------------------------------
+
+def _list_args(args: list[Term]) -> tuple[list[Term], Term] | None:
+    """Split builtin args into (list-items, output-slot).
+
+    The engine expands a ListTerm subject into the leading args and appends the
+    object last.  A single bound ListTerm subject (test-style direct call) is
+    returned as its items.  Returns None when the subject is unbound/empty.
+    """
+    if not args:
+        return None
+    if len(args) == 1:
+        return None
+    if len(args) == 2 and isinstance(args[0], ListTerm):
+        return list(args[0].items), args[1]
+    return list(args[:-1]), args[-1]
+
+
+def rdf_first(args: list[Term], engine: EngineProto) -> Term | None:
+    """rdf:first — first element of a native list ``(a b c) rdf:first ?x``."""
+    split = _list_args(args)
+    if split is None:
+        return None
+    items, _out = split
+    if any(isinstance(it, Variable) for it in items):
+        return None
+    return items[0] if items else None
+
+
+def rdf_rest(args: list[Term], engine: EngineProto) -> Term | None:
+    """rdf:rest — tail of a native list ``(a b c) rdf:rest ?r`` → ``(b c)``."""
+    split = _list_args(args)
+    if split is None:
+        return None
+    items, _out = split
+    if any(isinstance(it, Variable) for it in items):
+        return None
+    if not items:
+        return None
+    return ListTerm(items=tuple(items[1:]))
+
+
+# ---------------------------------------------------------------------------
 # Registry — canonical W3C swap namespaces as primary keys
 # ---------------------------------------------------------------------------
 
@@ -3291,7 +3480,12 @@ NS_VAR    = "http://www.w3.org/2000/10/swap/var#"
 # (no canonical swap equivalent)
 NS_E = "http://eulersharp.sourceforge.net/2003/03swap/log-rules#"
 
+NS_RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+
 BUILTIN_REGISTRY: dict[str, Builtin] = {
+    # --- rdf: list accessors (only over native ListTerm subjects) ---
+    NS_RDF + "first": rdf_first,
+    NS_RDF + "rest": rdf_rest,
     # --- math: ---
     NS_MATH + "equalTo": math_equalTo,
     NS_MATH + "lessThan": math_lessThan,
