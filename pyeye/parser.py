@@ -55,6 +55,7 @@ class Rule:
     for_all: tuple[str, ...] = ()   # M3 fix: universally quantified variables
     is_backward: bool = False       # True for ``<=`` rules (backward chaining only)
     is_contradiction: bool = False  # True for ``=> false`` rules (N3 constraint violation)
+    is_query: bool = False          # True for --query rules (heads are the answer)
 
 
 @dataclass

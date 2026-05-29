@@ -36,6 +36,7 @@ def execute(
     data_strings: list[str] | None = None,
     rule_paths: list[str] | None = None,
     rule_strings: list[str] | None = None,
+    query_paths: list[str] | None = None,
     builtins: dict[str, Builtin] | None = None,
     explain: bool = False,
     max_steps: int = -1,
@@ -216,8 +217,27 @@ def execute(
             all_quads.extend(doc.quads)
             all_prefixes.update(doc.prefixes)
 
+    # -- load query files (their rule heads become the answer) ---------------
+    has_query_rules = False
+    if query_paths:
+        from dataclasses import replace as _replace
+        for p in query_paths:
+            resolved = _resolve_path(p)
+            text = Path(resolved).read_text(encoding="utf-8")
+            doc = parse_n3(text, source=p)
+            for r in doc.rules:
+                all_rules.append(_replace(r, is_query=True))
+                has_query_rules = True
+            # A query file's bare triples (no rule) are also data.
+            all_triples.extend(doc.triples)
+            all_quads.extend(doc.quads)
+            all_prefixes.update(doc.prefixes)
+
     # -- nope mode -----------------------------------------------------------
-    if nope:
+    # ``--nope`` only suppresses proof output; with a query it still runs and
+    # returns the query answers.  Only short-circuit when there is nothing to
+    # query and we are in pure pass-through.
+    if nope and not has_query_rules and not pass_mode and not pass_all:
         elapsed = time.monotonic() - start
         writer = N3Writer(all_prefixes)
         return Result(
@@ -278,14 +298,21 @@ def execute(
     for r in all_rules:
         engine.add_rule(r)
 
-    # Run forward chaining (if enabled)
-    if forward and not nope:
+    # Run forward chaining. With a --query we always need to forward-chain so
+    # the query rules can match the deductive closure, even under --nope (which
+    # in EYE only suppresses proof output, not derivation).
+    run_forward = forward and (not nope or has_query_rules)
+    if run_forward:
         engine.run()
 
-    # Run backward chaining (if query is set)
+    # Run backward chaining (if query Triple is set)
     query_answers: list = []
     if query is not None and not nope:
         query_answers = engine.backward_chain(query)
+
+    # Collect query answers (head instantiations of --query rules)
+    if has_query_rules:
+        engine.collect_answers()
 
     # Collect output
     elapsed = time.monotonic() - start
@@ -294,6 +321,9 @@ def execute(
     if pass_mode or pass_all:
         # All triples in the store (input + derived)
         output_triples = list(engine.store)
+    elif has_query_rules:
+        # Query run: output is exactly the answer set (query rule heads)
+        output_triples = engine.answer_triples
     else:
         # Only derived triples
         output_triples = engine.derived_triples

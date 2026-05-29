@@ -147,6 +147,11 @@ class Engine:
         self._step_count = 0
         self._derived_count = 0
         self._derived_triples: list[Triple] = []
+        # Answer triples: head instantiations of --query rules (the output of a
+        # query run, per EYE log:impliesAnswer semantics). Insertion-ordered,
+        # deduplicated.
+        self._answer_triples: list[Triple] = []
+        self._answer_seen: set = set()
         self._initial_triples: int = 0
         self._bn_counter = 0
         self._skolem_counter = 0
@@ -894,6 +899,35 @@ class Engine:
     def derived_triples(self) -> list[Triple]:
         """Only triples derived by rules (not input facts)."""
         return list(self._derived_triples)
+
+    @property
+    def answer_triples(self) -> list[Triple]:
+        """Head instantiations of --query rules (EYE query-answer semantics)."""
+        return list(self._answer_triples)
+
+    def has_query_rules(self) -> bool:
+        return any(getattr(r, "is_query", False) for r in self._rules)
+
+    def collect_answers(self) -> list[Triple]:
+        """Re-evaluate every --query rule against the final store and collect
+        all ground head instantiations as the answer set.
+
+        A query rule ``{P} => {C}`` contributes, for each binding that satisfies
+        ``P``, the instantiation of ``C``.  Answers are collected regardless of
+        whether the triple already exists in the store (EYE outputs the matched
+        conclusions, not only newly-derived facts).
+        """
+        for rule in self._rules:
+            if not getattr(rule, "is_query", False):
+                continue
+            for binding in self._match_formula(rule.body, {}):
+                for ht in self._instantiate_formula(rule.head, binding):
+                    if not ht.is_ground():
+                        continue
+                    if ht not in self._answer_seen:
+                        self._answer_seen.add(ht)
+                        self._answer_triples.append(ht)
+        return list(self._answer_triples)
 
     @property
     def step_count(self) -> int:
