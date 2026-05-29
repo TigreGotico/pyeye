@@ -234,6 +234,20 @@ def execute(
             all_quads.extend(doc.quads)
             all_prefixes.update(doc.prefixes)
 
+    # -- log:impliesAnswer rules are query/answer rules ----------------------
+    # A ``{P} log:impliesAnswer {C}`` triple (whether inline in the data or
+    # produced by --query) is an answer rule: its conclusions are the output.
+    _log_implies_answer_iri = "http://www.w3.org/2000/10/swap/log#impliesAnswer"
+    from pyeye.term import Formula as _Formula
+    if any(
+        isinstance(t.predicate, NamedNode)
+        and t.predicate.value == _log_implies_answer_iri
+        and isinstance(t.subject, _Formula)
+        and isinstance(t.object, _Formula)
+        for t in all_triples
+    ):
+        has_query_rules = True
+
     # -- nope mode -----------------------------------------------------------
     # ``--nope`` only suppresses proof output; with a query it still runs and
     # returns the query answers.  Only short-circuit when there is nothing to
@@ -260,8 +274,6 @@ def execute(
     # Convert log:implies triples to rules AND keep them in the store
     # (keeping them queryable lets meta-builtins like log:forAllIn inspect rules)
     _log_implies_iri = "http://www.w3.org/2000/10/swap/log#implies"
-    _log_implies_answer_iri = "http://www.w3.org/2000/10/swap/log#impliesAnswer"
-    from pyeye.term import Formula as _Formula
     for t in all_triples:
         if (
             isinstance(t.predicate, NamedNode)
@@ -269,7 +281,8 @@ def execute(
             and isinstance(t.subject, _Formula)
             and isinstance(t.object, _Formula)
         ):
-            all_rules.append(Rule(body=t.subject, head=t.object))
+            is_ans = t.predicate.value == _log_implies_answer_iri
+            all_rules.append(Rule(body=t.subject, head=t.object, is_query=is_ans))
 
     # Add data triples
     for t in all_triples:
