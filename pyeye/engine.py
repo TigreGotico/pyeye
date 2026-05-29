@@ -41,6 +41,7 @@ from pyeye.proof import ProofStep, ProofTree
 
 _LOG_IMPLIES = "http://www.w3.org/2000/10/swap/log#implies"
 _LOG_TABLE = "http://www.w3.org/2000/10/swap/log#table"
+_LOG_CALL_WITH_CUT = "http://www.w3.org/2000/10/swap/log#callWithCut"
 _NEG_SURFACE_IRIS = frozenset({
     "http://eulersharp.sourceforge.net/2003/03swap/log-rules#onNegativeSurface",
     "http://www.w3.org/2000/10/swap/log#onNegativeSurface",
@@ -918,25 +919,39 @@ class Engine:
         binding chain.
 
         The table lives for one top-level ``_solve`` call; nested ``_solve``
-        invocations (NAF graphs, builtins that re-enter the engine) get their own
-        fresh table so a hypothetical sub-proof cannot leak answers into the main
-        derivation.  Conjunctions, negative surfaces and builtins are handled by
-        the iterative resolvent engine (:meth:`_solve_resolvent`); only the
-        per-goal rule expansion is rerouted through the table.
+        invocations (NAF graphs, builtins that re-enter the engine) reuse the
+        live table, so a subgoal proved once is shared across the whole proof.
+        Negative surfaces and builtins are evaluated per goal in
+        :meth:`_solve_goal`; only rule expansion is tabled.
+
+        Proof depth lives on the Python call stack (one frame band per recursive
+        level).  Deeply recursive rule sets terminate but descend far past
+        CPython's default limit, so the limit is raised for the duration of a
+        top-level solve.  ``execute`` additionally runs on a large-stack worker
+        thread; callers that drive very deep recursion through the bare ``Engine``
+        API should do likewise to avoid a hard C-stack overflow.
         """
         if not goals:
             return [dict(binding)]
 
         owns_table = self._answer_table is None
+        prev_limit: int | None = None
         if owns_table:
             self._answer_table = {}
             self._table_stack = []
+            import sys as _sys
+            prev_limit = _sys.getrecursionlimit()
+            if prev_limit < 200_000:
+                _sys.setrecursionlimit(200_000)
         try:
             return self._solve_conj(goals, dict(binding))
         finally:
             if owns_table:
                 self._answer_table = None
                 self._table_stack = []
+                if prev_limit is not None:
+                    import sys as _sys
+                    _sys.setrecursionlimit(prev_limit)
 
     def _solve_conj(self, goals: list[Triple], binding: Binding) -> list[Binding]:
         """Recursively solve a conjunction left-to-right over the answer table.
@@ -947,6 +962,9 @@ class Engine:
         engine's large-stack worker thread), while each individual level does
         O(1) work because its subgoals' answers come pre-computed from the table.
         """
+        if not goals:
+            # Empty body (a fact-rule) is vacuously true under the binding.
+            return [binding]
         first, rest = goals[0], goals[1:]
         results: list[Binding] = []
         for b in self._solve_goal(first, binding):
@@ -957,22 +975,31 @@ class Engine:
         return results
 
     def _solve_goal(self, goal: Triple, binding: Binding) -> list[Binding]:
-        """Solve a single *goal*, returning binding extensions.
+        """Solve a single *goal*, returning binding extensions of *binding*.
 
-        Negative surfaces, builtins, and goals whose predicate matches no rule
-        head fall through to the iterative resolvent solver (which also performs
-        the store lookup).  Goals whose predicate is rule-defined are tabled.
+        Negative surfaces and builtins are evaluated here directly (extending
+        the caller's binding) so the surrounding conjunction's other bindings
+        survive — routing them through the resolvent solver would garbage-collect
+        sibling-goal variables it cannot see.  A goal whose predicate matches no
+        rule head is a pure store lookup; a rule-defined predicate is tabled.
         """
         resolved = apply_binding_to_triple(goal, binding)
 
-        # Negative surface and builtins: defer to the resolvent solver, which
-        # handles NAF/builtin semantics for the single goal.
         if isinstance(resolved.predicate, NamedNode):
+            # Negative surface (NAF): succeed iff the negated graph is unprovable.
             if resolved.predicate.value in _NEG_SURFACE_IRIS:
-                return self._solve_resolvent([goal], binding)
-            builtin = self._builtins.get(resolved.predicate.value)
-            if builtin is not None and self._builtin_applies(resolved):
-                return self._solve_resolvent([goal], binding)
+                neg: list[Triple] | None = None
+                if isinstance(resolved.object, Formula):
+                    neg = list(resolved.object.triples)
+                elif isinstance(resolved.object, NegativeSurface):
+                    neg = list(resolved.object.formula.triples)
+                if neg is not None:
+                    return [binding] if not self._solve(neg, binding) else []
+                # object is not a formula: fall through to a normal match.
+            else:
+                builtin = self._builtins.get(resolved.predicate.value)
+                if builtin is not None and self._builtin_applies(resolved):
+                    return self._handle_builtin(builtin, goal, [binding])
 
         # Only rule-defined predicates benefit from (and need) tabling.  A goal
         # that no rule head can unify with is a pure store lookup — solve it
@@ -1014,6 +1041,19 @@ class Engine:
                     return True
         return False
 
+    @staticmethod
+    def _rule_has_cut(rule: Rule) -> bool:
+        """Return True if *rule*'s body contains a ``log:callWithCut`` goal.
+
+        Such a clause is deterministic: once it fires for a goal, the remaining
+        clauses for that goal are pruned (a Prolog-style cut).
+        """
+        for t in rule.body.triples:
+            if (isinstance(t.predicate, NamedNode)
+                    and t.predicate.value == _LOG_CALL_WITH_CUT):
+                return True
+        return False
+
     def _table_goal(self, resolved: Triple) -> list[Triple]:
         """Return the set of answer triples for *resolved* via the answer table.
 
@@ -1048,19 +1088,34 @@ class Engine:
                         if self._table_add_answer(entry, st):
                             grew = True
 
-                # Way 2: each rule whose head unifies with the goal.
+                # Way 2: each rule whose head unifies with the goal, in source
+                # order.  A clause guarded by ``log:callWithCut`` that produces a
+                # solution *cuts* — it commits the goal to that clause and skips
+                # the remaining clauses, exactly as a Prolog cut prunes choice
+                # points.  This is what makes guarded base cases (takeuchi,
+                # ackermann) tractable: once the base case fires, the open-ended
+                # recursive clause is never explored for that goal.
+                cut = False
                 for rule in self._rules:
+                    if cut:
+                        break
+                    has_cut = self._rule_has_cut(rule)
                     renamed = copy_rule(rule)
-                    for head_triple in renamed.head.triples:
-                        hb = unify(resolved, head_triple, {})
+                    for rhead in renamed.head.triples:
+                        hb = unify(resolved, rhead, {})
                         if hb is None:
                             continue
                         body = self._djiti_order(list(renamed.body.triples), hb)
+                        fired = False
                         for sol in self._solve_conj(body, hb):
-                            ans = apply_binding_to_triple(head_triple, sol)
+                            fired = True
+                            ans = apply_binding_to_triple(rhead, sol)
                             ans = self._canonicalize_answer(ans)
                             if self._table_add_answer(entry, ans):
                                 grew = True
+                        if has_cut and fired:
+                            cut = True
+                            break
                 if not grew:
                     break
             entry["complete"] = True

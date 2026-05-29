@@ -38,6 +38,35 @@ def _build(rules_n3: str, timeout: float = 30.0) -> Engine:
     return eng
 
 
+def _bc(engine: Engine, query: Triple):
+    """Run backward_chain on a large-stack worker thread.
+
+    Deep recursion descends far past CPython's default C stack; production code
+    (``pyeye.execute``) runs reasoning on an enlarged-stack thread for exactly
+    this reason, so the tabling tests do the same.
+    """
+    import threading
+
+    box: dict = {}
+
+    def work():
+        try:
+            box["r"] = engine.backward_chain(query)
+        except BaseException as e:  # noqa: BLE001
+            box["e"] = e
+
+    try:
+        threading.stack_size(256 * 1024 * 1024)
+    except (ValueError, RuntimeError):
+        pass
+    t = threading.Thread(target=work)
+    t.start()
+    t.join()
+    if "e" in box:
+        raise box["e"]
+    return box["r"]
+
+
 SUM_RULES = """
 @prefix math: <http://www.w3.org/2000/10/swap/math#>.
 @prefix : <https://example.org/ns#>.
@@ -59,7 +88,7 @@ class TestLinearRecursionTabling:
         s = V("Sum")
         q = T(_int(2000), NN("https://example.org/ns#sum"), s)
         start = time.time()
-        res = eng.backward_chain(q)
+        res = _bc(eng, q)
         elapsed = time.time() - start
         # sum 0..2000 = 2000*2001/2 = 2001000
         assert len(res) == 1
@@ -74,7 +103,7 @@ class TestLinearRecursionTabling:
             eng = _build(SUM_RULES)
             s = V("Sum")
             t0 = time.time()
-            eng.backward_chain(T(_int(n), NN("https://example.org/ns#sum"), s))
+            _bc(eng, T(_int(n), NN("https://example.org/ns#sum"), s))
             return time.time() - t0
 
         t_small = run(400)
