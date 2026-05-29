@@ -86,7 +86,7 @@ pyeye --n3 family.ttl --query rules.n3 --pass --statistics
 | BLOGIC negation | `log:onNegativeSurface { ... }` — negation as failure |
 | Not-entail checking | Verify a triple is NOT derivable |
 | Triple terms | `<< S P O >>` — RDF-star reified triples |
-| Path expressions | `!` (forward) and `^` (reverse) chained property paths |
+| Path expressions | `!` (forward) and `^` (reverse) paths, compiled to intermediate triples at parse time |
 
 ---
 
@@ -144,7 +144,7 @@ result = execute(
     ),
 )
 print(result.query_answers)
-# [{'X': NamedNode('http://ex.org/alice')}]
+# [{1: NamedNode('http://ex.org/alice')}]  # keyed by Variable.id
 
 # Proof trace
 result = execute(data_strings=["..."], rule_strings=["..."], explain=True, explain_format="html")
@@ -250,7 +250,7 @@ See [docs/n3-syntax.md](docs/n3-syntax.md) for the full syntax guide.
 
 ```
 pyeye/
-├── term.py       NamedNode, Literal, Variable, Triple, Formula, TripleTerm, PathTerm
+├── term.py       NamedNode, Literal, Variable, Triple, Formula, ListTerm, TripleTerm
 ├── unify.py      Pattern matching and variable binding
 ├── store.py      In-memory triple/quad store with predicate + subject + object indexes
 ├── parser.py     Full N3 + TriG recursive-descent parser
@@ -264,22 +264,21 @@ pyeye/
 └── cli.py        pyeye CLI (argparse → execute())
 ```
 
-Reasoning chain lineage: **eye.pl** (Prolog) → **eyeling** (JavaScript) → **pyeye** (Python)
+Implementation lineage: **eye.pl** (Prolog) → **eyeling** (JavaScript) → **pyeye** (Python). pyeye follows eyeling's shape — an explicit term model and unifier rather than a Prolog substrate. See [docs/architecture-vs-eye.md](docs/architecture-vs-eye.md) for the subsystem-by-subsystem mapping.
 
 ---
 
-## AI Transparency
+## Conformance
 
-pyeye is an AI-assisted port, developed over several weeks with the following process:
+pyeye is validated against the upstream EYE `reasoning/` scenario corpus
+(`run_corpus.py`, `tests/test_eye_corpus.py`). It currently passes
+**29 of 118** plain-answer EYE reasoning scenarios; remaining gaps (specialised
+meta-builtins, RDF-star parser features, and `r:Proof`-format output) are
+tracked in `TODO.md`. The unit suite (`tests/`, excluding the slow corpus) is
+green.
 
-- **Original source**: the EYE reasoner lineage — `eye.pl` (Prolog) → `eyeling` (JavaScript) → `pyeye` (Python)
-- **All code written by [Claude](https://claude.ai)** (Anthropic) under heavy human guidance
-- The human author provided architecture decisions, reviewed every module, directed fixes, and had access to the original source code throughout
-- **Full test suite ported**: 1900+ tests covering the engine, parser, builtins, entailment, backward chaining, proof traces, and CLI
-- **100% line coverage** on core modules, verified by CI
-- **35 runnable examples** in `examples/` written and validated as part of the porting process — these double as integration tests and demonstrate correct behaviour across all major features
-
-This section exists because we believe users and contributors deserve to know how the code was produced.
+pyeye is an AI-assisted port: the code is written by [Claude](https://claude.ai)
+(Anthropic) under human direction, against the EYE and eyeling source.
 
 ---
 

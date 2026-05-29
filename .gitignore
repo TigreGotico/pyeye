@@ -1,21 +1,35 @@
+# Python
 __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+build/
+dist/
 
-# Agent artifacts
+# Editor / agent
+.claude/
+
+# wget-mirror cruft
+index.html
+index.html.*
+
+# Scratch planning / audit notes (never committed)
 plan.md
 spec*.md
 status*.md
 audit*.md
+brainstorm.md
+sprint.md
 checklist.md
 decisions.md
 implementation-notes.md
-index.html
-index.html.*
 CONFORMANCE.md
 IMPLEMENTATION_STATUS.md
 XFAILED_ANALYSIS.md
-.claude/
+EYE_AUDIT.md
 STATUS.txt
 test_results_raw.txt
