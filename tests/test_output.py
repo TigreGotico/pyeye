@@ -36,7 +36,8 @@ class TestN3Writer:
         t = T(NN("http://default.org/a"), NN("http://default.org/p"), NN("http://default.org/b"))
         result = w.write_triples([t])
         assert ":a :p :b" in result
-        assert "@prefix  <http://default.org/>" in result
+        # Default prefix must keep its colon: "@prefix : <uri>" (valid N3).
+        assert "@prefix : <http://default.org/>" in result
 
     def test_literal_plain(self):
         w = N3Writer()

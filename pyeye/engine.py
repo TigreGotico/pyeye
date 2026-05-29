@@ -523,6 +523,29 @@ class Engine:
                         ids.add(item.id)
         return ids
 
+    def _pattern_input_var_ids(self, pattern: Triple) -> set[int]:
+        """Variable IDs that must be *bound before* a builtin pattern fires.
+
+        Treats the object slot as the builtin's output and, for a ListTerm
+        subject (e.g. ``(Tmpl {Pattern} ?Out) log:collectAllIn ?Scope``), the
+        trailing list item as an output too.  Formula items declare their own
+        scope and are not counted as required inputs.
+        """
+        ids: set[int] = set()
+        s = pattern.subject
+        if isinstance(s, Variable):
+            ids.add(s.id)
+        elif isinstance(s, ListTerm):
+            items = list(s.items)
+            # last item is the conventional output slot for collect-style builtins
+            for item in items[:-1] if len(items) > 1 else items:
+                if isinstance(item, Variable):
+                    ids.add(item.id)
+        if isinstance(pattern.predicate, Variable):
+            ids.add(pattern.predicate.id)
+        # object is the output slot — not a required input
+        return ids
+
     def _djiti_order(
         self,
         patterns: list[Triple],
@@ -569,11 +592,18 @@ class Engine:
         ordered_late: list[Triple] = []
         while remaining:
             best_idx = -1
-            best_key = (float('inf'), float('inf'))
+            best_key = (float('inf'), float('inf'), float('inf'))
             for i, (orig_idx, pattern, kind) in enumerate(remaining):
                 pvars = self._pattern_var_ids(pattern)
                 unbound = len(pvars - bound_ids)
-                key = (unbound, orig_idx)
+                # A builtin is "ready" only when its INPUT vars are bound; the
+                # object slot is the output and may stay unbound.  Counting
+                # unbound *inputs* lets a producer (e.g. log:collectAllIn that
+                # binds ?List) schedule before its consumer (math:sum on ?List),
+                # which the plain fewest-unbound heuristic gets backwards.
+                input_vars = self._pattern_input_var_ids(pattern)
+                unbound_inputs = len(input_vars - bound_ids)
+                key = (unbound_inputs, unbound, orig_idx)
                 if key < best_key:
                     best_key = key
                     best_idx = i
