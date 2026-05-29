@@ -40,7 +40,6 @@ XFAIL: dict[str, str] = {
     "fibonacci":            "BC recursion depth - only derives base cases",
     "gcd-bezout-identity":  "recursive GCD with complex variable patterns",
     # Missing builtins/features
-    "access-control-policy":"log:forAllIn not implemented",
     "fcm":                   "log:pro (Prolog interop) not implemented",
     "mmln":                  "Markov Logic Network e:weight reasoning not implemented",
     "ldes":                  "TriG named graph format not fully supported",
