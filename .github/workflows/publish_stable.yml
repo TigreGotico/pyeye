@@ -3,7 +3,7 @@ name: Publish Stable Release
 on:
   workflow_dispatch:
   push:
-    branches: [master, main]
+    branches: [master]
 
 permissions:
   contents: write   # required for version bump commit and release tag
@@ -11,7 +11,7 @@ permissions:
 jobs:
   publish_stable:
     if: github.actor != 'github-actions[bot]'
-    uses: OpenVoiceOS/gh-automations/.github/workflows/publish-stable.yml@e37a97650feada694abb6420a84bbd23a71d6bb1
+    uses: OpenVoiceOS/gh-automations/.github/workflows/publish-stable.yml@dev
     secrets:
       PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
       MATRIX_TOKEN: ${{ secrets.MATRIX_TOKEN }}

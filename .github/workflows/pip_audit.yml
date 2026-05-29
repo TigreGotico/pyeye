@@ -7,5 +7,5 @@ on:
 
 jobs:
   pip_audit:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/pip-audit.yml@e37a97650feada694abb6420a84bbd23a71d6bb1
+    uses: OpenVoiceOS/gh-automations/.github/workflows/pip-audit.yml@dev
     secrets: inherit
