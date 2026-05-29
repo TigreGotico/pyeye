@@ -954,25 +954,64 @@ class Engine:
                     _sys.setrecursionlimit(prev_limit)
 
     def _solve_conj(self, goals: list[Triple], binding: Binding) -> list[Binding]:
-        """Recursively solve a conjunction left-to-right over the answer table.
+        """Recursively solve a conjunction over the answer table.
 
-        Each goal's solutions extend the binding; the continuation is solved
-        under every extension.  The proof *depth* of a recursive predicate now
-        lives on the Python stack of nested ``_table_goal`` calls (run inside the
-        engine's large-stack worker thread), while each individual level does
-        O(1) work because its subgoals' answers come pre-computed from the table.
+        Goals are taken in the order chosen by :meth:`_djiti_order` (which keeps
+        builtins after the goals that bind their inputs and orders store goals by
+        selectivity), with one backward-chaining refinement: among the goals
+        whose variables are already ready, a plain store/rule goal that currently
+        has *zero* candidate matches is taken first so an unsatisfiable body fails
+        fast on its empty goal rather than expanding a recursive sibling with an
+        unbound join key (which would table the recursion at its most general
+        form and turn a linear search quadratic).
+
+        Each selected goal's solutions extend the binding; the continuation is
+        solved under every extension.  Proof depth lives on the Python stack of
+        nested ``_table_goal`` calls (run on the engine's large-stack worker).
         """
         if not goals:
             # Empty body (a fact-rule) is vacuously true under the binding.
             return [binding]
-        first, rest = goals[0], goals[1:]
+        if len(goals) == 1:
+            return self._solve_goal(goals[0], binding)
+
+        idx = self._select_goal(goals, binding)
+        first = goals[idx]
+        rest = goals[:idx] + goals[idx + 1:]
         results: list[Binding] = []
         for b in self._solve_goal(first, binding):
-            if rest:
-                results.extend(self._solve_conj(rest, b))
-            else:
-                results.append(b)
+            results.extend(self._solve_conj(rest, b))
         return results
+
+    def _select_goal(self, goals: list[Triple], binding: Binding) -> int:
+        """Pick the index of the next goal to solve.
+
+        A plain store/rule goal whose key components are bound enough to have
+        *zero* candidate matches is chosen first (fail fast).  Otherwise the
+        first goal in :meth:`_djiti_order` is used, preserving the builtin
+        input/output scheduling that ``_djiti_order`` already gets right.
+        """
+        # Fail-fast: an unsatisfiable plain store goal short-circuits the body.
+        for i, goal in enumerate(goals):
+            resolved = apply_binding_to_triple(goal, binding)
+            pred = resolved.predicate
+            if not isinstance(pred, NamedNode):
+                continue
+            if pred.value in self._builtins and self._builtin_applies(resolved):
+                continue
+            if pred.value in _NEG_SURFACE_IRIS:
+                continue
+            # Plain goal: if it has no store match and no rule can derive it, the
+            # whole conjunction is doomed — solve it now so the branch dies here.
+            if not self._store_matches(resolved) and not self._goal_has_rule(resolved):
+                return i
+        # Otherwise follow DJITI's schedule.
+        ordered = self._djiti_order(goals, binding)
+        first = ordered[0]
+        for i, g in enumerate(goals):
+            if g is first:
+                return i
+        return 0
 
     def _solve_goal(self, goal: Triple, binding: Binding) -> list[Binding]:
         """Solve a single *goal*, returning binding extensions of *binding*.
@@ -1071,10 +1110,14 @@ class Engine:
         entry = table.get(gk)
 
         if entry is not None:
-            # Completed → reuse; in-progress (cycle) → current answers.
+            # Completed → reuse.  In-progress (a re-entry while this goal is
+            # still being generated) → return the answers known so far and flag
+            # the entry cyclic, so its generator knows to iterate to a fixpoint.
+            if not entry["complete"]:
+                entry["cyclic"] = True
             return list(entry["answers"])
 
-        entry = {"answers": [], "seen": set(), "complete": False}
+        entry = {"answers": [], "seen": set(), "complete": False, "cyclic": False}
         table[gk] = entry
         self._table_stack.append(gk)
         try:
@@ -1105,7 +1148,7 @@ class Engine:
                         hb = unify(resolved, rhead, {})
                         if hb is None:
                             continue
-                        body = self._djiti_order(list(renamed.body.triples), hb)
+                        body = list(renamed.body.triples)
                         fired = False
                         for sol in self._solve_conj(body, hb):
                             fired = True
@@ -1116,7 +1159,11 @@ class Engine:
                         if has_cut and fired:
                             cut = True
                             break
-                if not grew:
+                # A non-cyclic goal is fully solved in a single pass: re-running
+                # would only re-derive the same answers.  Only a goal that was
+                # consumed recursively while still in progress needs the
+                # fixpoint loop (its first pass saw an incomplete answer set).
+                if not grew or not entry["cyclic"]:
                     break
             entry["complete"] = True
             return list(entry["answers"])
