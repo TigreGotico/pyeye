@@ -26,7 +26,7 @@ from typing import Any
 
 from pyeye.term import (
     NamedNode, Literal, Variable, Existential, Formula, Triple, Term, Binding,
-    ListTerm, NegativeSurface, _next_var_id,
+    ListTerm, NegativeSurface, TripleTerm, _next_var_id,
 )
 from pyeye.unify import unify, unify_terms, apply_binding_to_triple, apply_binding, term_contains_var
 from pyeye.store import TripleStore
@@ -46,6 +46,16 @@ _NEG_SURFACE_IRIS = frozenset({
     "http://eulersharp.sourceforge.net/2003/03swap/log-rules#onNegativeSurface",
     "http://www.w3.org/2000/10/swap/log#onNegativeSurface",
 })
+
+
+def _is_nonground_tripleterm(term: Term) -> bool:
+    """Return True if *term* is a TripleTerm that contains a Variable.
+
+    A ground TripleTerm can be looked up by exact equality in the store
+    index, but one with variables inside must be matched element-wise by
+    the unifier, so the store must not pre-filter on it.
+    """
+    return isinstance(term, TripleTerm) and not term.is_ground()
 
 
 # ---------------------------------------------------------------------------
@@ -506,11 +516,11 @@ class Engine:
         Passes subject=None if subject is a ListTerm (store can't index by it).
         """
         s = pattern.subject
-        if isinstance(s, (Variable, ListTerm)):
+        if isinstance(s, (Variable, ListTerm)) or _is_nonground_tripleterm(s):
             s = None
         p = pattern.predicate if not isinstance(pattern.predicate, Variable) else None
         o = pattern.object
-        if isinstance(o, (Variable, ListTerm)):
+        if isinstance(o, (Variable, ListTerm)) or _is_nonground_tripleterm(o):
             o = None
         return list(self.store.match(subject=s, predicate=p, object=o))
 
@@ -1387,6 +1397,10 @@ class Engine:
                 Engine._collect_var_ids(tr.subject, out)
                 Engine._collect_var_ids(tr.predicate, out)
                 Engine._collect_var_ids(tr.object, out)
+        elif isinstance(term, TripleTerm):
+            Engine._collect_var_ids(term.subject, out)
+            Engine._collect_var_ids(term.predicate, out)
+            Engine._collect_var_ids(term.object, out)
 
     def _resolve_binding_chains(self, binding: Binding) -> Binding:
         """Follow Variable→Variable chains in a binding to ground values."""

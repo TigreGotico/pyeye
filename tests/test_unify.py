@@ -220,3 +220,94 @@ class TestLiteralExistentialUnify:
         c = T(NN("a"), NN("p"), E("genid-1"))
         result = unify(p, c)
         assert result == {x.id: E("genid-1")}
+
+
+# ---------------------------------------------------------------------------
+# TripleTerm (RDF-star quoted triples)
+# ---------------------------------------------------------------------------
+
+class TestTripleTermUnify:
+    def test_ground_tripleterm_subject_match(self):
+        from pyeye.term import TripleTerm
+        tt = TripleTerm(NN("alice"), NN("knows"), NN("bob"))
+        p = T(tt, NN("since"), L("1999"))
+        c = T(tt, NN("since"), L("1999"))
+        assert unify(p, c) == {}
+
+    def test_ground_tripleterm_inner_mismatch(self):
+        from pyeye.term import TripleTerm
+        p = T(TripleTerm(NN("alice"), NN("knows"), NN("bob")), NN("since"), L("1999"))
+        c = T(TripleTerm(NN("alice"), NN("knows"), NN("carol")), NN("since"), L("1999"))
+        assert unify(p, c) is None
+
+    def test_variable_inside_tripleterm_subject(self):
+        from pyeye.term import TripleTerm
+        x = V("X")
+        p = T(TripleTerm(NN("alice"), x, NN("bob")), NN("since"), L("1999"))
+        c = T(TripleTerm(NN("alice"), NN("marriedTo"), NN("bob")), NN("since"), L("1999"))
+        result = unify(p, c)
+        assert result == {x.id: NN("marriedTo")}
+
+    def test_multiple_vars_inside_tripleterm(self):
+        from pyeye.term import TripleTerm
+        s, o = V("S"), V("O")
+        p = T(TripleTerm(s, NN("marriedTo"), o), NN("since"), L("1999"))
+        c = T(TripleTerm(NN("alice"), NN("marriedTo"), NN("bob")), NN("since"), L("1999"))
+        result = unify(p, c)
+        assert result == {s.id: NN("alice"), o.id: NN("bob")}
+
+    def test_tripleterm_in_object_position(self):
+        from pyeye.term import TripleTerm
+        x = V("X")
+        p = T(NN("s"), NN("p"), TripleTerm(NN("d"), NN("e"), x))
+        c = T(NN("s"), NN("p"), TripleTerm(NN("d"), NN("e"), NN("f")))
+        result = unify(p, c)
+        assert result == {x.id: NN("f")}
+
+    def test_tripleterm_vs_namednode_fails(self):
+        from pyeye.term import TripleTerm
+        p = T(TripleTerm(NN("a"), NN("b"), NN("c")), NN("p"), NN("o"))
+        c = T(NN("plain"), NN("p"), NN("o"))
+        assert unify(p, c) is None
+
+    def test_variable_binds_to_whole_tripleterm(self):
+        from pyeye.term import TripleTerm
+        x = V("X")
+        tt = TripleTerm(NN("a"), NN("b"), NN("c"))
+        p = T(x, NN("p"), NN("o"))
+        c = T(tt, NN("p"), NN("o"))
+        result = unify(p, c)
+        assert result == {x.id: tt}
+
+    def test_nested_tripleterm_unify(self):
+        from pyeye.term import TripleTerm
+        x = V("X")
+        inner_pat = TripleTerm(NN("a"), NN("b"), x)
+        inner_cand = TripleTerm(NN("a"), NN("b"), NN("c"))
+        p = T(TripleTerm(inner_pat, NN("p2"), NN("o2")), NN("q"), NN("z"))
+        c = T(TripleTerm(inner_cand, NN("p2"), NN("o2")), NN("q"), NN("z"))
+        result = unify(p, c)
+        assert result == {x.id: NN("c")}
+
+    def test_occurs_check_inside_tripleterm(self):
+        from pyeye.term import TripleTerm
+        from pyeye.unify import unify_terms
+        x = V("X")
+        # X cannot bind to a TripleTerm that contains X
+        tt = TripleTerm(NN("a"), NN("b"), x)
+        assert unify_terms(x, tt, {}) is None
+
+    def test_apply_binding_into_tripleterm(self):
+        from pyeye.term import TripleTerm
+        s, o = V("S"), V("O")
+        tt = TripleTerm(s, NN("marriedTo"), o)
+        binding = {s.id: NN("alice"), o.id: NN("bob")}
+        result = apply_binding(tt, binding)
+        assert result == TripleTerm(NN("alice"), NN("marriedTo"), NN("bob"))
+
+    def test_term_contains_var_inside_tripleterm(self):
+        from pyeye.term import TripleTerm
+        x = V("X")
+        tt = TripleTerm(NN("a"), NN("b"), x)
+        assert term_contains_var(tt, x.id) is True
+        assert term_contains_var(tt, 999999) is False

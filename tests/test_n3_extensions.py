@@ -7,7 +7,9 @@ import pytest
 from pyeye.parser import parse_n3
 from pyeye.engine import Engine
 from pyeye.parser import Rule
-from pyeye.term import NamedNode, Variable, Triple, Formula, NegativeSurface, Literal
+from pyeye.term import (
+    NamedNode, Variable, Triple, Formula, NegativeSurface, Literal, TripleTerm,
+)
 from pyeye import execute
 
 
@@ -16,6 +18,7 @@ V = Variable
 T = Triple
 F = Formula
 L = Literal
+TT = TripleTerm
 
 
 class TestNegativeSurface:
@@ -267,3 +270,77 @@ class TestPrefixedNameLexing:
         )
         doc = parse_n3(text)
         assert doc.triples[0].predicate == NN("http://l#equalTo")
+
+
+class TestTripleTermReasoning:
+    """RDF-star quoted triples (<< s p o >>) match facts and bind inner
+    variables during backward/forward chaining."""
+
+    def test_rule_body_tripleterm_matches_fact(self):
+        """A rule body with a ground << >> subject fires when the fact exists."""
+        engine = Engine()
+        fact = T(TT(NN("bob"), NN("marriedTo"), NN("alice")), NN("since"), L("1999"))
+        engine.add_triple(fact)
+        engine.add_rule(Rule(
+            body=F((T(TT(NN("bob"), NN("marriedTo"), NN("alice")), NN("since"), L("1999")),)),
+            head=F((T(NN("TEST"), NN("PASS"), L("2")),)),
+        ))
+        engine.run()
+        assert T(NN("TEST"), NN("PASS"), L("2")) in engine.derived_triples
+
+    def test_rule_body_tripleterm_binds_inner_var(self):
+        """A variable inside a << >> pattern binds to the matching fact's term."""
+        engine = Engine()
+        engine.add_triple(
+            T(TT(NN("alice"), NN("marriedTo"), NN("bob")), NN("since"), L("1999"))
+        )
+        p = V("P")
+        engine.add_rule(Rule(
+            body=F((T(TT(NN("alice"), p, NN("bob")), NN("since"), L("1999")),)),
+            head=F((T(NN("TEST"), NN("PASS"), L("3")),)),
+        ))
+        engine.run()
+        assert T(NN("TEST"), NN("PASS"), L("3")) in engine.derived_triples
+
+    def test_tripleterm_pattern_does_not_overmatch(self):
+        """A << >> pattern must not match a fact with a different inner triple."""
+        engine = Engine()
+        engine.add_triple(
+            T(TT(NN("alice"), NN("marriedTo"), NN("carol")), NN("since"), L("1999"))
+        )
+        engine.add_rule(Rule(
+            body=F((T(TT(NN("alice"), NN("marriedTo"), NN("bob")), NN("since"), L("1999")),)),
+            head=F((T(NN("TEST"), NN("FAIL"), L("x")),)),
+        ))
+        engine.run()
+        assert T(NN("TEST"), NN("FAIL"), L("x")) not in engine.derived_triples
+
+    def test_derive_tripleterm_in_head(self):
+        """A rule can build a new << >> fact in its head from bound variables."""
+        engine = Engine()
+        engine.add_triple(
+            T(TT(NN("alice"), NN("marriedTo"), NN("bob")), NN("since"), L("1999"))
+        )
+        s, o = V("S"), V("O")
+        engine.add_rule(Rule(
+            body=F((T(TT(s, NN("marriedTo"), o), NN("since"), L("1999")),)),
+            head=F((T(TT(o, NN("marriedTo"), s), NN("since"), L("1999")),)),
+        ))
+        engine.run()
+        derived = T(TT(NN("bob"), NN("marriedTo"), NN("alice")), NN("since"), L("1999"))
+        assert derived in engine.derived_triples
+
+    def test_n3_star_scenario_end_to_end(self):
+        """Symmetric-relation RDF-star inference (the n3-star scenario shape)."""
+        text = (
+            '@prefix : <https://ex.org#>.\n'
+            '{?p a :SymetricRelation. <<( ?s ?p ?o )>> ?p2 ?o2}'
+            ' => {<<( ?o ?p ?s )>> ?p2 ?o2}.\n'
+            ':marriedTo a :SymetricRelation.\n'
+            ':alice :marriedTo :bob.\n'
+            '<<( :alice :marriedTo :bob )>> :since "1999".\n'
+            '{<<( :alice ?p :bob )>> :since "1999"} => {:TEST :PASS 3}.\n'
+        )
+        result = execute(rule_paths=None, data_strings=[text], pass_all=True,
+                         timeout_seconds=10)
+        assert ":TEST :PASS 3" in result.triples
