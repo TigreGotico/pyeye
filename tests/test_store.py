@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pyeye.term import NamedNode, Literal, Variable, Triple
+from pyeye.term import NamedNode, Literal, Variable, Triple, TripleTerm
 from pyeye.store import TripleStore
 
 
@@ -144,4 +144,40 @@ class TestIteration:
         store = TripleStore()
         store.add(T(NN("a"), NN("p"), NN("b")))
         store.add(T(NN("c"), NN("q"), NN("d")))
+        assert len(store.triples()) == 2
+
+
+class TestTripleTermFacts:
+    """A ground RDF-star quoted triple in subject position is a valid,
+    hashable store key and is retrievable by exact match."""
+
+    def test_add_and_contains_tripleterm_subject(self):
+        store = TripleStore()
+        tt = TripleTerm(NN("alice"), NN("marriedTo"), NN("bob"))
+        fact = T(tt, NN("since"), Literal("1999"))
+        assert store.add(fact) is True
+        assert store.contains(fact) is True
+
+    def test_match_by_predicate_yields_tripleterm_fact(self):
+        store = TripleStore()
+        tt = TripleTerm(NN("alice"), NN("marriedTo"), NN("bob"))
+        fact = T(tt, NN("since"), Literal("1999"))
+        store.add(fact)
+        results = list(store.match(predicate=NN("since")))
+        assert results == [fact]
+
+    def test_match_by_exact_tripleterm_subject(self):
+        store = TripleStore()
+        tt = TripleTerm(NN("bob"), NN("marriedTo"), NN("alice"))
+        fact = T(tt, NN("since"), Literal("1999"))
+        store.add(fact)
+        results = list(store.match(subject=tt))
+        assert results == [fact]
+
+    def test_distinct_inner_triples_are_distinct_keys(self):
+        store = TripleStore()
+        f1 = T(TripleTerm(NN("a"), NN("p"), NN("b")), NN("since"), Literal("1"))
+        f2 = T(TripleTerm(NN("a"), NN("p"), NN("c")), NN("since"), Literal("1"))
+        store.add(f1)
+        store.add(f2)
         assert len(store.triples()) == 2
