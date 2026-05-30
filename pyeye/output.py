@@ -254,7 +254,7 @@ class N3Writer:
             return f"{{{inner_triples}}}"
         # Single triple as formula
         if isinstance(t, TripleTerm):
-            return f"<<{self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)}>>"
+            return f"<<( {self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)} )>>"
         return self._term(t)
 
     def _term_for_object(
@@ -298,7 +298,7 @@ class N3Writer:
             return f"{{{inner}}}"
         # Phase 2 extended types
         if isinstance(t, TripleTerm):
-            return f"<<{self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)}>>"
+            return f"<<( {self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)} )>>"
         if isinstance(t, FormulaTerm):
             args_str = " ".join(self._term(a) for a in t.args)
             return f"(|{self._term(t.functor)} {args_str}|)"

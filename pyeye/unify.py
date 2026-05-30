@@ -117,6 +117,21 @@ def unify_terms(
     if isinstance(pattern, ListTerm) or isinstance(candidate, ListTerm):
         return None
 
+    # Both TripleTerms (RDF-star quoted triples) → element-by-element
+    if isinstance(pattern, TripleTerm) and isinstance(candidate, TripleTerm):
+        b = unify_terms(pattern.predicate, candidate.predicate, binding)
+        if b is None:
+            return None
+        b = unify_terms(pattern.subject, candidate.subject, b)
+        if b is None:
+            return None
+        b = unify_terms(pattern.object, candidate.object, b)
+        return b
+
+    # TripleTerm vs non-TripleTerm → fail (except Variable, handled above)
+    if isinstance(pattern, TripleTerm) or isinstance(candidate, TripleTerm):
+        return None
+
     # Both ground → check equality (with numeric cross-type handling)
     if _terms_equivalent(pattern, candidate):
         return binding
