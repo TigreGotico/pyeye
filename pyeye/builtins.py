@@ -2472,6 +2472,14 @@ def list_firstRest(args: list[Term], engine: EngineProto) -> Term | None:
     obj = args[-1]
     subj_args = args[:-1]
 
+    # An empty list has no (first rest) decomposition.
+    if len(args) == 2 and isinstance(args[0], ListTerm) and not args[0].items:
+        return None
+    pat = getattr(engine, "_current_pattern", None)
+    if (pat is not None and isinstance(pat.subject, ListTerm)
+            and not pat.subject.items):
+        return None
+
     # Check if subject is a ground list (decompose mode)
     if subj_args and not any(isinstance(a, Variable) for a in subj_args):
         # Decompose: subject is a ground list, extract first and rest
@@ -2544,6 +2552,32 @@ def list_intersection(args: list[Term], engine: EngineProto) -> Term | None:
     return None
 
 def list_select(args: list[Term], engine: EngineProto) -> Term | None:
+    # Prolog select/3: ``?L list:select (?Elem ?Rest)`` nondeterministically
+    # removes one element, one binding per position.
+    if len(args) >= 2:
+        obj = args[-1]
+        if isinstance(obj, ListTerm) and len(obj.items) == 2:
+            pat = getattr(engine, "_current_pattern", None)
+            if pat is not None and isinstance(pat.subject, ListTerm):
+                items = list(pat.subject.items)
+            else:
+                head = args[0]
+                items = (list(head.items)
+                         if len(args) == 2 and isinstance(head, ListTerm)
+                         else list(args[:-1]))
+            if not any(_term_has_var(i) for i in items):
+                elem_pat, rest_pat = obj.items
+                binding = dict(getattr(engine, "_current_binding", {}) or {})
+                out = []
+                for i, elem in enumerate(items):
+                    rest = ListTerm(tuple(items[:i] + items[i + 1:]))
+                    nb = _unify_member(elem_pat, elem, dict(binding))
+                    if nb is None:
+                        continue
+                    nb = _unify_member(rest_pat, rest, nb)
+                    if nb is not None:
+                        out.append(nb)
+                return BindingsList(out)
     inputs = _input_only(args)
     if _unground(inputs): return None
     head = inputs[0]

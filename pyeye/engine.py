@@ -755,6 +755,12 @@ class Engine:
                 # binds ?List) schedule before its consumer (math:sum on ?List),
                 # which the plain fewest-unbound heuristic gets backwards.
                 input_vars = self._pattern_input_var_ids(pattern)
+                if kind == "deferred":
+                    # A rule/store goal has no output slot: every unbound
+                    # variable — including the object — is a join key that a
+                    # pending builtin may produce.  Posing it first would run
+                    # recursion with an unbound argument (divergence risk).
+                    input_vars = pvars
                 unbound_inputs = input_vars - bound_ids
                 # Blocked iff an unbound input is produced by another remaining
                 # builtin (exclude this pattern's own outputs from the set).
@@ -1118,9 +1124,13 @@ class Engine:
     def _goal_maybe_unready(self, goal: Triple, binding: Binding) -> bool:
         """Whether *goal* failing under *binding* may mean "not yet evaluable".
 
-        True only for builtin goals that still carry unbound variables: a
-        bidirectional builtin may need sibling goals to bind its inputs before
-        it can run, so its empty result is not yet a refutation.
+        True only for builtin goals that carry unbound variables on *both*
+        sides: a bidirectional builtin can run as soon as either side is
+        ground (decompose with a ground subject, construct/split with a
+        ground object), so a failure with one ground side is a genuine
+        refutation — deferring it would let sibling recursion run with an
+        unbound argument and diverge (e.g. ``() list:firstRest (?Y ?Ys)``
+        must fail its clause, not be retried later).
         """
         resolved = apply_binding_to_triple(goal, binding)
         pred = resolved.predicate
@@ -1130,10 +1140,11 @@ class Engine:
             return False
         if pred.value not in self._builtins or not self._builtin_applies(resolved):
             return False
-        ids: set[int] = set()
-        self._collect_var_ids(resolved.subject, ids)
-        self._collect_var_ids(resolved.object, ids)
-        return bool(ids)
+        s_ids: set[int] = set()
+        o_ids: set[int] = set()
+        self._collect_var_ids(resolved.subject, s_ids)
+        self._collect_var_ids(resolved.object, o_ids)
+        return bool(s_ids) and bool(o_ids)
 
     def _select_goal(self, goals: list[Triple], binding: Binding) -> int:
         """Pick the index of the next goal to solve.

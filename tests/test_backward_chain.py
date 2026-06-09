@@ -189,3 +189,59 @@ class TestBidirectionalBuiltins:
         sols = engine._solve(goals, {})
         assert len(sols) == 1
         assert sols[0][b.id] == self._lst(self._lit(6))
+
+
+class TestSelectAndSearch:
+    """Nondeterministic list:select and search-style recursion."""
+
+    XSD_INT = NN("http://www.w3.org/2001/XMLSchema#integer")
+    LIST = "http://www.w3.org/2000/10/swap/list#"
+
+    def _lit(self, n):
+        return L(str(n), datatype=self.XSD_INT)
+
+    def _lst(self, *items):
+        from pyeye.term import ListTerm
+        return ListTerm(tuple(items))
+
+    def test_select_enumerates_removals(self):
+        engine = Engine()
+        q, rest = V("Q"), V("Rest")
+        goal = T(self._lst(self._lit(1), self._lit(2), self._lit(3)),
+                 NN(self.LIST + "select"), self._lst(q, rest))
+        sols = engine._solve([goal], {})
+        picked = {(str(b[q.id].value), len(b[rest.id].items)) for b in sols}
+        assert picked == {("1", 2), ("2", 2), ("3", 2)}
+
+    def test_first_rest_empty_list_fails(self):
+        engine = Engine()
+        y, ys = V("Y"), V("Ys")
+        goal = T(self._lst(), NN(self.LIST + "firstRest"), self._lst(y, ys))
+        assert engine._solve([goal], {}) == []
+
+    def test_recursion_with_unbound_list_terminates(self):
+        """A clause whose builtin refutes (empty list) must fail the clause
+        rather than let sibling recursion run with an unbound argument."""
+        from pyeye.parser import parse_n3
+        src = """
+        @prefix list: <http://www.w3.org/2000/10/swap/list#>.
+        @prefix math: <http://www.w3.org/2000/10/swap/math#>.
+        @prefix : <http://x/#>.
+        {(?X ?N) :hit ?YYs} <= {
+            ?YYs list:firstRest (?Y ?Ys).
+            (?Y ?N) math:sum ?X.
+        }.
+        {(?X ?N) :hit ?YYs} <= {
+            ?YYs list:firstRest (?Y ?Ys).
+            (?N 1) math:sum ?N1.
+            (?X ?N1) :hit ?Ys.
+        }.
+        """
+        doc = parse_n3(src)
+        engine = Engine(timeout_seconds=5)
+        for r in doc.rules:
+            engine.add_rule(r)
+        goal = T(self._lst(self._lit(2), self._lit(1)), NN("http://x/#hit"),
+                 self._lst(self._lit(1)))
+        sols = engine._solve([goal], {})
+        assert len(sols) == 1
