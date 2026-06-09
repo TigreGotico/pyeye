@@ -27,6 +27,7 @@ import ipaddress as _ipaddress
 import urllib.parse as _urllib_parse
 import shlex as _shlex
 import sys as _sys
+from fractions import Fraction as _Fraction
 from typing import Protocol
 
 from pyeye.term import NamedNode, Literal, Variable, Existential, Triple, Term, Formula, ListTerm
@@ -165,10 +166,17 @@ def _num_exact(t: Term):
     """Like ``_num_val`` but preserves Python ``int`` for integer-typed
     literals so arbitrary-precision integer arithmetic does not lose
     precision by round-tripping through ``float`` (e.g. fib(3674), which has
-    several hundred digits and overflows a float to ``inf``)."""
+    several hundred digits and overflows a float to ``inf``).  Decimal-typed
+    literals are kept exact as ``Fraction`` so quotient chains (polygon area)
+    sum back to exact integers."""
     if isinstance(t, Literal) and _is_integer_term(t):
         try:
             return int(t.value)
+        except ValueError:
+            pass
+    if isinstance(t, Literal) and _is_decimal_term(t):
+        try:
+            return _Fraction(t.value)
         except ValueError:
             pass
     return _num_val(t)
@@ -208,13 +216,45 @@ def _int_result(v: int) -> Literal:
 
 
 _XSD_INTEGER = "http://www.w3.org/2001/XMLSchema#integer"
+_XSD_DECIMAL = "http://www.w3.org/2001/XMLSchema#decimal"
 
 def _is_integer_term(t: Term) -> bool:
     return (isinstance(t, Literal) and t.datatype is not None
             and isinstance(t.datatype, NamedNode)
             and t.datatype.value == _XSD_INTEGER)
 
+def _is_decimal_term(t: Term) -> bool:
+    return (isinstance(t, Literal) and t.datatype is not None
+            and isinstance(t.datatype, NamedNode)
+            and t.datatype.value == _XSD_DECIMAL)
+
+def _decimal_result(v: _Fraction) -> Literal:
+    """Serialize an exact non-integral Fraction.
+
+    Terminating expansions (denominator 2^m * 5^n) become xsd:decimal;
+    anything else falls back to an xsd:double approximation."""
+    den = v.denominator
+    e2 = e5 = 0
+    while den % 2 == 0:
+        den //= 2
+        e2 += 1
+    while den % 5 == 0:
+        den //= 5
+        e5 += 1
+    if den != 1:
+        return _num_result(float(v))
+    scale = max(e2, e5)
+    scaled = v.numerator * (10 ** scale) // v.denominator
+    sign = "-" if scaled < 0 else ""
+    digits = str(abs(scaled)).rjust(scale + 1, "0")
+    text = f"{sign}{digits[:-scale]}.{digits[-scale:]}" if scale else f"{sign}{digits}"
+    return Literal(text, datatype=NamedNode(_XSD_DECIMAL))
+
 def _typed_num_result(v, inputs: list[Term]) -> Literal:
+    if isinstance(v, _Fraction):
+        if v.denominator == 1:
+            return _int_result(int(v))
+        return _decimal_result(v)
     if all(_is_integer_term(t) for t in inputs):
         if isinstance(v, int):
             return _int_result(v)
@@ -1779,6 +1819,9 @@ def math_quotient(args: list[Term], engine: EngineProto) -> Term | None:
         return _solve_single_unknown(
             args, engine,
             lambda out, known, idx: out * known[0] if idx == 0 else known[0] / out)
+    a, b = _num_exact(inp[0]), _num_exact(inp[1])
+    if isinstance(a, (int, _Fraction)) and isinstance(b, (int, _Fraction)):
+        return _typed_num_result(_Fraction(a) / _Fraction(b), inp)
     return _num_result(_num_val(inp[0]) / _num_val(inp[1]))
 
 def math_integerQuotient(args: list[Term], engine: EngineProto) -> Term | None:
