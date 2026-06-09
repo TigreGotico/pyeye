@@ -2699,9 +2699,20 @@ def log_rawType(args: list[Term], engine: EngineProto) -> Term | None:
     }
     return Literal(type_map.get(type(t), "http://www.w3.org/2000/10/swap/log#Other"))
 
-def log_repeat(args: list[Term], engine: EngineProto) -> list[Triple] | None:
-    # Repeat pattern N times
-    return []
+def log_repeat(args: list[Term], engine: EngineProto):
+    """log:repeat — generate 0 .. N-1 (EYE: between(0, A-1, B))."""
+    if not args:
+        return []
+    n_term = args[0]
+    if isinstance(n_term, Variable):
+        return None
+    try:
+        n = int(_num_val(n_term))
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return MultiResult([])
+    return MultiResult([_int_result(i) for i in range(n)])
 
 def log_satisfiable(args: list[Term], engine: EngineProto) -> Term | None:
     # Check if formula is satisfiable
@@ -3313,6 +3324,15 @@ def log_dcg(args: list[Term], engine: EngineProto) -> Term | None:
     return _bool_result("-->" in rule_text)
 
 
+def _is_truthy_term(t: Term, engine: EngineProto) -> bool:
+    """Non-formula then/else branch: true literal or store-known subject."""
+    if isinstance(t, Literal):
+        return t.value.lower() == "true"
+    if isinstance(t, (NamedNode, Existential)):
+        return bool(list(engine.store.match(subject=t)))
+    return False
+
+
 def log_ifThenElseIn(args: list[Term], engine: EngineProto) -> Term | None:
     """log:ifThenElseIn — conditional reasoning within a graph.
 
@@ -3342,12 +3362,35 @@ def log_ifThenElseIn(args: list[Term], engine: EngineProto) -> Term | None:
         items = list(arg0.items)
     elif isinstance(arg0, (list,)):  # pragma: no cover — parser never passes raw Python list
         items = arg0  # type: ignore[assignment]
+    elif len(args) >= 4:
+        # Engine layout: the (cond then else) subject list arrives expanded,
+        # with the scope object appended last.
+        items = list(args[:-1])
 
     if len(items) < 3:
         # Not a proper [cond, then, else] — just return arg0
         return arg0
 
     cond, then_branch, else_branch = items[0], items[1], items[2]
+
+    # Formula branches: Prolog-style soft-cut if-then-else.  Prove the
+    # condition in scope; commit to its first solution and prove the then
+    # branch under it, otherwise prove the else branch.  Solutions extend the
+    # caller's binding (variables shared with the rest of the rule body).
+    if isinstance(cond, Formula):
+        solve = getattr(engine, "_solve", None)
+        if solve is None:
+            return None
+        binding = dict(getattr(engine, "_current_binding", {}) or {})
+        cond_sols = solve(list(cond.triples), binding)
+        if cond_sols:
+            chosen = cond_sols[0]
+            if isinstance(then_branch, Formula):
+                return BindingsList(solve(list(then_branch.triples), chosen))
+            return BindingsList([chosen]) if _is_truthy_term(then_branch, engine) else BindingsList([])
+        if isinstance(else_branch, Formula):
+            return BindingsList(solve(list(else_branch.triples), binding))
+        return BindingsList([binding]) if _is_truthy_term(else_branch, engine) else BindingsList([])
 
     # Evaluate condition
     def _is_true(t: Term) -> bool:

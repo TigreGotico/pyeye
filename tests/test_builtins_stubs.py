@@ -532,3 +532,60 @@ class TestLogLocalN3StringCoverage:
         result = log_localN3String([NN("http://example.org/Bar")], None)
         assert result is not None
         assert result.value == "http://example.org/Bar"
+
+
+class TestLogIfThenElseInFormulas:
+    """Formula-based soft-cut conditional with binding propagation."""
+
+    def _setup(self):
+        from pyeye.term import ListTerm, Formula, Variable, Triple as TT
+        from pyeye.engine import Engine
+        return Engine()
+
+    def test_then_branch_binds_shared_variable(self):
+        from pyeye.term import ListTerm, Formula, Variable
+        from pyeye.engine import Engine
+        from pyeye.builtins import log_ifThenElseIn, BindingsList
+        engine = Engine()
+        engine.add_triple(T(NN("http://x/a"), NN("http://x/p"), L("1")))
+        out = V("OUT")
+        cond = Formula((T(NN("http://x/a"), NN("http://x/p"), L("1")),))
+        then_f = Formula((T(NN("http://x/a"), NN("http://x/p"), out),))
+        else_f = Formula((T(NN("http://x/a"), NN("http://x/q"), out),))
+        engine._current_binding = {}
+        r = log_ifThenElseIn([cond, then_f, else_f, V("SCOPE")], engine)
+        assert isinstance(r, BindingsList)
+        assert r.bindings and r.bindings[0][out.id] == L("1")
+
+    def test_else_branch_when_condition_fails(self):
+        from pyeye.term import Formula
+        from pyeye.engine import Engine
+        from pyeye.builtins import log_ifThenElseIn, BindingsList
+        engine = Engine()
+        engine.add_triple(T(NN("http://x/a"), NN("http://x/q"), L("2")))
+        out = V("OUT")
+        cond = Formula((T(NN("http://x/a"), NN("http://x/p"), L("1")),))
+        then_f = Formula((T(NN("http://x/a"), NN("http://x/p"), out),))
+        else_f = Formula((T(NN("http://x/a"), NN("http://x/q"), out),))
+        engine._current_binding = {}
+        r = log_ifThenElseIn([cond, then_f, else_f, V("SCOPE")], engine)
+        assert isinstance(r, BindingsList)
+        assert r.bindings and r.bindings[0][out.id] == L("2")
+
+
+class TestLogRepeatGenerative:
+    def test_generates_zero_to_n_minus_one(self):
+        from pyeye.builtins import log_repeat, MultiResult
+        r = log_repeat([L("3", datatype=NN("http://www.w3.org/2001/XMLSchema#integer")), V("I")], None)
+        assert isinstance(r, MultiResult)
+        assert [t.value for t in r.results] == ["0", "1", "2"]
+
+    def test_zero_yields_nothing(self):
+        from pyeye.builtins import log_repeat, MultiResult
+        r = log_repeat([L("0"), V("I")], None)
+        assert isinstance(r, MultiResult)
+        assert r.results == []
+
+    def test_unbound_subject_skips(self):
+        from pyeye.builtins import log_repeat
+        assert log_repeat([V("N"), V("I")], None) is None
