@@ -32,7 +32,8 @@ class TripleStore:
     by graph ID separately.
     """
 
-    __slots__ = ("_triples", "_by_pred", "_by_subj", "_by_obj", "_quads", "_quads_by_graph")
+    __slots__ = ("_triples", "_by_pred", "_by_subj", "_by_obj", "_quads",
+                 "_quads_by_graph", "version")
 
     def __init__(self) -> None:
         # Default graph (triples) — dict[Triple, None] preserves insertion order
@@ -44,6 +45,9 @@ class TripleStore:
         # Named graphs (quads)
         self._quads: dict[Quad, None] = {}
         self._quads_by_graph: dict[Term, dict[Quad, None]] = {}
+        # Monotonic mutation counter — bumps on every successful add/retract
+        # so derived-answer caches can detect staleness.
+        self.version = 0
 
     # -- mutators ----------------------------------------------------------------
 
@@ -60,6 +64,7 @@ class TripleStore:
         self._by_pred.setdefault(triple.predicate, {})[triple] = None
         self._by_subj.setdefault(triple.subject, {})[triple] = None
         self._by_obj.setdefault(triple.object, {})[triple] = None
+        self.version += 1
         return True
 
     def add_quad(self, quad: Quad) -> bool:
@@ -73,6 +78,7 @@ class TripleStore:
         graph = quad.graph
         if graph is not None:
             self._quads_by_graph.setdefault(graph, {})[quad] = None
+        self.version += 1
         return True
 
     def contains(self, triple: Triple) -> bool:
@@ -103,6 +109,7 @@ class TripleStore:
             self._by_obj[obj].pop(triple, None)
             if not self._by_obj[obj]:
                 del self._by_obj[obj]
+        self.version += 1
         return True
 
     def retract_all(self, subject: Term | None = None,

@@ -229,6 +229,10 @@ class Engine:
         # gk -> {"answers": list[Triple], "seen": set, "complete": bool}.
         self._answer_table: dict[str, dict] | None = None
         self._table_stack: list[str] = []
+        # Completed answer-table entries from the last top-level solve, valid
+        # while the store mutation counter matches _table_cache_version.
+        self._table_cache: dict[str, dict] | None = None
+        self._table_cache_version: int = -1
         # On-stack set for BC cycle detection (goal keys)
         self._bc_stack: set[str] = set()
         # Predicates declared with log:table
@@ -327,6 +331,11 @@ class Engine:
             for rule_idx, rule in enumerate(self._rules):
                 if rule.is_backward:
                     continue
+                if rule.is_query:
+                    # Query-rule conclusions are answers, not derived facts:
+                    # they never feed forward inference.  collect_answers()
+                    # evaluates them once against the final closure.
+                    continue
                 self._apply_rule(rule, rule_idx, processed, global_processed, rule.for_some)
                 if self._limit_answers > 0 and self._derived_count >= self._limit_answers:
                     return
@@ -391,7 +400,10 @@ class Engine:
             brake_hash = hash(binding_key)
             brake_key = (rule_idx, brake_hash)
 
-            if for_some_vars:
+            if for_some_vars or rule.is_query:
+                # Query-rule heads are answers, not new facts: reprocessing a
+                # binding on a later pass can never derive anything new, so
+                # brake across passes.
                 if brake_key in global_processed:
                     continue
                 global_processed.add(brake_key)
@@ -584,7 +596,14 @@ class Engine:
                 and pattern.predicate.value in self._builtins)
 
     def _pattern_var_ids(self, pattern: Triple) -> set[int]:
-        """Return Variable IDs referenced in the pattern."""
+        """Return Variable IDs referenced in the pattern.
+
+        Static per pattern, so the result is cached on the triple itself —
+        goal ordering consults it many times per conjunction level.
+        """
+        cached = getattr(pattern, "_pvar_ids", None)
+        if cached is not None:
+            return cached
         ids: set[int] = set()
         for t in (pattern.subject, pattern.predicate, pattern.object):
             if isinstance(t, Variable):
@@ -593,6 +612,7 @@ class Engine:
                 for item in t.items:
                     if isinstance(item, Variable):
                         ids.add(item.id)
+        object.__setattr__(pattern, "_pvar_ids", ids)
         return ids
 
     # Builtins that can run with an unbound subject when the object side is
@@ -613,11 +633,15 @@ class Engine:
         trailing list item as an output too.  Formula items declare their own
         scope and are not counted as required inputs.
         """
+        cached = getattr(pattern, "_pinput_ids", None)
+        if cached is not None:
+            return cached
         ids: set[int] = set()
         s = pattern.subject
         pred = (pattern.predicate.value
                 if isinstance(pattern.predicate, NamedNode) else "")
         if pred in self._BIDIRECTIONAL_IRIS:
+            object.__setattr__(pattern, "_pinput_ids", ids)
             return ids
         is_forallin = pred.endswith("/log#forAllIn")
         if isinstance(s, Variable):
@@ -642,6 +666,7 @@ class Engine:
         if isinstance(pattern.predicate, Variable):
             ids.add(pattern.predicate.id)
         # object is the output slot — not a required input
+        object.__setattr__(pattern, "_pinput_ids", ids)
         return ids
 
     def _djiti_order(
@@ -671,12 +696,13 @@ class Engine:
                 inputs = self._pattern_input_var_ids(pattern)
                 produced_ids.update(pvars - inputs)
 
+        bound_keys = set(binding.keys())
         for i, pattern in enumerate(patterns):
             if self._is_builtin_pattern(pattern):
                 builtin_patterns.append((i, pattern))
                 continue
             input_vars = self._pattern_input_var_ids(pattern)
-            unbound_inputs = input_vars - set(binding.keys())
+            unbound_inputs = input_vars - bound_keys
             if unbound_inputs & produced_ids:
                 # An input is produced by a builtin → defer to the topo phase.
                 deferred_patterns.append((i, pattern))
@@ -854,7 +880,10 @@ class Engine:
                 for t in result:
                     self.store.add(t)
                 results.append(b)
-            elif isinstance(result, Term):
+            else:
+                # Only Term results remain (list/MultiResult/BindingsList/None
+                # handled above); avoid the runtime-checkable Protocol
+                # isinstance, which is costly on hot paths.
                 if isinstance(result, Literal) and result.value in ("true", "false"):
                     if result.value == "true":
                         if isinstance(builtin_obj, Variable):
@@ -1014,7 +1043,16 @@ class Engine:
         owns_table = self._answer_table is None
         prev_limit: int | None = None
         if owns_table:
-            self._answer_table = {}
+            # Reuse the previous top-level call's completed table while the
+            # store is unchanged (its mutation counter is the cache key), so
+            # repeated goal-directed queries over one closure — e.g. a query
+            # rule iterating ``log:repeat`` over a recursive predicate —
+            # share subgoal answers instead of recomputing each chain.
+            if (self._table_cache is not None
+                    and self._table_cache_version == self.store.version):
+                self._answer_table = self._table_cache
+            else:
+                self._answer_table = {}
             self._table_stack = []
             import sys as _sys
             prev_limit = _sys.getrecursionlimit()
@@ -1024,6 +1062,11 @@ class Engine:
             return self._solve_conj(goals, dict(binding))
         finally:
             if owns_table:
+                # Only completed entries are reusable across calls.
+                self._table_cache = {
+                    k: v for k, v in self._answer_table.items() if v["complete"]
+                }
+                self._table_cache_version = self.store.version
                 self._answer_table = None
                 self._table_stack = []
                 if prev_limit is not None:
