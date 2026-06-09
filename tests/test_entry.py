@@ -146,3 +146,18 @@ class TestExecuteAPI:
         # The builtin returns a Literal, but ?Z is a Variable so the head
         # triple won't be ground unless the builtin is in the body.
         # This just tests that the registration mechanism works.
+
+
+class TestInlineQueryRules:
+    def test_impq_rule_in_rule_file_yields_answers_under_nope(self):
+        r = execute(
+            rule_strings=[
+                "@prefix : <http://ex.org/> .\n"
+                ":a :p :b .\n"
+                "{?X :p ?Y} => {?X :q ?Y} .\n"
+                "{?X :q ?Y} =^ {?X :answer ?Y} .\n"
+            ],
+            nope=True,
+        )
+        assert ":a :answer :b" in r.triples.replace("<http://ex.org/a>", ":a").replace(
+            "<http://ex.org/answer>", ":answer").replace("<http://ex.org/b>", ":b")

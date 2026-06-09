@@ -308,6 +308,9 @@ def _execute_impl(
     # -- log:impliesAnswer rules are query/answer rules ----------------------
     # A ``{P} log:impliesAnswer {C}`` triple (whether inline in the data or
     # produced by --query) is an answer rule: its conclusions are the output.
+    # ``{P} =^ {C}`` rules inline in a rule file are query rules too.
+    if any(r.is_query for r in all_rules):
+        has_query_rules = True
     _log_implies_answer_iri = "http://www.w3.org/2000/10/swap/log#impliesAnswer"
     from pyeye.term import Formula as _Formula
     if any(
