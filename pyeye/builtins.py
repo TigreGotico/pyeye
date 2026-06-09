@@ -2707,11 +2707,20 @@ def log_trace_builtin(args: list[Term], engine: EngineProto) -> Term | None:
     return _bool_result(True)
 
 def log_uri(args: list[Term], engine: EngineProto) -> Term | None:
-    # args[0] is input (must be ground), args[1] (if present) is output variable
-    if _unground(args[:1]): return None
+    # Forward: ground subject resource -> its URI as a (percent-decoded) string.
+    # Reverse: unbound subject + ground string object -> the denoted resource,
+    # percent-encoding characters not allowed in IRIs (lowercase hex, as EYE).
     t = args[0]
+    if isinstance(t, Variable):
+        if len(args) >= 2 and isinstance(args[-1], Literal):
+            quoted = _urllib_parse.quote(args[-1].value, safe=":/?#[]@!$&'()*+,;=-._~")
+            quoted = _re.sub(r"%[0-9A-F]{2}", lambda m: m.group(0).lower(), quoted)
+            binding = dict(getattr(engine, "_current_binding", {}) or {})
+            binding[t.id] = NamedNode(quoted)
+            return BindingsList([binding])
+        return None
     if isinstance(t, NamedNode):
-        return Literal(t.value)
+        return Literal(_urllib_parse.unquote(t.value))
     return Literal(str(t))
 
 def log_becomes(args: list[Term], engine: EngineProto) -> list[Triple] | None:

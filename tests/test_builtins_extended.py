@@ -262,3 +262,22 @@ class TestListAppendModes:
         assert isinstance(r, BindingsList)
         assert len(r.bindings) == 1
         assert list(r.bindings[0][g.id].items) == [L("b"), L("c")]
+
+
+class TestLogUri:
+    def test_forward_percent_decodes(self):
+        from pyeye.builtins import log_uri
+        r = log_uri([NN("https://x.org/a%20b%cc%88"), V("S")], None)
+        assert r == L("https://x.org/a b̈")
+
+    def test_reverse_percent_encodes_lowercase_hex(self):
+        from pyeye.builtins import log_uri, BindingsList
+        engine = Engine()
+        u = V("uri")
+        r = log_uri([u, L("https://x.org/a b̈.pdf")], engine)
+        assert isinstance(r, BindingsList)
+        assert r.bindings[0][u.id] == NN("https://x.org/a%20b%cc%88.pdf")
+
+    def test_unbound_both_skips(self):
+        from pyeye.builtins import log_uri
+        assert log_uri([V("uri"), V("S")], None) is None
