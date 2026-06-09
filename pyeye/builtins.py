@@ -3684,6 +3684,9 @@ NS_VAR    = "http://www.w3.org/2000/10/swap/var#"
 # (no canonical swap equivalent)
 NS_E = "http://eulersharp.sourceforge.net/2003/03swap/log-rules#"
 
+# RIF builtin function namespace — aliases onto existing implementations
+NS_RIFF = "http://www.w3.org/2007/rif-builtin-function#"
+
 NS_RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
 BUILTIN_REGISTRY: dict[str, Builtin] = {
@@ -3993,4 +3996,15 @@ BUILTIN_REGISTRY: dict[str, Builtin] = {
     NS_E + "stringReverse": e_stringReverse,
     NS_E + "trace": e_trace,
     NS_E + "unique": e_unique,
+    # --- RIF builtin functions (aliases) ---
+    NS_RIFF + "reverse": list_reverse,
+    NS_RIFF + "concatenate": list_append,
+    NS_RIFF + "count": list_length_builtin,
+    NS_RIFF + "concat": func_concat,
+    NS_RIFF + "upper-case": func_uppercase,
+    NS_RIFF + "lower-case": func_lowercase,
+    NS_RIFF + "string-length": func_string_length,
+    NS_RIFF + "substring-before": func_substring_before,
+    NS_RIFF + "substring-after": func_substring_after,
+    NS_RIFF + "distinct-values": list_removeDuplicates,
 }
