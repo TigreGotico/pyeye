@@ -619,9 +619,23 @@ class Engine:
     # bound (split / construct modes).  None of their variables are *required*
     # inputs; subject variables they may bind count as produced outputs so
     # consumer goals wait for them.
+    # Builtins whose object slot is a required input (filter semantics), not
+    # an output to bind.
+    _OBJECT_INPUT_IRIS = frozenset({
+        "http://www.w3.org/2000/10/swap/math#greaterThan",
+        "http://www.w3.org/2000/10/swap/math#lessThan",
+        "http://www.w3.org/2000/10/swap/math#notLessThan",
+        "http://www.w3.org/2000/10/swap/math#notGreaterThan",
+        "http://www.w3.org/2000/10/swap/math#equalTo",
+        "http://www.w3.org/2000/10/swap/math#notEqualTo",
+        "http://www.w3.org/2000/10/swap/list#notMember",
+        "http://www.w3.org/2000/10/swap/log#notEqualTo",
+    })
+
     _BIDIRECTIONAL_IRIS = frozenset({
         "http://www.w3.org/2000/10/swap/list#append",
         "http://www.w3.org/2000/10/swap/list#firstRest",
+        "http://www.w3.org/2000/10/swap/list#select",
         "http://eulersharp.sourceforge.net/2003/03swap/log-rules#firstRest",
     })
 
@@ -648,6 +662,16 @@ class Engine:
             object.__setattr__(pattern, "_pinput_ids", ids)
             return ids
         is_forallin = pred.endswith("/log#forAllIn")
+        if pred.endswith("/log#ifThenElseIn") and isinstance(s, ListTerm):
+            # The condition formula runs under the bindings available at call
+            # time; its variables (shared with sibling goals, e.g. the queen
+            # picked by list:select) are required inputs — running the
+            # conditional first would commit to an arbitrary instantiation.
+            items = list(s.items)
+            if items and isinstance(items[0], Formula):
+                self._collect_var_ids(items[0], ids)
+            object.__setattr__(pattern, "_pinput_ids", ids)
+            return ids
         if isinstance(s, Variable):
             ids.add(s.id)
         elif isinstance(s, ListTerm):
@@ -1158,7 +1182,16 @@ class Engine:
         o_ids: set[int] = set()
         self._collect_var_ids(resolved.subject, s_ids)
         self._collect_var_ids(resolved.object, o_ids)
-        return bool(s_ids) and bool(o_ids)
+        if self._is_bidirectional_pattern(resolved):
+            # Evaluable as soon as either side is ground — a failure with one
+            # ground side is a genuine refutation.
+            return bool(s_ids) and bool(o_ids)
+        # Function-style builtins take inputs in the subject; filter-style
+        # ones (comparisons, notMember) also read the object.  A failure with
+        # an unbound required input means "not yet evaluable".
+        if pred.value in self._OBJECT_INPUT_IRIS:
+            return bool(s_ids) or bool(o_ids)
+        return bool(s_ids)
 
     def _select_goal(self, goals: list[Triple], binding: Binding) -> int:
         """Pick the index of the next goal to solve.
