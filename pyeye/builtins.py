@@ -1924,15 +1924,69 @@ def string_notGreaterThan(args: list[Term], engine: EngineProto) -> Term | None:
 
 # --- List: missing builtins ---
 
-def list_append(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
-    items = []
-    for a in args:
+def _concat_items(terms: list[Term]) -> list[Term]:
+    items: list[Term] = []
+    for a in terms:
         if isinstance(a, ListTerm):
             items.extend(list(a.items))
         else:
             items.append(a)
-    return _make_list(items, engine)
+    return items
+
+
+def _append_splits(inputs: list[Term], out: ListTerm, engine: EngineProto):
+    """Enumerate consecutive segmentations of *out* across *inputs*.
+
+    Each input term (a list, a variable, or a pattern carrying variables) is
+    unified against one contiguous segment of *out*; every consistent
+    segmentation yields one binding extension.  This is the reverse mode of
+    ``list:append`` — splitting a known concatenation into unknown parts.
+    """
+    binding = dict(getattr(engine, "_current_binding", {}) or {})
+    out_items = list(out.items)
+    results: list[dict] = []
+
+    def go(i: int, pos: int, b: dict) -> None:
+        if i == len(inputs):
+            if pos == len(out_items):
+                results.append(b)
+            return
+        if i == len(inputs) - 1:
+            seg = ListTerm(items=tuple(out_items[pos:]))
+            nb = _unify_member(inputs[i], seg, b)
+            if nb is not None:
+                go(i + 1, len(out_items), nb)
+            return
+        for end in range(pos, len(out_items) + 1):
+            seg = ListTerm(items=tuple(out_items[pos:end]))
+            nb = _unify_member(inputs[i], seg, b)
+            if nb is not None:
+                go(i + 1, end, nb)
+
+    go(0, 0, binding)
+    return BindingsList(results)
+
+
+def list_append(args: list[Term], engine: EngineProto) -> Term | None:
+    if not args:
+        return None
+    if len(args) >= 2:
+        inputs, out = list(args[:-1]), args[-1]
+        if isinstance(out, Variable):
+            # Forward mode: concatenate ground inputs into the output slot.
+            if any(_term_has_var(a) for a in inputs):
+                return None
+            return _make_list(_concat_items(inputs), engine)
+        if isinstance(out, ListTerm) and not _term_has_var(out):
+            if any(_term_has_var(a) for a in inputs):
+                # Reverse mode: split the known result across unbound parts.
+                return _append_splits(inputs, out, engine)
+            if _concat_items(inputs) == list(out.items):
+                # Check mode: the concatenation matches the ground object.
+                return out
+    if _unground(args):
+        return None
+    return _make_list(_concat_items(args), engine)
 
 def list_member(args: list[Term], engine: EngineProto):
     """list:member — ``getlist(List, C), member(Member, C)`` (EYE).

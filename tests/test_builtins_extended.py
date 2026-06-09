@@ -219,3 +219,46 @@ class TestMathIntegerTyping:
         assert not numeric_equal(IL(1), IL(2))
         assert not numeric_equal(IL(1), NN("http://x/1"))
 
+
+class TestListAppendModes:
+    def _lst(self, *items):
+        from pyeye.term import ListTerm
+        return ListTerm(items=tuple(items))
+
+    def test_forward_mode_excludes_output_slot(self):
+        from pyeye.builtins import list_append
+        out = V("M")
+        r = list_append([self._lst(L("a")), self._lst(L("b")), out], None)
+        assert r is not None
+        assert list(r.items) == [L("a"), L("b")]
+
+    def test_forward_mode_unbound_input_skips(self):
+        from pyeye.builtins import list_append
+        r = list_append([V("m1"), self._lst(L("a")), V("M")], None)
+        assert r is None
+
+    def test_check_mode_match(self):
+        from pyeye.builtins import list_append
+        out = self._lst(L("a"), L("b"))
+        r = list_append([self._lst(L("a")), self._lst(L("b")), out], None)
+        assert r == out
+
+    def test_reverse_mode_enumerates_splits(self):
+        from pyeye.builtins import list_append, BindingsList
+        engine = Engine()
+        f, g = V("F"), V("G")
+        out = self._lst(L("a"), L("b"))
+        r = list_append([f, g, out], engine)
+        assert isinstance(r, BindingsList)
+        splits = {(len(b[f.id].items), len(b[g.id].items)) for b in r.bindings}
+        assert splits == {(0, 2), (1, 1), (2, 0)}
+
+    def test_reverse_mode_ground_part_constrains(self):
+        from pyeye.builtins import list_append, BindingsList
+        engine = Engine()
+        g = V("G")
+        out = self._lst(L("a"), L("b"), L("c"))
+        r = list_append([self._lst(L("a")), g, out], engine)
+        assert isinstance(r, BindingsList)
+        assert len(r.bindings) == 1
+        assert list(r.bindings[0][g.id].items) == [L("b"), L("c")]
