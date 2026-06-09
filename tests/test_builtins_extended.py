@@ -281,3 +281,47 @@ class TestLogUri:
     def test_unbound_both_skips(self):
         from pyeye.builtins import log_uri
         assert log_uri([V("uri"), V("S")], None) is None
+
+
+class TestExactRationalArithmetic:
+    def test_quotient_integer_inputs_divisible(self):
+        from pyeye.builtins import math_quotient
+        r = math_quotient([IL(10), IL(2)], None)
+        assert r.value == "5"
+        assert r.datatype == XSD_INT
+
+    def test_quotient_non_divisible_is_decimal(self):
+        from pyeye.builtins import math_quotient
+        r = math_quotient([IL(1), IL(2)], None)
+        assert r.value == "0.5"
+        assert r.datatype == NN("http://www.w3.org/2001/XMLSchema#decimal")
+
+    def test_quotient_chain_sums_to_integer(self):
+        from pyeye.builtins import math_quotient, math_sum
+        halves = [math_quotient([IL(n), IL(2)], None) for n in (1, 3, 4)]
+        r = math_sum(halves, None)
+        assert r.value == "4"
+        assert r.datatype == XSD_INT
+
+    def test_untyped_quotient_stays_double(self):
+        from pyeye.builtins import math_quotient
+        r = math_quotient([L("10"), L("2")], None)
+        assert float(r.value) == 5.0
+
+
+class TestFirstRestNestedPattern:
+    def test_decompose_unifies_nested_pattern(self):
+        from pyeye.builtins import list_firstRest
+        from pyeye.term import ListTerm
+        engine = Engine()
+        engine._current_binding = {}
+        x, y, rest = V("X"), V("Y"), V("R")
+        pt = ListTerm((IL(4), IL(2)))
+        subject_items = [pt, ListTerm((IL(6), IL(2)))]
+        args = subject_items + [ListTerm((ListTerm((x, y)), rest))]
+        r = list_firstRest(args, engine)
+        assert r is not None and r.value == "true"
+        b = engine._current_binding
+        assert b[x.id] == IL(4)
+        assert b[y.id] == IL(2)
+        assert b[rest.id] == ListTerm((ListTerm((IL(6), IL(2))),))
