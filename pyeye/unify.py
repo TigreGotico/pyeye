@@ -117,6 +117,13 @@ def unify_terms(
     if isinstance(pattern, ListTerm) or isinstance(candidate, ListTerm):
         return None
 
+    # Both Formulas (quoted graphs) → set-semantics graph matching: every
+    # pattern triple unifies with some candidate triple under one consistent
+    # binding, and every (distinct) candidate triple is matched.  Duplicate
+    # triples in either graph collapse — graphs denote sets.
+    if isinstance(pattern, Formula) and isinstance(candidate, Formula):
+        return _unify_formulas(pattern, candidate, binding)
+
     # Both TripleTerms (RDF-star quoted triples) → element-by-element
     if isinstance(pattern, TripleTerm) and isinstance(candidate, TripleTerm):
         b = unify_terms(pattern.predicate, candidate.predicate, binding)
@@ -137,6 +144,37 @@ def unify_terms(
         return binding
 
     return None
+
+
+def _unify_formulas(
+    pattern: Formula,
+    candidate: Formula,
+    binding: Binding,
+) -> Binding | None:
+    """Graph-match two formulas under set semantics.
+
+    Each pattern triple unifies against some candidate triple, sharing one
+    binding; the match succeeds only if every distinct candidate triple is
+    covered.  Backtracks over assignments (quoted graphs are small).
+    """
+    pats = list(dict.fromkeys(pattern.triples))
+    cands = list(dict.fromkeys(candidate.triples))
+    found: list[Binding] = []
+
+    def go(i: int, b: Binding, covered: frozenset) -> None:
+        if found:
+            return
+        if i == len(pats):
+            if len(covered) == len(cands):
+                found.append(b)
+            return
+        for j, c in enumerate(cands):
+            nb = unify(pats[i], c, b)
+            if nb is not None:
+                go(i + 1, nb, covered | {j})
+
+    go(0, binding, frozenset())
+    return found[0] if found else None
 
 
 def term_contains_var(term: Term, var_id: int) -> bool:

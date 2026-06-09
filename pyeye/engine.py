@@ -580,11 +580,15 @@ class Engine:
         Passes subject=None if subject is a ListTerm (store can't index by it).
         """
         s = pattern.subject
-        if isinstance(s, (Variable, ListTerm)) or _is_nonground_tripleterm(s):
+        if (isinstance(s, (Variable, ListTerm, Formula))
+                or _is_nonground_tripleterm(s)):
+            # Formula slots match by set semantics (triple order/duplicates
+            # do not matter), so the exact-key index cannot pre-filter them.
             s = None
         p = pattern.predicate if not isinstance(pattern.predicate, Variable) else None
         o = pattern.object
-        if isinstance(o, (Variable, ListTerm)) or _is_nonground_tripleterm(o):
+        if (isinstance(o, (Variable, ListTerm, Formula))
+                or _is_nonground_tripleterm(o)):
             o = None
         return list(self.store.match(subject=s, predicate=p, object=o))
 

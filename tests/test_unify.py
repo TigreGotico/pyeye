@@ -7,7 +7,7 @@ import pytest
 from pyeye.term import (
     NamedNode, Literal, Variable, Existential, Formula, Triple, Binding
 )
-from pyeye.unify import unify, term_contains_var, apply_binding, apply_binding_to_triple
+from pyeye.unify import unify, unify_terms, term_contains_var, apply_binding, apply_binding_to_triple
 
 
 NN = NamedNode
@@ -311,3 +311,42 @@ class TestTripleTermUnify:
         tt = TripleTerm(NN("a"), NN("b"), x)
         assert term_contains_var(tt, x.id) is True
         assert term_contains_var(tt, 999999) is False
+
+
+class TestFormulaUnification:
+    """Quoted-graph matching under set semantics."""
+
+    def _f(self, *triples):
+        return Formula(tuple(triples))
+
+    def test_pattern_var_matches_ground_formula(self):
+        a, b, c = NN("http://x/a"), NN("http://x/b"), NN("http://x/c")
+        v = V("A")
+        r = unify_terms(self._f(T(v, b, c)), self._f(T(a, b, c)), {})
+        assert r is not None
+        assert r[v.id] == a
+
+    def test_duplicate_pattern_triples_collapse(self):
+        a, b, c = NN("http://x/a"), NN("http://x/b"), NN("http://x/c")
+        vb, vc = V("B"), V("C")
+        pat = self._f(T(a, vb, vc), T(a, vb, vc))
+        r = unify_terms(pat, self._f(T(a, b, c)), {})
+        assert r is not None
+        assert r[vb.id] == b and r[vc.id] == c
+
+    def test_order_insensitive_with_duplicates(self):
+        r_, s_, t_ = NN("http://x/r"), NN("http://x/s"), NN("http://x/t")
+        d, e, f = NN("http://x/d"), NN("http://x/e"), NN("http://x/f")
+        vs = V("S")
+        pat = self._f(T(d, e, f), T(r_, vs, t_))
+        cand = self._f(T(r_, s_, t_), T(d, e, f), T(r_, s_, t_))
+        r = unify_terms(pat, cand, {})
+        assert r is not None
+        assert r[vs.id] == s_
+
+    def test_uncovered_candidate_fails(self):
+        a, b, c = NN("http://x/a"), NN("http://x/b"), NN("http://x/c")
+        d = NN("http://x/d")
+        pat = self._f(T(a, b, c))
+        cand = self._f(T(a, b, c), T(d, b, c))
+        assert unify_terms(pat, cand, {}) is None
