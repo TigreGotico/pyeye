@@ -246,6 +246,25 @@ class Parser:
         # triple list, not the document-level self._triples.
         self._formula_triples_stack: list[list[Triple]] = []
 
+    _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
+
+    def _resolve_iri(self, ref: str) -> str:
+        """Resolve a relative IRI reference against the document base.
+
+        The base is an explicit ``@base`` directive, falling back to the
+        document source URL when it is absolute.  Absolute references and
+        documents without a usable base pass through unchanged.
+        """
+        if self._SCHEME_RE.match(ref):
+            return ref
+        base = self._pm._base
+        if not base and self._src and self._SCHEME_RE.match(self._src):
+            base = self._src
+        if not base:
+            return ref
+        from urllib.parse import urljoin
+        return urljoin(base, ref)
+
     @property
     def _current_triples(self) -> list[Triple]:
         """The triple list that side-effect triples (blank nodes, paths) go into.
@@ -313,7 +332,7 @@ class Parser:
         else:
             # prefix ex <...> (no colon — non-standard but accept it)
             prefix = self._eat_any().v.rstrip(":")
-        uri = self._eat("IRI").v[1:-1]
+        uri = self._resolve_iri(self._eat("IRI").v[1:-1])
         self._pm.register(prefix, uri)
         # DOT is optional (SPARQL-style)
         if self._peek().t == "DOT":
@@ -321,7 +340,7 @@ class Parser:
 
     def _do_base(self) -> None:
         self._eat("BASE")
-        self._pm._base = self._eat("IRI").v[1:-1]
+        self._pm._base = self._resolve_iri(self._eat("IRI").v[1:-1])
         self._eat("DOT")
 
     def _do_quantifier(self) -> None:
@@ -778,7 +797,7 @@ class Parser:
 
         if t.t == "IRI":
             self._eat("IRI")
-            return self._maybe_path(NamedNode(t.v[1:-1]))
+            return self._maybe_path(NamedNode(self._resolve_iri(t.v[1:-1])))
         if t.t == "VAR":
             self._eat("VAR")
             name = t.v[1:]  # strip leading ?
@@ -875,7 +894,7 @@ class Parser:
 
         if t.t == "IRI":
             self._eat("IRI")
-            return NamedNode(t.v[1:-1])
+            return NamedNode(self._resolve_iri(t.v[1:-1]))
 
         if t.t == "VAR":
             self._eat("VAR")

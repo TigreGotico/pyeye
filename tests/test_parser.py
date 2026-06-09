@@ -273,3 +273,33 @@ class TestParseErrors:
     def test_expected_formula_brace(self):
         with pytest.raises(ParseError):
             parse_n3("@prefix : <http://x.org/> .\n=> {:a :b :c} .")
+
+
+class TestRelativeIriResolution:
+    def test_fragment_resolves_against_source_url(self):
+        doc = parse_n3("<#a> <#p> <#b> .",
+                       source="https://example.org/dir/doc.n3")
+        t = doc.triples[0]
+        assert t.subject == NN("https://example.org/dir/doc.n3#a")
+        assert t.object == NN("https://example.org/dir/doc.n3#b")
+
+    def test_relative_path_resolves_against_source_url(self):
+        doc = parse_n3("<other> <#p> <../up> .",
+                       source="https://example.org/dir/doc.n3")
+        t = doc.triples[0]
+        assert t.subject == NN("https://example.org/dir/other")
+        assert t.object == NN("https://example.org/up")
+
+    def test_base_directive_wins_over_source(self):
+        doc = parse_n3("@base <https://base.org/x/> .\n<#a> <#p> <#b> .",
+                       source="https://example.org/doc.n3")
+        assert doc.triples[0].subject == NN("https://base.org/x/#a")
+
+    def test_no_base_keeps_relative_verbatim(self):
+        doc = parse_n3("<#a> <#p> <#b> .")
+        assert doc.triples[0].subject == NN("#a")
+
+    def test_absolute_iri_untouched(self):
+        doc = parse_n3("<https://x.org/a> <https://x.org/p> <https://x.org/b> .",
+                       source="https://example.org/doc.n3")
+        assert doc.triples[0].subject == NN("https://x.org/a")
