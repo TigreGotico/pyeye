@@ -235,6 +235,9 @@ class Engine:
         self._tabled_predicates: set[str] = set()
         # Builtins still read this until step 5 rewrites them
         self._current_binding: Binding = {}
+        # The resolved goal triple of the builtin call in flight; lets variadic
+        # builtins distinguish the engine-appended object slot from inputs.
+        self._current_pattern: Triple | None = None
 
     # -- population ----------------------------------------------------------
 
@@ -592,6 +595,16 @@ class Engine:
                         ids.add(item.id)
         return ids
 
+    # Builtins that can run with an unbound subject when the object side is
+    # bound (split / construct modes).  None of their variables are *required*
+    # inputs; subject variables they may bind count as produced outputs so
+    # consumer goals wait for them.
+    _BIDIRECTIONAL_IRIS = frozenset({
+        "http://www.w3.org/2000/10/swap/list#append",
+        "http://www.w3.org/2000/10/swap/list#firstRest",
+        "http://eulersharp.sourceforge.net/2003/03swap/log-rules#firstRest",
+    })
+
     def _pattern_input_var_ids(self, pattern: Triple) -> set[int]:
         """Variable IDs that must be *bound before* a builtin pattern fires.
 
@@ -604,6 +617,8 @@ class Engine:
         s = pattern.subject
         pred = (pattern.predicate.value
                 if isinstance(pattern.predicate, NamedNode) else "")
+        if pred in self._BIDIRECTIONAL_IRIS:
+            return ids
         is_forallin = pred.endswith("/log#forAllIn")
         if isinstance(s, Variable):
             ids.add(s.id)
@@ -804,10 +819,13 @@ class Engine:
             if not args:
                 continue
             self._current_binding = b
+            self._current_pattern = resolved
             try:
                 result = builtin(args, self)
             except (TypeError, ValueError, ZeroDivisionError):
                 continue
+            finally:
+                self._current_pattern = None
             # Pick up any binding updates from the builtin
             b = self._current_binding
 
@@ -1035,12 +1053,44 @@ class Engine:
             return self._solve_goal(goals[0], binding)
 
         idx = self._select_goal(goals, binding)
-        first = goals[idx]
-        rest = goals[:idx] + goals[idx + 1:]
-        results: list[Binding] = []
-        for b in self._solve_goal(first, binding):
-            results.extend(self._solve_conj(rest, b))
-        return results
+        order = [idx] + [i for i in range(len(goals)) if i != idx]
+        for i in order:
+            first = goals[i]
+            sols = self._solve_goal(first, binding)
+            if sols:
+                rest = goals[:i] + goals[i + 1:]
+                results: list[Binding] = []
+                for b in sols:
+                    results.extend(self._solve_conj(rest, b))
+                return results
+            # No solutions: a builtin whose resolved form still carries unbound
+            # variables may merely be unevaluable in this direction (e.g. the
+            # construct mode of a bidirectional builtin scheduled before its
+            # inputs are bound) — try another goal first and revisit it later.
+            # An evaluable goal with no solutions falsifies the conjunction.
+            if not self._goal_maybe_unready(first, binding):
+                return []
+        return []
+
+    def _goal_maybe_unready(self, goal: Triple, binding: Binding) -> bool:
+        """Whether *goal* failing under *binding* may mean "not yet evaluable".
+
+        True only for builtin goals that still carry unbound variables: a
+        bidirectional builtin may need sibling goals to bind its inputs before
+        it can run, so its empty result is not yet a refutation.
+        """
+        resolved = apply_binding_to_triple(goal, binding)
+        pred = resolved.predicate
+        if not isinstance(pred, NamedNode):
+            return False
+        if pred.value in _NEG_SURFACE_IRIS:
+            return False
+        if pred.value not in self._builtins or not self._builtin_applies(resolved):
+            return False
+        ids: set[int] = set()
+        self._collect_var_ids(resolved.subject, ids)
+        self._collect_var_ids(resolved.object, ids)
+        return bool(ids)
 
     def _select_goal(self, goals: list[Triple], binding: Binding) -> int:
         """Pick the index of the next goal to solve.

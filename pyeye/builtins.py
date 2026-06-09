@@ -1634,6 +1634,18 @@ def _strip_output_var(args: list[Term]) -> list[Term]:
         return args[:-1]
     return args
 
+def _engine_call_inputs(args: list[Term], engine: EngineProto) -> list[Term]:
+    """Strip the object slot the engine appends, when identifiable.
+
+    Engine-issued builtin calls carry the goal's object as the trailing arg
+    even when it is ground (a value to verify, not an input); the engine marks
+    such calls via ``_current_pattern``.  Direct calls keep all args.
+    """
+    if len(args) >= 2 and getattr(engine, "_current_pattern", None) is not None:
+        return args[:-1]
+    return args
+
+
 def _expand_if_list(args: list[Term], engine: EngineProto) -> list[Term]:
     """If args is a single ListTerm, expand it.
     Otherwise strip the output variable (if present) and return ground inputs."""
@@ -1641,14 +1653,60 @@ def _expand_if_list(args: list[Term], engine: EngineProto) -> list[Term]:
         return list(args[0].items)
     return _strip_output_var(args)
 
+def _solve_single_unknown(args: list[Term], engine: EngineProto, solve):
+    """Inverse mode for arithmetic builtins: bind one unknown input.
+
+    When exactly one input is an unbound Variable and the output slot is
+    ground, *solve* computes the unknown from the output and the remaining
+    (ground) inputs, e.g. ``(?D 1) math:sum 4`` binds ``?D`` to 3.  Returns a
+    BindingsList or None when the shape does not apply.
+    """
+    if len(args) < 3 or isinstance(args[-1], Variable):
+        return None
+    inputs = list(args[:-1])
+    unknowns = [i for i, a in enumerate(inputs) if isinstance(a, Variable)]
+    if len(unknowns) != 1:
+        return None
+    idx = unknowns[0]
+    try:
+        out = _num_exact(args[-1])
+        known = [_num_exact(a) for i, a in enumerate(inputs) if i != idx]
+        v = solve(out, known, idx)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    if v is None:
+        return None
+    if isinstance(v, float) and v.is_integer() and all(
+            isinstance(k, int) for k in known) and isinstance(out, int):
+        v = int(v)
+    result = _int_result(v) if isinstance(v, int) else _num_result(v)
+    binding = dict(getattr(engine, "_current_binding", {}) or {})
+    binding[inputs[idx].id] = result
+    return BindingsList([binding])
+
+
 def math_sum(args: list[Term], engine: EngineProto) -> Term | None:
-    inputs = _expand_if_list(args, engine)
-    if _unground(inputs): return None
+    inputs = _expand_if_list(_engine_call_inputs(args, engine), engine)
+    if _unground(inputs):
+        return _solve_single_unknown(
+            args, engine, lambda out, known, idx: out - sum(known))
     return _typed_num_result(sum(_num_exact(a) for a in inputs), inputs)
 
 def math_product(args: list[Term], engine: EngineProto) -> Term | None:
-    inputs = _expand_if_list(args, engine)
-    if _unground(inputs): return None
+    inputs = _expand_if_list(_engine_call_inputs(args, engine), engine)
+    if _unground(inputs):
+        def solve(out, known, idx):
+            p = 1
+            for k in known:
+                p *= k
+            if p == 0:
+                return None
+            if isinstance(out, int) and isinstance(p, int):
+                if out % p:
+                    return None
+                return out // p
+            return out / p
+        return _solve_single_unknown(args, engine, solve)
     r = 1
     for a in inputs: r *= _num_exact(a)
     return _typed_num_result(r, inputs)
@@ -1702,7 +1760,11 @@ def _date_difference_years(s1: str, s2: str) -> float | None:
 
 def math_difference(args: list[Term], engine: EngineProto) -> Term | None:
     inp = _input_args(args, 2)
-    if _unground(inp): return None
+    if _unground(inp):
+        # X - Y = Z: solve the single unknown side from the ground output.
+        return _solve_single_unknown(
+            args, engine,
+            lambda out, known, idx: out + known[0] if idx == 0 else known[0] - out)
     v0, v1 = _str_val(inp[0]), _str_val(inp[1])
     # Try date arithmetic first
     yr = _date_difference_years(v0, v1)
@@ -1712,7 +1774,11 @@ def math_difference(args: list[Term], engine: EngineProto) -> Term | None:
 
 def math_quotient(args: list[Term], engine: EngineProto) -> Term | None:
     inp = _input_args(args, 2)
-    if _unground(inp): return None
+    if _unground(inp):
+        # X / Y = Z: solve the single unknown side from the ground output.
+        return _solve_single_unknown(
+            args, engine,
+            lambda out, known, idx: out * known[0] if idx == 0 else known[0] / out)
     return _num_result(_num_val(inp[0]) / _num_val(inp[1]))
 
 def math_integerQuotient(args: list[Term], engine: EngineProto) -> Term | None:
@@ -1746,13 +1812,13 @@ def math_negation(args: list[Term], engine: EngineProto) -> Term | None:
     return _typed_num_result(-_num_exact(inp[0]), inp)
 
 def math_max(args: list[Term], engine: EngineProto) -> Term | None:
-    inputs = _expand_if_list(args, engine)
+    inputs = _expand_if_list(_engine_call_inputs(args, engine), engine)
     if _unground(inputs): return None
     # Return the actual winning term to preserve its datatype (avoids xsd:double mismatch)
     return max(inputs, key=lambda a: _num_val(a))
 
 def math_min(args: list[Term], engine: EngineProto) -> Term | None:
-    inputs = _expand_if_list(args, engine)
+    inputs = _expand_if_list(_engine_call_inputs(args, engine), engine)
     if _unground(inputs): return None
     # Return the actual winning term to preserve its datatype
     return min(inputs, key=lambda a: _num_val(a))
@@ -2263,6 +2329,12 @@ def list_map(args: list[Term], engine: EngineProto) -> Term | None:
 
 def list_first(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
+    # Engine calls expand the subject list into args; recover it from the
+    # goal pattern so nested-list subjects stay unambiguous.
+    pat = getattr(engine, "_current_pattern", None)
+    if pat is not None and isinstance(pat.subject, ListTerm):
+        items = pat.subject.items
+        return items[0] if items else None
     head = args[0]
     if isinstance(head, ListTerm):
         items = list(head.items)
@@ -2271,6 +2343,10 @@ def list_first(args: list[Term], engine: EngineProto) -> Term | None:
 
 def list_rest(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
+    pat = getattr(engine, "_current_pattern", None)
+    if pat is not None and isinstance(pat.subject, ListTerm):
+        items = pat.subject.items
+        return _make_list(list(items[1:]), engine) if items else None
     head = args[0]
     if isinstance(head, ListTerm):
         items = list(head.items)
@@ -2279,6 +2355,12 @@ def list_rest(args: list[Term], engine: EngineProto) -> Term | None:
 
 def list_last(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
+    # Engine calls expand the subject list into args; recover it from the
+    # goal pattern so nested-list subjects stay unambiguous.
+    pat = getattr(engine, "_current_pattern", None)
+    if pat is not None and isinstance(pat.subject, ListTerm):
+        items = pat.subject.items
+        return items[-1] if items else None
     head = args[0]
     if isinstance(head, ListTerm):
         items = list(head.items)
@@ -2816,7 +2898,8 @@ def e_finalize(args: list[Term], engine: EngineProto) -> Term | None:
     return _bool_result(True)
 
 def e_firstRest(args: list[Term], engine: EngineProto) -> Term | None:
-    if _unground(args): return None
+    # No unground guard: list_firstRest is bidirectional (an unbound subject
+    # with a ground (first rest) object is its construct mode).
     return list_firstRest(args, engine)
 
 def e_format(args: list[Term], engine: EngineProto) -> Term | None:

@@ -116,3 +116,76 @@ class TestForwardBackwardCombination:
         # Without forward chaining, the rule hasn't fired,
         # but the data triple :alice :parent :bob should still match
         assert len(r.query_answers) >= 1
+
+
+class TestBidirectionalBuiltins:
+    """Builtins evaluable in both directions under backward chaining."""
+
+    XSD_INT = NN("http://www.w3.org/2001/XMLSchema#integer")
+    MATH = "http://www.w3.org/2000/10/swap/math#"
+    LIST = "http://www.w3.org/2000/10/swap/list#"
+    E = "http://eulersharp.sourceforge.net/2003/03swap/log-rules#"
+
+    def _lit(self, n):
+        return L(str(n), datatype=self.XSD_INT)
+
+    def _lst(self, *items):
+        from pyeye.term import ListTerm
+        return ListTerm(tuple(items))
+
+    def test_sum_inverse_binds_unknown(self):
+        engine = Engine()
+        d = V("D")
+        goal = T(self._lst(d, self._lit(1)), NN(self.MATH + "sum"), self._lit(4))
+        sols = engine._solve([goal], {})
+        assert len(sols) == 1
+        assert sols[0][d.id] == self._lit(3)
+
+    def test_sum_ground_object_verifies(self):
+        engine = Engine()
+        goal = T(self._lst(self._lit(3), self._lit(1)), NN(self.MATH + "sum"),
+                 self._lit(4))
+        assert engine._solve([goal], {}) == [{}]
+        bad = T(self._lst(self._lit(3), self._lit(1)), NN(self.MATH + "sum"),
+                self._lit(5))
+        assert engine._solve([bad], {}) == []
+
+    def test_difference_inverse(self):
+        engine = Engine()
+        x = V("X")
+        goal = T(self._lst(x, self._lit(2)), NN(self.MATH + "difference"),
+                 self._lit(5))
+        sols = engine._solve([goal], {})
+        assert len(sols) == 1
+        assert sols[0][x.id] == self._lit(7)
+
+    def test_list_last_engine_call(self):
+        engine = Engine()
+        b = V("B")
+        goal = T(self._lst(self._lit(3), self._lit(2), self._lit(1)),
+                 NN(self.LIST + "last"), b)
+        sols = engine._solve([goal], {})
+        assert len(sols) == 1
+        assert sols[0][b.id] == self._lit(1)
+
+    def test_first_rest_construct_mode(self):
+        engine = Engine()
+        b, c, d = V("B"), V("C"), V("D")
+        goal = T(b, NN(self.E + "firstRest"), self._lst(c, d))
+        binding = {c.id: self._lit(6), d.id: self._lst(self._lit(7))}
+        sols = engine._solve([goal], binding)
+        assert len(sols) == 1
+        assert sols[0][b.id] == self._lst(self._lit(6), self._lit(7))
+
+    def test_conjunction_defers_unready_builtin(self):
+        """A construct-mode goal listed first is revisited once inputs bind."""
+        engine = Engine()
+        b, c, d = V("B"), V("C"), V("D")
+        goals = [
+            T(b, NN(self.E + "firstRest"), self._lst(c, d)),
+            T(self._lst(self._lit(5), self._lit(1)), NN(self.MATH + "sum"), c),
+            T(self._lst(self._lit(9)), NN(self.LIST + "rest"), d),
+        ]
+        sols = engine._solve(goals, {})
+        assert len(sols) == 1
+        assert sols[0][b.id] == self._lst(self._lit(6))
