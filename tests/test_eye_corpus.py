@@ -5,10 +5,11 @@ Scenarios are auto-discovered from each scenario's ``test`` shell script (see
 ``eye_scenarios.py``), which encodes the exact ``eye`` invocation (input files,
 ``--query`` file, output mode, and the ``--output`` reference answer).
 
-Comparison is semantic: both pyeye output and the reference answer are reduced
-to a canonical set of triple-lines (prefixes expanded away, whitespace and
-trailing dots normalised).  A scenario PASSES when every expected triple is
-present in pyeye's output.
+Comparison is semantic: both pyeye output and the reference answer are parsed
+with pyeye's own N3 parser and compared as canonical fact sets under a
+blank-node/skolem/variable mapping (see ``n3_compare``).  A scenario PASSES
+when every expected fact is present in pyeye's output.  If either side fails
+to parse, comparison falls back to canonical triple-lines.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pyeye import execute, ReasoningTimeoutError  # noqa: E402
 from tests.eye_scenarios import discover_scenarios, Scenario  # noqa: E402
+from tests.n3_compare import compare_semantic  # noqa: E402
 
 PER_SCENARIO_TIMEOUT = 15.0
 
@@ -79,8 +81,8 @@ def _normalize(text: str) -> set[str]:
     return lines
 
 
-def _compare(actual: str, expected: str) -> tuple[bool, str]:
-    """Return (passed, detail)."""
+def _compare_lines(actual: str, expected: str) -> tuple[bool, str]:
+    """Line-based fallback comparison for unparseable output."""
     exp = _normalize(expected)
     got = _normalize(actual)
     if not exp:
@@ -91,6 +93,15 @@ def _compare(actual: str, expected: str) -> tuple[bool, str]:
     if not missing:
         return True, f"all {len(exp)} expected triples present"
     return False, (f"missing {len(missing)}/{len(exp)}: {missing[0][:80]!r}")
+
+
+def _compare(actual: str, expected: str) -> tuple[bool, str]:
+    """Return (passed, detail)."""
+    try:
+        return compare_semantic(actual, expected)
+    except Exception as e:  # noqa: BLE001 — unparseable side: fall back
+        ok, detail = _compare_lines(actual, expected)
+        return ok, f"{detail} [line fallback: {type(e).__name__}]"
 
 
 def run_scenario(sc: Scenario) -> tuple[str, str]:

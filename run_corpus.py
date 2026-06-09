@@ -5,9 +5,10 @@ TIMEOUT/SKIP counts.  Each scenario runs in a worker subprocess so a hang or
 hard crash in one scenario cannot take down the whole run.
 
 Usage:
-    python run_corpus.py            # full run, summary
-    python run_corpus.py --verbose  # per-scenario lines
-    python run_corpus.py --baseline # use legacy invocation (no query_paths)
+    python run_corpus.py                # full run, summary
+    python run_corpus.py --verbose      # per-scenario lines
+    python run_corpus.py --baseline     # use legacy invocation (no query_paths)
+    python run_corpus.py --only SUBSTR  # only scenarios whose name contains SUBSTR
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ from tests.test_eye_corpus import _compare  # noqa: E402
 TIMEOUT = 15.0
 BASELINE = "--baseline" in sys.argv
 VERBOSE = "--verbose" in sys.argv
+ONLY = sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else None
 
 WORKER = r'''
 import sys, json
@@ -60,6 +62,8 @@ except Exception as e:
 
 def main() -> None:
     scs = discover_scenarios()
+    if ONLY:
+        scs = [sc for sc in scs if ONLY in sc.name]
     worker_src = WORKER % {
         "root": str(ROOT),
         "timeout": TIMEOUT,
