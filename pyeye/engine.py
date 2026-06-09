@@ -625,6 +625,10 @@ class Engine:
         "http://eulersharp.sourceforge.net/2003/03swap/log-rules#firstRest",
     })
 
+    def _is_bidirectional_pattern(self, pattern: Triple) -> bool:
+        return (isinstance(pattern.predicate, NamedNode)
+                and pattern.predicate.value in self._BIDIRECTIONAL_IRIS)
+
     def _pattern_input_var_ids(self, pattern: Triple) -> set[int]:
         """Variable IDs that must be *bound before* a builtin pattern fires.
 
@@ -761,6 +765,16 @@ class Engine:
                     # pending builtin may produce.  Posing it first would run
                     # recursion with an unbound argument (divergence risk).
                     input_vars = pvars
+                elif self._is_bidirectional_pattern(pattern):
+                    # A split/construct builtin is evaluable once either side
+                    # is ground; while both sides are unbound it consumes all
+                    # its variables (must wait for some producer).
+                    s_ids: set[int] = set()
+                    o_ids: set[int] = set()
+                    self._collect_var_ids(pattern.subject, s_ids)
+                    self._collect_var_ids(pattern.object, o_ids)
+                    if (s_ids - bound_ids) and (o_ids - bound_ids):
+                        input_vars = pvars
                 unbound_inputs = input_vars - bound_ids
                 # Blocked iff an unbound input is produced by another remaining
                 # builtin (exclude this pattern's own outputs from the set).
