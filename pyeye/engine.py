@@ -131,6 +131,53 @@ def copy_rule(rule: Rule) -> Rule:
     )
 
 
+def _premise_existentials_to_vars(rule: Rule) -> Rule:
+    """Rewrite blank nodes occurring in *rule*'s premise as fresh Variables.
+
+    A blank node in a rule premise is existentially quantified over the rule,
+    so for matching purposes it behaves as a universal variable (``[ :p ?V ]``
+    patterns must match any node).  Occurrences of the same blank node in the
+    conclusion share the variable; blank nodes appearing only in the
+    conclusion keep their existential reading (fresh node per instantiation).
+    """
+    ex_map: dict[str, Variable] = {}
+
+    def conv(t: Term, create: bool) -> Term:
+        if isinstance(t, Existential):
+            if t.name in ex_map:
+                return ex_map[t.name]
+            if create:
+                ex_map[t.name] = Variable(name=t.name, id=_next_var_id())
+                return ex_map[t.name]
+            return t
+        if isinstance(t, ListTerm):
+            return ListTerm(items=tuple(conv(i, create) for i in t.items))
+        if isinstance(t, Formula):
+            return Formula(triples=tuple(conv_triple(tr, create) for tr in t.triples))
+        if isinstance(t, NegativeSurface):
+            return NegativeSurface(formula=Formula(triples=tuple(
+                conv_triple(tr, create) for tr in t.formula.triples)))
+        return t
+
+    def conv_triple(tr: Triple, create: bool) -> Triple:
+        return Triple(conv(tr.subject, create), conv(tr.predicate, create),
+                      conv(tr.object, create))
+
+    body = Formula(triples=tuple(conv_triple(t, True) for t in rule.body.triples))
+    if not ex_map:
+        return rule
+    head = Formula(triples=tuple(conv_triple(t, False) for t in rule.head.triples))
+    return Rule(
+        body=body,
+        head=head,
+        source=rule.source,
+        for_some=rule.for_some,
+        for_all=rule.for_all,
+        is_backward=rule.is_backward,
+        is_contradiction=rule.is_contradiction,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------
@@ -193,7 +240,7 @@ class Engine:
 
     def add_rule(self, rule: Rule) -> None:
         """Add a rule to the engine."""
-        self._rules.append(rule)
+        self._rules.append(_premise_existentials_to_vars(rule))
 
     def add_triple(self, triple: Triple) -> bool:
         """Add a fact triple. Returns True if genuinely new."""

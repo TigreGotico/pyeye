@@ -181,3 +181,38 @@ class TestParseAndReason:
             engine.run()
         except ReasoningTimeoutError:
             pass  # expected
+
+
+class TestPremiseBlankNodes:
+    """Blank nodes in a rule premise match like variables."""
+
+    def test_bnode_premise_matches_any_node(self):
+        from pyeye.term import Existential
+        engine = Engine()
+        b = Existential("b0")
+        s = Variable("S")
+        engine.add_triple(Triple(NamedNode("http://x/s"), NamedNode("http://x/p"),
+                                 Existential("data1")))
+        engine.add_triple(Triple(Existential("data1"), NamedNode("http://x/q"),
+                                 NamedNode("http://x/v")))
+        body = Formula(triples=(
+            Triple(s, NamedNode("http://x/p"), b),
+            Triple(b, NamedNode("http://x/q"), NamedNode("http://x/v")),
+        ))
+        head = Formula(triples=(Triple(s, NamedNode("http://x/ok"), NamedNode("http://x/v")),))
+        engine.add_rule(Rule(body=body, head=head))
+        engine.snapshot_initial()
+        engine.run()
+        assert any(str(t.predicate) == "http://x/ok" for t in engine.derived_triples)
+
+    def test_head_only_bnode_kept_existential(self):
+        from pyeye.term import Existential
+        from pyeye.engine import _premise_existentials_to_vars
+        b = Existential("fresh")
+        rule = Rule(
+            body=Formula(triples=(Triple(Variable("S"), NamedNode("http://x/p"),
+                                         NamedNode("http://x/o")),)),
+            head=Formula(triples=(Triple(Variable("S"), NamedNode("http://x/r"), b),)),
+        )
+        out = _premise_existentials_to_vars(rule)
+        assert out.head.triples[0].object == b
