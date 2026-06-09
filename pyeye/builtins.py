@@ -1450,12 +1450,16 @@ def log_collectAllIn(args: list[Term], engine: EngineProto) -> Term | None:
 
     # findall(Template, Pattern, Results): every solution of Pattern (proved
     # against the store, with builtins and backward rules) contributes one
-    # Template instance.  Delegate to the engine's formula matcher so that
-    # builtins inside Pattern (e.g. string:lessThan) and backward rules are
-    # evaluated, not just plain store joins.
-    if not hasattr(engine, "_match_formula"):
+    # Template instance.  Delegate to the engine's conjunction solver so that
+    # builtins inside Pattern (including construct-mode bidirectional ones)
+    # and backward rules are evaluated, not just plain store joins.
+    solve = getattr(engine, "_solve", None)
+    if solve is not None:
+        solutions = solve(list(pattern.triples), dict(binding))
+    elif hasattr(engine, "_match_formula"):
+        solutions = engine._match_formula(pattern, dict(binding))
+    else:
         return None
-    solutions = engine._match_formula(pattern, dict(binding))
 
     results: list[Term] = []
     for b in solutions:
@@ -2194,14 +2198,25 @@ def _term_has_var(t: Term) -> bool:
     return False
 
 def list_notMember(args: list[Term], engine: EngineProto) -> Term | None:
+    if not args:
+        return None
+    # The member operand (object slot) is an input: defer until it is bound,
+    # otherwise the engine's boolean-result handling would bind it to true.
+    if _term_has_var(args[-1]):
+        return None
     if _unground(args): return None
     if len(args) < 2:
         # Empty list (nil expanded to nothing) — nothing is a member
         return _bool_result(True)
-    head, item = args[0], args[1]
+    member = args[-1]
+    pat = getattr(engine, "_current_pattern", None)
+    if pat is not None and isinstance(pat.subject, ListTerm):
+        # Engine calls expand the subject list into args; recover it.
+        return _bool_result(member not in list(pat.subject.items))
+    head = args[0]
     if isinstance(head, ListTerm):
-        return _bool_result(item not in list(head.items))
-    return _bool_result(True)
+        return _bool_result(member not in list(head.items))
+    return _bool_result(member not in list(args[:-1]))
 
 def list_memberAt(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
@@ -2225,13 +2240,38 @@ def list_reverse(args: list[Term], engine: EngineProto) -> Term | None:
     head = args[0]
     if isinstance(head, ListTerm):
         return _make_list(list(reversed(list(head.items))), engine)
+    # Engine calls expand a plain list subject into args (``?L list:reverse
+    # ?R`` with ?L bound): recover the list from the goal pattern.  A
+    # single-item subject whose item is a list keeps the argument-wrapper
+    # reading handled above.
+    pat = getattr(engine, "_current_pattern", None)
+    if pat is not None and isinstance(pat.subject, ListTerm):
+        return _make_list(list(reversed(pat.subject.items)), engine)
     return None
+
+def _term_sort_key(t: Term):
+    """Standard order of terms: numbers numerically, then text, then lists
+    element-wise (so sorting a queue of (cost ...) lists compares costs
+    numerically, not lexically)."""
+    if isinstance(t, ListTerm):
+        return (2, 0.0, "", tuple(_term_sort_key(i) for i in t.items))
+    try:
+        return (0, _num_val(t), "", ())
+    except (TypeError, ValueError):
+        return (1, 0.0, str(t), ())
+
 
 def list_sort(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
+    # Engine calls expand the subject list into args; recover it from the
+    # goal pattern so element lists are sorted, not their first item.
+    pat = getattr(engine, "_current_pattern", None)
+    if pat is not None and isinstance(pat.subject, ListTerm):
+        items = sorted(pat.subject.items, key=_term_sort_key)
+        return _make_list(items, engine)
     head = args[0]
     if isinstance(head, ListTerm):
-        items = sorted(list(head.items), key=str)
+        items = sorted(list(head.items), key=_term_sort_key)
         return _make_list(items, engine)
     return None
 

@@ -325,3 +325,51 @@ class TestFirstRestNestedPattern:
         assert b[x.id] == IL(4)
         assert b[y.id] == IL(2)
         assert b[rest.id] == ListTerm((ListTerm((IL(6), IL(2))),))
+
+
+class TestListBuiltinsEngineCall:
+    """Engine-issued calls expand the subject list; builtins recover it."""
+
+    LIST = "http://www.w3.org/2000/10/swap/list#"
+
+    def _lst(self, *items):
+        from pyeye.term import ListTerm
+        return ListTerm(tuple(items))
+
+    def _solve1(self, goal):
+        engine = Engine()
+        return engine._solve([goal], {})
+
+    def test_sort_numeric_order(self):
+        from pyeye.term import Triple, Variable
+        out = Variable("S")
+        goal = Triple(self._lst(IL(10), IL(2), IL(1)), NN(self.LIST + "sort"), out)
+        sols = self._solve1(goal)
+        assert [t.value for t in sols[0][out.id].items] == ["1", "2", "10"]
+
+    def test_sort_lists_by_first_element(self):
+        from pyeye.term import Triple, Variable
+        out = Variable("S")
+        a, b = self._lst(IL(10), L("x")), self._lst(IL(2), L("y"))
+        goal = Triple(self._lst(a, b), NN(self.LIST + "sort"), out)
+        sols = self._solve1(goal)
+        assert list(sols[0][out.id].items) == [b, a]
+
+    def test_reverse_expanded_subject(self):
+        from pyeye.term import Triple, Variable
+        out = Variable("R")
+        goal = Triple(self._lst(IL(1), IL(2), IL(3)), NN(self.LIST + "reverse"), out)
+        sols = self._solve1(goal)
+        assert [t.value for t in sols[0][out.id].items] == ["3", "2", "1"]
+
+    def test_not_member_defers_on_unbound_member(self):
+        from pyeye.builtins import list_notMember
+        from pyeye.term import Variable
+        assert list_notMember([self._lst(IL(1)), Variable("N")], None) is None
+
+    def test_not_member_expanded_subject(self):
+        from pyeye.term import Triple
+        goal = Triple(self._lst(IL(1), IL(2)), NN(self.LIST + "notMember"), IL(3))
+        assert self._solve1(goal) == [{}]
+        goal2 = Triple(self._lst(IL(1), IL(2)), NN(self.LIST + "notMember"), IL(2))
+        assert self._solve1(goal2) == []
