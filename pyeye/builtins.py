@@ -2483,13 +2483,14 @@ def list_firstRest(args: list[Term], engine: EngineProto) -> Term | None:
             raw_items = list(obj.items)
             obj_items = [_resolve_var_in_binding(i, binding) if isinstance(i, Variable) else i for i in raw_items]
             if len(obj_items) == 2:
-                # Bind ?F and ?R if they are variables
+                # Unify the (first rest) pattern — items may be nested
+                # patterns carrying variables, e.g. ((?X ?Y) ?Rest).
                 new_binding = dict(binding)
                 for pat, val in zip(raw_items, [first, rest]):
-                    if isinstance(pat, Variable):
-                        new_binding[pat.id] = val
-                    elif pat != val:
+                    nb = _unify_member(pat, val, new_binding)
+                    if nb is None:
                         return None  # mismatch
+                    new_binding = nb
                 engine._current_binding = new_binding
                 return _bool_result(True)
         return result_pair
