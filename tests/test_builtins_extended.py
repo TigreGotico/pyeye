@@ -160,3 +160,62 @@ class TestEBuiltins:
         result = e_findall([], engine)
         assert result is not None
         assert len(result) == 1
+
+
+XSD_INT = NN("http://www.w3.org/2001/XMLSchema#integer")
+
+
+def IL(v) -> Literal:
+    return L(str(v), datatype=XSD_INT)
+
+
+class TestMathIntegerTyping:
+    """Integer-typed inputs yield integer-typed (exact) results."""
+
+    def test_remainder_integer_typed(self):
+        from pyeye.builtins import math_remainder
+        r = math_remainder([IL(7), IL(3)], None)
+        assert r.value == "1"
+        assert r.datatype == XSD_INT
+
+    def test_integer_quotient_integer_typed(self):
+        from pyeye.builtins import math_integerQuotient
+        r = math_integerQuotient([IL(7), IL(2)], None)
+        assert r.value == "3"
+        assert r.datatype == XSD_INT
+
+    def test_negation_integer_typed(self):
+        from pyeye.builtins import math_negation
+        r = math_negation([IL(5)], None)
+        assert r.value == "-5"
+        assert r.datatype == XSD_INT
+
+    def test_absolute_value_integer_typed(self):
+        from pyeye.builtins import math_absoluteValue
+        r = math_absoluteValue([IL(-5)], None)
+        assert r.value == "5"
+        assert r.datatype == XSD_INT
+
+    def test_exponentiation_integer_exact(self):
+        from pyeye.builtins import math_exponentiation
+        r = math_exponentiation([IL(238), IL(13)], None)
+        assert r.value == str(238 ** 13)
+        assert r.datatype == XSD_INT
+
+    def test_exponentiation_float_stays_double(self):
+        from pyeye.builtins import math_exponentiation
+        r = math_exponentiation([L("2.0"), L("0.5")], None)
+        assert abs(float(r.value) - 2 ** 0.5) < 1e-9
+
+    def test_product_big_integer_exact(self):
+        from pyeye.builtins import math_product
+        big = 8367238 ** 700  # several thousand digits
+        r = math_product([IL(big), IL(big)], None)
+        assert r.value == str(big * big)
+
+    def test_numeric_equal_cross_datatype(self):
+        from pyeye.builtins import numeric_equal
+        assert numeric_equal(IL(1), L("1.0", datatype=NN("http://www.w3.org/2001/XMLSchema#double")))
+        assert not numeric_equal(IL(1), IL(2))
+        assert not numeric_equal(IL(1), NN("http://x/1"))
+

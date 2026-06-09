@@ -31,7 +31,9 @@ from pyeye.term import (
 from pyeye.unify import unify, unify_terms, apply_binding_to_triple, apply_binding, term_contains_var
 from pyeye.store import TripleStore
 from pyeye.parser import Rule
-from pyeye.builtins import Builtin, BUILTIN_REGISTRY, MultiResult, BindingsList
+from pyeye.builtins import (
+    Builtin, BUILTIN_REGISTRY, MultiResult, BindingsList, numeric_equal,
+)
 from pyeye.proof import ProofStep, ProofTree
 
 
@@ -778,7 +780,7 @@ class Engine:
                         new_b = dict(b)
                         new_b[builtin_obj.id] = r_term
                         results.append(new_b)
-                    elif r_term == builtin_obj:
+                    elif r_term == builtin_obj or numeric_equal(r_term, builtin_obj):
                         results.append(b)
                 continue
 
@@ -805,7 +807,7 @@ class Engine:
                     new_b = dict(b)
                     new_b[builtin_obj.id] = result
                     results.append(new_b)
-                elif result == builtin_obj:
+                elif result == builtin_obj or numeric_equal(result, builtin_obj):
                     results.append(b)
         return results
 

@@ -26,10 +26,18 @@ import ast as _ast
 import ipaddress as _ipaddress
 import urllib.parse as _urllib_parse
 import shlex as _shlex
+import sys as _sys
 from typing import Protocol
 
 from pyeye.term import NamedNode, Literal, Variable, Existential, Triple, Term, Formula, ListTerm
 from pyeye.store import TripleStore
+
+# Arbitrary-precision integer arithmetic (math:product / math:exponentiation
+# chains such as peasant multiplication) routinely exceeds CPython's default
+# 4300-digit int<->str conversion guard; lift it so big-int literals convert.
+if hasattr(_sys, "set_int_max_str_digits"):
+    if _sys.get_int_max_str_digits() < 1_000_000:
+        _sys.set_int_max_str_digits(1_000_000)
 
 
 class EngineProto(Protocol):
@@ -164,6 +172,21 @@ def _num_exact(t: Term):
         except ValueError:
             pass
     return _num_val(t)
+
+
+def numeric_equal(a: Term, b: Term) -> bool:
+    """Whether two literals denote the same number (datatype-insensitive).
+
+    Used to match a builtin's computed result against a ground object slot:
+    ``(7 2) math:remainder 1`` must hold whether the computed remainder is
+    typed xsd:integer or xsd:double.
+    """
+    if not isinstance(a, Literal) or not isinstance(b, Literal):
+        return False
+    try:
+        return _num_exact(a) == _num_exact(b)
+    except (TypeError, ValueError):
+        return False
 
 
 def _bool_result(v: bool) -> Literal:
@@ -589,7 +612,11 @@ def math_ceiling(args: list[Term], engine: EngineProto) -> Term | None:
 def math_exponentiation(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args):
         return None
-    return _num_result(_math.pow(_num_val(args[0]), _num_val(args[1])))
+    inp = _input_args(args, 2)
+    base, exp = _num_exact(inp[0]), _num_exact(inp[1])
+    if isinstance(base, int) and isinstance(exp, int) and exp >= 0:
+        return _int_result(base ** exp)
+    return _num_result(_math.pow(base, exp))
 
 
 def math_logarithm(args: list[Term], engine: EngineProto) -> Term | None:
@@ -1691,17 +1718,17 @@ def math_quotient(args: list[Term], engine: EngineProto) -> Term | None:
 def math_integerQuotient(args: list[Term], engine: EngineProto) -> Term | None:
     inp = _input_args(args, 2)
     if _unground(inp): return None
-    return _num_result(int(_num_val(inp[0]) // _num_val(inp[1])))
+    return _int_result(int(_num_exact(inp[0]) // _num_exact(inp[1])))
 
 def math_remainder(args: list[Term], engine: EngineProto) -> Term | None:
     inp = _input_args(args, 2)
     if _unground(inp): return None
-    return _num_result(_num_val(inp[0]) % _num_val(inp[1]))
+    return _typed_num_result(_num_exact(inp[0]) % _num_exact(inp[1]), inp)
 
 def math_absoluteValue(args: list[Term], engine: EngineProto) -> Term | None:
     inp = _input_args(args, 1)
     if _unground(inp): return None
-    return _num_result(abs(_num_val(inp[0])))
+    return _typed_num_result(abs(_num_exact(inp[0])), inp)
 
 def math_rounded(args: list[Term], engine: EngineProto) -> Term | None:
     inp = _input_args(args, 1)
@@ -1716,7 +1743,7 @@ def math_roundedTo(args: list[Term], engine: EngineProto) -> Term | None:
 def math_negation(args: list[Term], engine: EngineProto) -> Term | None:
     inp = _input_args(args, 1)
     if _unground(inp): return None
-    return _num_result(-_num_val(inp[0]))
+    return _typed_num_result(-_num_exact(inp[0]), inp)
 
 def math_max(args: list[Term], engine: EngineProto) -> Term | None:
     inputs = _expand_if_list(args, engine)
