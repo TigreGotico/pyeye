@@ -199,6 +199,63 @@ def _match_set(exps, act_set, mapping, budget):
             yield from _match_set(rest, act_set, m1, budget)
 
 
+def _fact_key(fact):
+    """Bucket key for a top-level fact: its tag plus ground predicate.
+
+    A fact whose predicate is ground can only match facts with the same
+    canonical predicate, so candidate selection narrows to that bucket.
+    Facts with a blank predicate get key (tag, None) and match against
+    every bucket of the same tag.
+    """
+    if not isinstance(fact, tuple) or not fact:
+        return (None, None)
+    tag = fact[0]
+    if tag in ("t", "quad", "tt") and len(fact) >= 3:
+        pred = fact[2]
+        if isinstance(pred, tuple) and pred and pred[0] == _BLANK:
+            return (tag, None)
+        return (tag, pred)
+    if tag == "rule" and len(fact) >= 2:
+        return (tag, fact[1])
+    return (tag, None)
+
+
+def _match_facts(exps, buckets, all_facts, mapping, budget):
+    """Containment search over top-level facts with bucketed candidates.
+
+    At each step the *most constrained* remaining fact — the one with the
+    fewest actual facts it can still match under the current mapping — is
+    branched on first.  This unit-propagates chains of interlinked blank
+    nodes instead of thrashing on interchangeable ones.
+    """
+    if not exps:
+        yield mapping
+        return
+    best_i = -1
+    best_cands: list = []
+    for i, e in enumerate(exps):
+        tag, pred = _fact_key(e)
+        pool = all_facts if pred is None else buckets.get((tag, pred), ())
+        cands = []
+        for c in pool:
+            for _m in _match(e, c, mapping, budget):
+                cands.append(c)
+                break
+            if best_i != -1 and len(cands) >= len(best_cands):
+                break
+        if best_i == -1 or len(cands) < len(best_cands):
+            best_i, best_cands = i, cands
+            if not best_cands:
+                return
+            if len(best_cands) == 1:
+                break
+    head = exps[best_i]
+    rest = exps[:best_i] + exps[best_i + 1:]
+    for candidate in best_cands:
+        for m1 in _match(head, candidate, mapping, budget):
+            yield from _match_facts(rest, buckets, all_facts, m1, budget)
+
+
 def _containment(expected: list, actual: list) -> tuple[bool, str]:
     """Every expected fact must match some actual fact consistently."""
     actual_set = set(actual)
@@ -211,13 +268,20 @@ def _containment(expected: list, actual: list) -> tuple[bool, str]:
     if not nonground:
         return True, f"all {len(expected)} expected facts present"
     budget = _SearchBudget()
-    # Cheapest-first: facts with fewer blank labels prune the search faster.
-    def blanks(f):
+    buckets: dict = {}
+    for f in actual_set:
+        buckets.setdefault(_fact_key(f), []).append(f)
+    # Most-constrained-first: facts with the fewest candidate matches (then
+    # the fewest blank labels) prune the search fastest.
+    def constraint(f):
         acc: set = set()
         _blank_labels(f, acc)
-        return len(acc)
-    nonground.sort(key=blanks)
-    for final in _match_set(tuple(nonground), frozenset(actual_set), {}, budget):
+        tag, pred = _fact_key(f)
+        n_cand = len(actual_set) if pred is None else len(buckets.get((tag, pred), ()))
+        return (n_cand, len(acc))
+    nonground.sort(key=constraint)
+    for final in _match_facts(tuple(nonground), buckets, tuple(actual_set), {},
+                              budget):
         return True, f"all {len(expected)} expected facts present " \
                      f"({len(nonground)} via blank mapping)"
     if budget.steps <= 0:
