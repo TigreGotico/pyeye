@@ -3455,6 +3455,12 @@ def log_ifThenElseIn(args: list[Term], engine: EngineProto) -> Term | None:
         solve = getattr(engine, "_solve", None)
         if solve is None:
             return None
+        if _term_has_var(cond):
+            # The condition runs under the bindings available at call time;
+            # unbound variables mean the inputs are not bound yet — evaluating
+            # now would commit to an arbitrary instantiation (and recursive
+            # conditions over unbound arguments diverge).
+            return None
         binding = dict(getattr(engine, "_current_binding", {}) or {})
         cond_sols = solve(list(cond.triples), binding)
         if cond_sols:
