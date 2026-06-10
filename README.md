@@ -271,11 +271,15 @@ Implementation lineage: **eye.pl** (Prolog) → **eyeling** (JavaScript) → **p
 ## Conformance
 
 pyeye is validated against the upstream EYE `reasoning/` scenario corpus
-(`run_corpus.py`, `tests/test_eye_corpus.py`). It currently passes
-**29 of 118** plain-answer EYE reasoning scenarios; remaining gaps (specialised
-meta-builtins, RDF-star parser features, and `r:Proof`-format output) are
-tracked in `TODO.md`. The unit suite (`tests/`, excluding the slow corpus) is
-green.
+(`run_corpus.py [--only SUBSTR]`, `tests/test_eye_corpus.py`). Outputs are
+compared semantically: both sides are parsed with pyeye's own N3 parser and
+matched as canonical fact sets under a blank-node/skolem/variable mapping, so
+label and serialization choices don't affect the verdict. It currently passes
+**62 of 122** plain-answer EYE reasoning scenarios; every non-passing scenario
+is listed in the suite's XFAIL registry with its root-cause cluster
+(incomplete derivations, output-structure mismatches, EARL meta-suites,
+`r:Proof`-format output, deep-recursion timeouts). The unit suite (`tests/`,
+excluding the slow corpus) is green.
 
 pyeye is an AI-assisted port: the code is written by [Claude](https://claude.ai)
 (Anthropic) under human direction, against the EYE and eyeling source.
