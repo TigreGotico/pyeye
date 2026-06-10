@@ -89,6 +89,24 @@ def main() -> None:
                 NamedNode(parts[2].strip()),
             )
 
+    # Parse query goal (S,P,O comma-separated; ?Name marks a variable)
+    query_triple = None
+    if args.query_goal:
+        from pyeye.term import NamedNode, Variable
+
+        def _goal_term(text: str):
+            text = text.strip()
+            if text.startswith("?"):
+                return Variable(text[1:])
+            return NamedNode(text)
+
+        parts = args.query_goal.split(",", 2)
+        if len(parts) != 3:
+            print("pyeye: error: --query-goal expects 'S,P,O' (comma-separated)",
+                  file=sys.stderr)
+            sys.exit(1)
+        query_triple = Triple(*(_goal_term(p) for p in parts))
+
     try:
         result = execute(
             data_paths=args.n3 or None,
@@ -102,6 +120,7 @@ def main() -> None:
             pass_all=args.pass_all,
             entail=args.entail,
             entail_owl=args.entail_owl,
+            query=query_triple,
             forward=not args.no_forward,
             not_entail=not_entail_triple,
             cache_dir=args.cache_dir,
@@ -112,8 +131,42 @@ def main() -> None:
         print(f"pyeye: error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    sys.stdout.write(result.triples)
+    if args.explain:
+        # Proof traces replace the normal triple output.
+        if isinstance(result.explains, str):  # "dot" / "html" formats
+            sys.stdout.write(result.explains)
+        else:  # "n3" — raw ProofTree list
+            from pyeye.proof import serialize_n3
+            sys.stdout.write(serialize_n3(result.explains))
+    elif query_triple is not None:
+        # Print one ground triple per backward-chaining answer.
+        from pyeye.output import N3Writer
+        from pyeye.term import Variable
+
+        def _subst(term, binding):
+            if isinstance(term, Variable):
+                return binding.get(term.name, term)
+            return term
+
+        answer_triples = [
+            Triple(_subst(query_triple.subject, b),
+                   _subst(query_triple.predicate, b),
+                   _subst(query_triple.object, b))
+            for b in result.query_answers
+        ]
+        sys.stdout.write(N3Writer(prefixes or None).write_triples(answer_triples))
+    else:
+        sys.stdout.write(result.triples)
     sys.stdout.flush()
+
+    if not args.quiet:
+        if args.not_entail and result.stats.get("derived", 0) > 0:
+            print(f"# not-entail check failed: "
+                  f"{result.stats['derived']} triple(s) derived",
+                  file=sys.stderr)
+        if not_entail_triple is not None and result.stats.get("not_entail_failed"):
+            print("# not-entail check failed: triple was derived",
+                  file=sys.stderr)
 
     if args.statistics and not args.quiet:
         stats = result.stats

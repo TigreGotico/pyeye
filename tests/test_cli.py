@@ -125,3 +125,136 @@ class TestCLI:
     def test_max_inferences_flag(self):
         r = run_cli("--max-inferences", "0")
         assert r.returncode == 0
+
+
+class TestCLIQueryGoal:
+    """--query-goal backward chaining from the command line."""
+
+    def _files(self):
+        data = tempfile.NamedTemporaryFile(mode="w", suffix=".ttl", delete=False)
+        data.write('@prefix : <http://ex.org/> .\n:alice :parent :bob .\n')
+        data.flush()
+        rules = tempfile.NamedTemporaryFile(mode="w", suffix=".n3", delete=False)
+        rules.write('@prefix : <http://ex.org/> .\n{?X :parent ?Y} => {?Y :child ?X} .\n')
+        rules.flush()
+        return data.name, rules.name
+
+    def test_query_goal_prints_answer_triples(self):
+        data_file, rule_file = self._files()
+        try:
+            r = run_cli("--n3", data_file, "--query", rule_file,
+                        "--query-goal", "http://ex.org/bob,http://ex.org/child,?X")
+            assert r.returncode == 0
+            assert "alice" in r.stdout
+            assert "child" in r.stdout
+        finally:
+            os.unlink(data_file)
+            os.unlink(rule_file)
+
+    def test_query_goal_no_answers_empty_output(self):
+        data_file, rule_file = self._files()
+        try:
+            r = run_cli("--n3", data_file, "--query", rule_file,
+                        "--query-goal", "http://ex.org/bob,http://ex.org/missing,?X")
+            assert r.returncode == 0
+            assert "alice" not in r.stdout
+        finally:
+            os.unlink(data_file)
+            os.unlink(rule_file)
+
+    def test_query_goal_malformed(self):
+        r = run_cli("--query-goal", "not-a-triple")
+        assert r.returncode == 1
+        assert "pyeye: error" in r.stderr
+
+
+class TestCLINotEntail:
+    """--not-entail / --not-entail-triple surface their result on stderr."""
+
+    def _files(self):
+        data = tempfile.NamedTemporaryFile(mode="w", suffix=".ttl", delete=False)
+        data.write('@prefix : <http://ex.org/> .\n:a :p :b .\n')
+        data.flush()
+        rules = tempfile.NamedTemporaryFile(mode="w", suffix=".n3", delete=False)
+        rules.write('@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} .\n')
+        rules.flush()
+        return data.name, rules.name
+
+    def test_not_entail_triple_pass_is_silent(self):
+        data_file, rule_file = self._files()
+        try:
+            r = run_cli("--n3", data_file, "--query", rule_file,
+                        "--not-entail-triple",
+                        "http://ex.org/a,http://ex.org/never,http://ex.org/b")
+            assert r.returncode == 0
+            assert "not-entail" not in r.stderr
+        finally:
+            os.unlink(data_file)
+            os.unlink(rule_file)
+
+    def test_not_entail_triple_failure_reported(self):
+        data_file, rule_file = self._files()
+        try:
+            r = run_cli("--n3", data_file, "--query", rule_file,
+                        "--not-entail-triple",
+                        "http://ex.org/a,http://ex.org/q,http://ex.org/b")
+            assert r.returncode == 0
+            assert "not-entail check failed" in r.stderr
+        finally:
+            os.unlink(data_file)
+            os.unlink(rule_file)
+
+    def test_not_entail_flag_reports_derivations(self):
+        data_file, rule_file = self._files()
+        try:
+            r = run_cli("--n3", data_file, "--query", rule_file, "--not-entail")
+            assert r.returncode == 0
+            assert "not-entail check failed" in r.stderr
+        finally:
+            os.unlink(data_file)
+            os.unlink(rule_file)
+
+
+class TestCLIExplain:
+    """--explain prints the proof trace instead of the triple output."""
+
+    def _files(self):
+        data = tempfile.NamedTemporaryFile(mode="w", suffix=".ttl", delete=False)
+        data.write('@prefix : <http://ex.org/> .\n:a :p :b .\n')
+        data.flush()
+        rules = tempfile.NamedTemporaryFile(mode="w", suffix=".n3", delete=False)
+        rules.write('@prefix : <http://ex.org/> .\n{?X :p ?Y} => {?X :q ?Y} .\n')
+        rules.flush()
+        return data.name, rules.name
+
+    def test_explain_html(self):
+        data_file, rule_file = self._files()
+        try:
+            r = run_cli("--n3", data_file, "--query", rule_file,
+                        "--explain", "--explain-format", "html")
+            assert r.returncode == 0
+            assert "<html" in r.stdout
+        finally:
+            os.unlink(data_file)
+            os.unlink(rule_file)
+
+    def test_explain_dot(self):
+        data_file, rule_file = self._files()
+        try:
+            r = run_cli("--n3", data_file, "--query", rule_file,
+                        "--explain", "--explain-format", "dot")
+            assert r.returncode == 0
+            assert "digraph" in r.stdout
+        finally:
+            os.unlink(data_file)
+            os.unlink(rule_file)
+
+    def test_explain_n3_default(self):
+        data_file, rule_file = self._files()
+        try:
+            r = run_cli("--n3", data_file, "--query", rule_file, "--explain")
+            assert r.returncode == 0
+            assert "proof" in r.stdout
+        finally:
+            os.unlink(data_file)
+            os.unlink(rule_file)
