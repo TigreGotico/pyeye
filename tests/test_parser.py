@@ -327,3 +327,10 @@ class TestBlankNodeLabels:
     def test_digit_leading_label(self):
         doc = parse_n3("_:0b <http://x/p> <http://x/o> .")
         assert doc.triples[0].subject.name == "0b"
+
+    def test_relative_prefix_with_trailing_hash(self):
+        doc = parse_n3('@prefix : <dpe#>.\n:a :re :b.',
+                       source="https://x.org/dir/file.n3")
+        t = doc.triples[0]
+        assert t.subject.value == "https://x.org/dir/dpe#a"
+        assert t.predicate.value == "https://x.org/dir/dpe#re"

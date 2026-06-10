@@ -270,7 +270,12 @@ class Parser:
         if not base:
             return ref
         from urllib.parse import urljoin
-        return urljoin(base, ref)
+        resolved = urljoin(base, ref)
+        # urljoin drops an empty fragment: ``dpe#`` resolves to ``.../dpe``.
+        # Namespace IRIs commonly end in '#', so restore it.
+        if ref.endswith("#") and not resolved.endswith("#"):
+            resolved += "#"
+        return resolved
 
     @property
     def _current_triples(self) -> list[Triple]:
