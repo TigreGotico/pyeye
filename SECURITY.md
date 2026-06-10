@@ -1,23 +1,33 @@
 # Security Considerations
 
-pyeye is a reasoning engine that executes N3 rules. Some builtins can execute
-external commands or make network requests. This document describes the
-security model and how to run pyeye safely.
+pyeye is a reasoning engine that executes N3 rules. Some builtins run external
+commands, read local files, or make network requests. This document describes
+the security model and how to run pyeye safely on untrusted input.
 
-## Dangerous Builtins
+Namespace prefixes used below:
 
-The following builtins can execute arbitrary code or access external resources:
+- `e:` = `http://eulersharp.sourceforge.net/2003/03swap/log-rules#`
+- `log:` = `http://www.w3.org/2000/10/swap/log#`
 
-| Builtin | Risk | Mitigation |
-| :--- | :--- | :--- |
-| `e:calculate` | Was `eval()` — now uses `ast.literal_eval` (safe) | ✅ Fixed |
-| `e:exec` / `e:shell` | Command execution | Allowlist of ~30 safe commands only |
-| `log:ask` | HTTP requests | SSRF protection: rejects private IPs, non-HTTP schemes |
-| HTTP data loading | Fetches remote files | SSRF protection: same as `log:ask` |
+## Builtins with system access
 
-## Command Allowlist
+| Builtin | Capability |
+| :--- | :--- |
+| `e:exec` | Runs an allowlisted external command, returns its exit code |
+| `log:shell` | Runs an allowlisted external command, returns its stdout |
+| `e:fileString` | Reads any local file the process can read |
+| `log:ask` | HTTP/HTTPS GET request, returns the body (capped at 10KB) |
+| HTTP data loading | `data_paths=["http://…"]` / `--n3 http://…` fetches remote documents |
 
-`e:exec` and `e:shell` only permit these commands:
+`e:calculate` evaluates expressions with `ast.literal_eval` (literals only) and
+cannot execute arbitrary code.
+
+## Command execution (`e:exec`, `log:shell`)
+
+Command strings are split with `shlex` and run via
+`subprocess.run(..., shell=False, timeout=30)`. No shell is involved, so
+`;`, `|`, `$()` and similar shell syntax are not interpreted. Only commands
+whose basename is on this allowlist run; anything else fails silently:
 
 ```
 echo, date, uname, whoami, hostname, id, uptime,
@@ -27,35 +37,42 @@ grep, awk, sed, sort, uniq, tr, cut,
 bc, expr, df, free, ps
 ```
 
-Commands not in this list are silently rejected. Shell met injection (`;`, `|`, `$()`, etc.) is prevented by using `subprocess.run(..., shell=False)`.
+The allowlist limits *which* programs run, not what they read: several of the
+allowed commands (`cat`, `head`, `grep`, …) can disclose any file the pyeye
+process can access. Treat `e:exec`/`log:shell` as file-read primitives too.
 
 ## SSRF Protection
 
-HTTP loading (`data_paths=["http://..."]`) and `log:ask` reject:
+HTTP loading (`data_paths=["http://…"]`) and `log:ask` reject:
+
 - `file://`, `ftp://`, and other non-HTTP schemes
 - Private IP ranges (10.x, 172.16-31.x, 192.168.x, 127.x)
 - Link-local addresses
 
-## Running in Untrusted Environments
+Response bodies are capped at 10 KB.
+
+## Running on Untrusted Input
 
 If you need to process untrusted N3 files:
 
-1. **Disable dangerous builtins**: Pass a custom `builtins={}` dict to `execute()` that excludes `e:exec`, `e:shell`, `log:ask`.
-2. **Don't use HTTP loading**: Only pass local file paths or strings.
-3. **Use a container**: Run pyeye in a Docker container with no network access and minimal filesystem access.
-4. **Set resource limits**: Use `max_steps` and `limit_answers` to prevent runaway reasoning.
+1. **Disable system-access builtins**: pass a filtered `builtins` dict to
+   `execute()` that excludes `e:exec`, `log:shell`, `e:fileString`, `log:ask`.
+2. **Don't use HTTP loading**: only pass local file paths or strings.
+3. **Use a container**: run pyeye with no network access and minimal
+   filesystem access.
+4. **Set resource limits**: use `timeout_seconds`, `max_steps` and
+   `limit_answers` to bound runaway reasoning.
 
 ```python
 from pyeye import execute, BUILTIN_REGISTRY
 
-# Safe mode: exclude command execution and HTTP
-UNSAFE_PREFIXES = (
+UNSAFE = (
     "http://eulersharp.sourceforge.net/2003/03swap/log-rules#exec",
-    "http://eulersharp.sourceforge.net/2003/03swap/log-rules#shell",
+    "http://eulersharp.sourceforge.net/2003/03swap/log-rules#fileString",
+    "http://www.w3.org/2000/10/swap/log#shell",
     "http://www.w3.org/2000/10/swap/log#ask",
 )
-SAFE_BUILTINS = {k: v for k, v in BUILTIN_REGISTRY.items()
-                 if not any(k.startswith(p) for p in UNSAFE_PREFIXES)}
+SAFE_BUILTINS = {k: v for k, v in BUILTIN_REGISTRY.items() if k not in UNSAFE}
 
 result = execute(
     data_strings=[...],
@@ -67,4 +84,5 @@ result = execute(
 
 ## Reporting Vulnerabilities
 
-If you find a security issue, please report it privately. Do not open a public issue.
+If you find a security issue, please report it privately. Do not open a
+public issue.
