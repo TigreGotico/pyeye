@@ -656,6 +656,12 @@ def math_exponentiation(args: list[Term], engine: EngineProto) -> Term | None:
     base, exp = _num_exact(inp[0]), _num_exact(inp[1])
     if isinstance(base, int) and isinstance(exp, int) and exp >= 0:
         return _int_result(base ** exp)
+    # Exact integer results for trivial bases even with a float exponent,
+    # matching SWI-Prolog ``**`` (EYE): 1**0.5 = 1, 0**0.5 = 0.
+    if base == 1:
+        return _int_result(1) if isinstance(base, int) else _num_result(1.0)
+    if base == 0 and isinstance(base, int) and _num_val(inp[1]) > 0:
+        return _int_result(0)
     return _num_result(_math.pow(base, exp))
 
 
