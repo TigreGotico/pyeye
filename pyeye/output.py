@@ -187,7 +187,12 @@ class N3Writer:
 
                 # Collapse using semicolons
                 collapsed = "; ".join(pred_objs)
-                lines.append(f"[ {collapsed} ] .")
+                if bnode_refs.get(subj.name, 0) > 0:
+                    # Referenced elsewhere as an object — keep the label so
+                    # the references stay linked.
+                    lines.append(f"_:{subj.name} {collapsed} .")
+                else:
+                    lines.append(f"[ {collapsed} ] .")
             else:
                 # Render list-as-subject: if subject is a list head, render as (...)
                 if isinstance(subj, Existential) and subj.name in list_nodes:
@@ -247,15 +252,23 @@ class N3Writer:
         L2 fix: Handle Formula, NamedNode (for single triples), etc.
         """
         if isinstance(t, Formula):
-            inner_triples = "; ".join(
-                f"{self._term(tr.subject)} {self._term(tr.predicate)} {self._term(tr.object)}"
-                for tr in t.triples
-            )
-            return f"{{{inner_triples}}}"
+            return self._formula_body(t)
         # Single triple as formula
         if isinstance(t, TripleTerm):
             return f"<<( {self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)} )>>"
         return self._term(t)
+
+    def _formula_body(self, f: Formula) -> str:
+        """Render a Formula as ``{tr1 . tr2}``.
+
+        Statements are separated by ``.`` — a ``;`` separator would chain
+        the following predicate-object pair onto the first triple's subject.
+        """
+        inner = " . ".join(
+            f"{self._term(tr.subject)} {self._term(tr.predicate)} {self._term(tr.object)}"
+            for tr in f.triples
+        )
+        return f"{{{inner}}}"
 
     def _term_for_object(
         self,
@@ -291,11 +304,7 @@ class N3Writer:
             inner = " ".join(self._term(item) for item in t.items)
             return f"({inner})"
         if isinstance(t, Formula):
-            inner = "; ".join(
-                f"{self._term(tr.subject)} {self._term(tr.predicate)} {self._term(tr.object)}"
-                for tr in t.triples
-            )
-            return f"{{{inner}}}"
+            return self._formula_body(t)
         # Phase 2 extended types
         if isinstance(t, TripleTerm):
             return f"<<( {self._term(t.subject)} {self._term(t.predicate)} {self._term(t.object)} )>>"
@@ -303,11 +312,8 @@ class N3Writer:
             args_str = " ".join(self._term(a) for a in t.args)
             return f"(|{self._term(t.functor)} {args_str}|)"
         if isinstance(t, NegativeSurface):
-            inner = "; ".join(
-                f"{self._term(tr.subject)} {self._term(tr.predicate)} {self._term(tr.object)}"
-                for tr in t.formula.triples
-            )
-            return f"{{{{{inner}}}}}"  # double braces for negation
+            inner = self._formula_body(t.formula)
+            return f"{{{inner}}}"  # double braces for negation
         if isinstance(t, SetTerm):
             elems = " ".join(self._term(e) for e in t.elements)
             return f"($ {elems} $)"
@@ -329,8 +335,12 @@ class N3Writer:
 
     def _render_literal(self, lit: Literal) -> str:
         v = lit.value
-        # Escape quotes
-        v = v.replace('"', '\\"')
+        # Escape string-literal special characters (backslash first)
+        v = (v.replace("\\", "\\\\")
+              .replace('"', '\\"')
+              .replace("\n", "\\n")
+              .replace("\r", "\\r")
+              .replace("\t", "\\t"))
 
         XSD_BOOL    = "http://www.w3.org/2001/XMLSchema#boolean"
         XSD_INTEGER = "http://www.w3.org/2001/XMLSchema#integer"

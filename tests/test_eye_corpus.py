@@ -41,7 +41,6 @@ _SKIPPED = [s for s in _ALL if s not in _RUNNABLE and s not in _PROOF]
 _NO_ANSWERS = "derives no or few query answers (backward-chaining/builtin gaps)"
 _PARTIAL = "incomplete derivation: some expected facts missing"
 _STRUCTURE = "output structure differs from reference under blank/variable mapping"
-_SERIALIZER = "output not parseable by pyeye's own parser"
 _EARL_META = "W3C suite meta-runner (log:semantics fan-out over manifests) not implemented"
 _TIMEOUT15 = "exceeds the 15s corpus timeout (deep recursion / unbounded search)"
 
@@ -72,8 +71,9 @@ XFAIL: dict[str, str] = {
     "diamond-property": _STRUCTURE, "four-types-of-specification": _STRUCTURE,
     "issue118": _STRUCTURE, "issue141": _STRUCTURE, "qgen": _STRUCTURE,
     "reif": _STRUCTURE, "swet": _STRUCTURE, "ldes": _STRUCTURE,
-    # serializer emits unparseable N3
-    "delfour-insight-economy": _SERIALIZER, "quadratic-equation": _SERIALIZER,
+    # comparator blank-mapping search budget: 144 interlinked bnode facts
+    # exhaust the search even when the reference answer is compared to itself
+    "quadratic-equation": "blank-mapping search budget exhausted",
     # W3C EARL meta-suites
     "n3-dev": _EARL_META, "turtle-dev": _EARL_META,
     "rdf12": _EARL_META, "rdf-star": _EARL_META,

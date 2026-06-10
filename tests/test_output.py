@@ -175,3 +175,96 @@ class TestN3Writer:
         triples = [T(body, log_implied_by, head)]
         result = w.write_triples(triples)
         assert "<=" in result
+
+
+class TestRoundTrip:
+    """Serializer output must parse back through pyeye's own parser with the
+    same facts (serialize → parse → re-serialize is stable)."""
+
+    def _roundtrip(self, triples):
+        from pyeye.parser import parse_n3
+        w = N3Writer()
+        text = w.write_triples(triples)
+        doc = parse_n3(text, source="roundtrip")
+        return text, doc
+
+    def test_bnode_property_list_referenced_keeps_label(self):
+        """A bnode that is both subject and object keeps its _: label so the
+        reference and the property list stay linked."""
+        b = Existential("sk-20192690")
+        triples = [
+            T(NN("http://ex/q"), NN("http://ex/answer"), b),
+            T(b, NN("http://ex/value"), L("2", datatype=NN("http://www.w3.org/2001/XMLSchema#integer"))),
+            T(b, NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), NN("http://ex/Root")),
+        ]
+        text, doc = self._roundtrip(triples)
+        assert len(doc.triples) == 3
+        # the answer object and the property-list subject must be the same bnode
+        objs = {t.object for t in doc.triples if t.predicate.value == "http://ex/answer"}
+        subjs = {t.subject for t in doc.triples if t.predicate.value == "http://ex/value"}
+        assert objs == subjs
+
+    def test_bnode_label_with_hyphen_parses(self):
+        """Skolem labels containing '-' (valid PN_CHARS) round-trip."""
+        b = Existential("sk-123-456")
+        triples = [
+            T(b, NN("http://ex/p"), L("x")),
+            T(b, NN("http://ex/q"), L("y")),
+            T(NN("http://ex/s"), NN("http://ex/r"), b),
+        ]
+        text, doc = self._roundtrip(triples)
+        assert len(doc.triples) == 3
+
+    def test_unreferenced_bnode_property_list(self):
+        """Unreferenced bnode subjects stay anonymous [ ... ] and parse."""
+        b = Existential("b0")
+        dt = NN("http://www.w3.org/2001/XMLSchema#double")
+        triples = [
+            T(b, NN("http://ex/value"), L("1.0", datatype=dt)),
+            T(b, NN("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), NN("http://ex/RealRoot")),
+        ]
+        text, doc = self._roundtrip(triples)
+        assert "[" in text and "]" in text
+        assert len(doc.triples) == 2
+
+    def test_datatyped_literal_roundtrip(self):
+        dt = NN("http://ex/custom")
+        triples = [T(NN("http://ex/a"), NN("http://ex/p"), L("v1", datatype=dt))]
+        text, doc = self._roundtrip(triples)
+        lit = doc.triples[0].object
+        assert lit.value == "v1"
+        assert lit.datatype.value == "http://ex/custom"
+
+    def test_literal_escaping_roundtrip(self):
+        """Backslashes, quotes, and newlines survive serialize → parse."""
+        value = 'line1\nline2 \\ "quoted"\tend'
+        triples = [T(NN("http://ex/a"), NN("http://ex/p"), L(value))]
+        text, doc = self._roundtrip(triples)
+        assert doc.triples[0].object.value == value
+
+    def test_multi_triple_formula_roundtrip(self):
+        """Formulas with several triples use '.' separators — ';' would
+        chain onto the first subject and corrupt the graph."""
+        from pyeye.term import Formula
+        f = Formula((
+            T(NN("http://ex/a"), NN("http://ex/p"), L("1", datatype=NN("http://www.w3.org/2001/XMLSchema#integer"))),
+            T(NN("http://ex/b"), NN("http://ex/q"), L("2", datatype=NN("http://www.w3.org/2001/XMLSchema#integer"))),
+        ))
+        triples = [T(f, NN("http://ex/says"), NN("http://ex/x"))]
+        text, doc = self._roundtrip(triples)
+        inner = doc.triples[0].subject
+        assert len(inner.triples) == 2
+        subjects = {t.subject.value for t in inner.triples}
+        assert subjects == {"http://ex/a", "http://ex/b"}
+
+    def test_nested_formula_roundtrip(self):
+        from pyeye.term import Formula
+        innermost = Formula((T(NN("http://ex/x"), NN("http://ex/y"), NN("http://ex/z")),))
+        outer = Formula((
+            T(NN("http://ex/a"), NN("http://ex/believes"), innermost),
+            T(NN("http://ex/a"), NN("http://ex/p"), NN("http://ex/b")),
+        ))
+        triples = [T(outer, NN("http://ex/states"), NN("http://ex/w"))]
+        text, doc = self._roundtrip(triples)
+        parsed_outer = doc.triples[0].subject
+        assert len(parsed_outer.triples) == 2
