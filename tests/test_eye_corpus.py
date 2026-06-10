@@ -54,26 +54,19 @@ XFAIL: dict[str, str] = {
     "peasant": _NO_ANSWERS, "gray-code-counter": _NO_ANSWERS,
     "polygon": _NO_ANSWERS, "glass": _NO_ANSWERS,
     "gdpr-compliance": _NO_ANSWERS, "wind-turbine": _NO_ANSWERS,
-    "issue154": _NO_ANSWERS, "slide33": _NO_ANSWERS, "ccd": _NO_ANSWERS,
+    "issue154": _NO_ANSWERS, "ccd": _NO_ANSWERS,
     # incomplete derivations
     "allen": "dateTime interval reasoning incomplete (22/24 facts missing)",
-    "bi": _PARTIAL, "cha58": _PARTIAL,
-    "complex-matrix-stability-worlds": _PARTIAL, "deontic-logic": _PARTIAL,
-    "iq": _PARTIAL, "n3gl": _PARTIAL, "multi-agent": _PARTIAL,
-    "qiana": _PARTIAL, "universal": _PARTIAL, "n3patch": _PARTIAL,
-    "control-system": _PARTIAL, "euq": _PARTIAL, "preduction": _PARTIAL,
-    "n3plus1": _PARTIAL, "proof-by-contrapositive": _PARTIAL,
-    "complex": _PARTIAL, "issue148": _PARTIAL, "ill-formed-literals": _PARTIAL,
-    "heron-theorem": _PARTIAL, "law-of-cosines": _PARTIAL,
-    "pythagorean-theorem": _PARTIAL,
+    "bi": _PARTIAL, "n3patch": _PARTIAL, "preduction": _PARTIAL,
+    "n3plus1": _PARTIAL, "issue148": _PARTIAL, "ill-formed-literals": _PARTIAL,
+    # reference answers print floats at 12 significant digits (older EYE
+    # float format); residuals differ in the trailing digits
+    "heron-theorem": "reference floats truncated to 12 significant digits",
+    "law-of-cosines": "reference floats truncated to 12 significant digits",
     # output-structure mismatches
-    "bnode-scope": _STRUCTURE, "dependent-type": _STRUCTURE,
-    "diamond-property": _STRUCTURE, "four-types-of-specification": _STRUCTURE,
-    "issue118": _STRUCTURE, "issue141": _STRUCTURE, "qgen": _STRUCTURE,
+    "bnode-scope": _STRUCTURE,
+    "issue118": _STRUCTURE, "issue141": _STRUCTURE,
     "reif": _STRUCTURE, "swet": _STRUCTURE, "ldes": _STRUCTURE,
-    # comparator blank-mapping search budget: 144 interlinked bnode facts
-    # exhaust the search even when the reference answer is compared to itself
-    "quadratic-equation": "blank-mapping search budget exhausted",
     # W3C EARL meta-suites
     "n3-dev": _EARL_META, "turtle-dev": _EARL_META,
     "rdf12": _EARL_META, "rdf-star": _EARL_META,
