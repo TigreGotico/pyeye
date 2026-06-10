@@ -517,10 +517,20 @@ class Engine:
         patterns: list[Triple],
         binding: Binding,
     ) -> list[Binding]:
-        """Iteratively match patterns, accumulating bindings."""
+        """Iteratively match patterns, accumulating bindings.
+
+        A builtin goal that fails while it still carries unbound variables may
+        merely be unevaluable in this direction (its inputs are bound by a
+        later goal that the DJITI ordering misjudged) — such a goal is pushed
+        back and retried after the remaining goals; a failure with bound
+        inputs falsifies the conjunction.
+        """
         results: list[Binding] = [binding]
 
-        for pattern in patterns:
+        queue: list[Triple] = list(patterns)
+        deferrals = 0
+        while queue:
+            pattern = queue.pop(0)
             self._check_timeout()
 
             new_results: list[Binding] = []
@@ -568,9 +578,16 @@ class Engine:
                 if not found:
                     new_results.extend(self._solve([pattern], b))
 
+            if not new_results:
+                if (queue and deferrals < len(queue)
+                        and any(self._goal_maybe_unready(pattern, b)
+                                for b in results)):
+                    queue.append(pattern)
+                    deferrals += 1
+                    continue
+                return []
             results = new_results
-            if not results:
-                break
+            deferrals = 0
 
         return results
 
