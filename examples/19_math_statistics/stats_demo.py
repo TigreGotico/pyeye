@@ -48,7 +48,7 @@ rules = """
 
 {
     ?Dept a hr:Dept .
-    (?V { ?P hr:dept ?Dept . ?P hr:salary ?V } ?Salaries) log:collectAllIn ?Dept .
+    (?V { ?P hr:dept ?Dept . ?P hr:salary ?V } ?Salaries) log:collectAllIn ?Scope .
     ?Salaries math:sum ?Total .
     ?Salaries math:max ?Hi .
     ?Salaries math:min ?Lo .
@@ -91,7 +91,7 @@ rules2 = """
 # Compute class stats
 {
     ?C a edu:Class .
-    (?G { ?S edu:class ?C . ?S edu:grade ?G } ?Grades) log:collectAllIn ?C .
+    (?G { ?S edu:class ?C . ?S edu:grade ?G } ?Grades) log:collectAllIn ?Scope .
     ?Grades math:max ?Hi .
     ?Grades math:min ?Lo .
     ?Grades math:sum ?Sum .
@@ -108,7 +108,7 @@ rules2 = """
 # Pass rate: count students >= 70
 {
     ?C a edu:Class .
-    (1 { ?S edu:class ?C . ?S edu:grade ?G . ?G math:greaterThan 69 } ?Passes) log:collectAllIn ?C .
+    (1 { ?S edu:class ?C . ?S edu:grade ?G . ?G math:greaterThan 69 } ?Passes) log:collectAllIn ?Scope .
     ?Passes math:sum ?PassCount
 }
     => { ?C edu:passCount ?PassCount } .
@@ -139,7 +139,7 @@ rules3 = """
 # Max temperature per room
 {
     ?Room a sensor:Room .
-    (?T { ?M sensor:room ?Room . ?M sensor:temp ?T } ?Temps) log:collectAllIn ?Room .
+    (?T { ?M sensor:room ?Room . ?M sensor:temp ?T } ?Temps) log:collectAllIn ?Scope .
     ?Temps math:max ?MaxT
 }
     => { ?Room sensor:peakTemp ?MaxT } .

@@ -76,7 +76,7 @@ rules = """
 # Brute-force: user has 3+ failures all in burst (count distinct burst failures per user)
 {
     ?AnyE ev:user ?U ; ev:type ev:loginFail ; ev:inBurst true .
-    (1 { ?E ev:user ?U ; ev:type ev:loginFail ; ev:inBurst true } ?BurstEvents) log:collectAllIn ?U .
+    (1 { ?E ev:user ?U ; ev:type ev:loginFail ; ev:inBurst true } ?BurstEvents) log:collectAllIn ?Scope .
     ?BurstEvents list:length ?N .
     ?N math:greaterThan 2
 }

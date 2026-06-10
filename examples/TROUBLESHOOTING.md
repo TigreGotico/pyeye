@@ -53,8 +53,7 @@ All binary math operations use list syntax: `(?A ?B) math:sum ?C`, `math:differe
 **Root cause:** The engine appends the output Variable making args = `[?A, ?B, Variable("R")]`.
 `_unground(args)` returns True because `Variable("R")` is unbound.
 
-**Fix:** Use `_input_only()` helper or check `args[:-1]` — this is a known engine fix already
-applied to the built-in `string:concatenation`. If writing a **custom** concatenation-style builtin:
+**Fix:** The built-in `string:concatenation` handles this; for a **custom** concatenation-style builtin, check only the input slots (`args[:-1]`):
 
 ```python
 def my_concat(args, engine):
@@ -91,9 +90,6 @@ or never fires even when it is NOT derivable.
 { _:n1 log:onNegativeSurface { ?S :hasA ?V } .
   _:n2 log:onNegativeSurface { ?S :hasB ?V } } => { ... } .
 ```
-
-**Root cause C (historical, fixed):** Negation was checking the initial binding
-instead of per-result binding. This is fixed in the current engine.
 
 ---
 
@@ -140,14 +136,13 @@ after 30 seconds (default).
 
 **Symptom:** `result.query_answers` is empty even though forward chaining produces the relevant triples.
 
-**Root cause A:** The query variable name doesn't match the binding keys. The engine
-uses the variable name from the `query=` triple.
+**Root cause A:** The query variable name doesn't match the binding keys. Bindings
+are keyed by the variable name from the `query=` triple (without the `?`).
 
 ```python
 query = Triple(Variable("Who"), pred, obj)
 for b in result.query_answers:
-    # Use "Who" — the variable name from query=
-    print(b.get("Who") or list(b.values())[0])
+    print(b["Who"])
 ```
 
 **Root cause B:** Rule is forward-only (`=>`) but query expects backward (`<=`).
@@ -189,16 +184,16 @@ For `list:select` (1-based index): both list and index must be bound:
 
 **Symptom:** `execute(data_strings=[data], entail=True)` returns an empty or very short result.
 
-**Root cause:** `entail=True` adds RDFS rules on top of your data and rules, but
-the output still only shows **derived** triples. If you want original facts + derived,
-also pass `pass_mode=True`.
+**Root cause:** `entail=True` applies the RDFS rules *before* user rules and puts the
+entailed triples in the store, where your rules can match them — but they are not part
+of the default (rule-derived only) output. To see them, pass `pass_mode=True`.
 
 ```python
-# Shows RDFS-derived triples only (not original facts)
-result = execute(data_strings=[data], entail=True)
+# Output: only triples derived by YOUR rules (RDFS-entailed triples stay in the store)
+result = execute(data_strings=[data], rule_strings=[rules], entail=True)
 
-# Shows original facts + all derived triples
-result = execute(data_strings=[data], entail=True, pass_mode=True)
+# Output: original facts + RDFS-entailed + rule-derived triples
+result = execute(data_strings=[data], rule_strings=[rules], entail=True, pass_mode=True)
 ```
 
 ---
@@ -354,19 +349,23 @@ result = execute(..., timeout_seconds=5.0)    # should be fast; fail fast if not
 
 **Symptom:** `log:collectAllIn` triple is in the rule but nothing is derived.
 
-**Root cause A:** The list variable (`?L`) is also used elsewhere in the rule body
-before `log:collectAllIn`. It must be a fresh variable that `log:collectAllIn` binds.
+**Root cause A:** Wrong calling convention. The subject is a three-element list
+`(?Template { pattern } ?OutputList)`; the object is the scope.
 
-**Root cause B:** The sub-pattern references variables that aren't in scope.
+**Root cause B:** The scope (the object) is a variable that is also bound elsewhere
+in the rule. The scope must be a **fresh** variable used nowhere else; grouping
+comes from variables the inner pattern shares with the outer body.
 
 ```n3
-# WRONG — ?L used before collectAllIn
-{ ?G :items ?L . ?L log:collectAllIn { ?X :group ?G . ?X :v ?V } ?V }
-
-# RIGHT — ?L is fresh, bound by collectAllIn
+# WRONG — scope ?G is bound by the first body pattern
 { ?G a :Group .
-  _:list log:collectAllIn { ?X :group ?G . ?X :value ?V } ?V .
-  _:list list:length ?N } => { ?G :count ?N } .
+  (?V { ?X :group ?G . ?X :value ?V } ?L) log:collectAllIn ?G .
+  ?L list:length ?N } => { ?G :count ?N } .
+
+# RIGHT — fresh ?Scope variable
+{ ?G a :Group .
+  (?V { ?X :group ?G . ?X :value ?V } ?L) log:collectAllIn ?Scope .
+  ?L list:length ?N } => { ?G :count ?N } .
 ```
 
 ---
@@ -538,10 +537,10 @@ def local(tok):
 
 ### "Valid" negation rule fails when combined with collectAllIn rules (28)
 **Symptom:** a rule checking `_:neg log:onNegativeSurface { ?P :violation ?V }` doesn't fire even for entities with no violations, when `collectAllIn` rules are also present.
-**Cause:** The interaction between negation and collectAllIn can prevent the negative surface from evaluating correctly.
-**Fix:** Compute validity in Python post-processing — collect all violating entities, then treat all others as valid:
-```python
-all_persons = {"alice", "bob", ...}
-violations = {}  # filled from result.triples parsing
-valid = [p for p in all_persons if p not in violations]
+**Cause:** Almost always a `collectAllIn` whose scope is a bound rule variable (see item 18) — the broken aggregation rule corrupts the binding, so neither the violations nor the negation behave as expected.
+**Fix:** Use a fresh scope variable in every `collectAllIn`. With that in place, negation over derived `:violation` facts works:
+```n3
+{ ?P a :Person .
+  _:neg log:onNegativeSurface { ?P :violation ?V } }
+    => { ?P :valid true } .
 ```

@@ -67,7 +67,7 @@ rules = """
 # Sub-assembly total weight = sum of direct parts' total weights
 {
     ?Asm bom:directPart ?AnyPart .
-    (?W { ?Asm bom:directPart ?P . ?P bom:totalWeight ?W } ?Ws) log:collectAllIn ?Asm .
+    (?W { ?Asm bom:directPart ?P . ?P bom:totalWeight ?W } ?Ws) log:collectAllIn ?Scope .
     ?Ws math:sum ?TW
 }
     => { ?Asm bom:totalWeight ?TW } .
@@ -75,7 +75,7 @@ rules = """
 # Sub-assembly total cost = sum of direct parts' total costs
 {
     ?Asm bom:directPart ?AnyPart .
-    (?C { ?Asm bom:directPart ?P . ?P bom:totalCost ?C } ?Cs) log:collectAllIn ?Asm .
+    (?C { ?Asm bom:directPart ?P . ?P bom:totalCost ?C } ?Cs) log:collectAllIn ?Scope .
     ?Cs math:sum ?TC
 }
     => { ?Asm bom:totalCost ?TC } .

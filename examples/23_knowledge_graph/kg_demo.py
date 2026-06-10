@@ -57,7 +57,7 @@ prod:p3 a cat:Desktop ;
 
 prod:p4 a cat:Smartphone ;
     prod:brand brand:alpha ;
-    prod:price 950 ;
+    prod:price 1050 ;
     prod:os "android" .
 
 prod:p5 a cat:Tablet ;

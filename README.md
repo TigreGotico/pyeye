@@ -24,6 +24,13 @@ It implements the Euler Abstract Machine with forward chaining, backward chainin
 ## Install
 
 ```bash
+pip install pyeye-reasoner
+```
+
+The distribution name is `pyeye-reasoner`; the import package is `pyeye`.
+From source:
+
+```bash
 git clone https://github.com/TigreGotico/pyeye
 cd pyeye
 pip install -e .
@@ -144,7 +151,7 @@ result = execute(
     ),
 )
 print(result.query_answers)
-# [{1: NamedNode('http://ex.org/alice')}]  # keyed by Variable.id
+# [{'X': NamedNode('http://ex.org/alice')}]  # keyed by variable name
 
 # Proof trace
 result = execute(data_strings=["..."], rule_strings=["..."], explain=True, explain_format="html")
@@ -237,7 +244,7 @@ See [docs/n3-syntax.md](docs/n3-syntax.md) for the full syntax guide.
 
 | Document | Content |
 |---|---|
-| [Getting Started](docs/getting-started.md) | Concepts, installation, step-by-step tutorial |
+| [Documentation Index](docs/index.md) | Concepts, installation, step-by-step tutorial |
 | [N3 Syntax](docs/n3-syntax.md) | Triples, rules, builtins, paths, surfaces, TriG, RDF-star |
 | [Builtins](docs/builtins.md) | All 280+ built-in functions grouped by namespace |
 | [API Reference](docs/api.md) | `execute()`, `Engine`, term types, store, parser, proofs |

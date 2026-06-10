@@ -10,5 +10,5 @@ jobs:
     uses: OpenVoiceOS/gh-automations/.github/workflows/release-preview.yml@dev
     secrets: inherit
     with:
-      package_name: 'pyeye'
+      package_name: 'pyeye-reasoner'
       version_file: 'pyeye/version.py'

@@ -13,8 +13,9 @@ Concepts:
   - ?List list:length ?Count          → count elements
   - log:forAllIn                      → universal quantification over a list
 
-Note: The scope variable (?Scope) must be an in-scope variable that makes
-the pattern context-sensitive (typically the subject of the outer rule).
+Note: The scope (the object of log:collectAllIn) must be a FRESH variable
+that appears nowhere else in the rule. Grouping comes from variables shared
+between the outer rule body and the inner pattern (e.g. ?Owner below).
 """
 
 from pyeye import execute
@@ -40,7 +41,7 @@ rules = """
 
 {
     ?Node graph:edge ?Any .
-    (1 { ?Node graph:edge ?Neighbour } ?Ns) log:collectAllIn ?Node .
+    (1 { ?Node graph:edge ?Neighbour } ?Ns) log:collectAllIn ?Scope .
     ?Ns list:length ?Degree
 }
     => { ?Node graph:degree ?Degree } .
@@ -72,7 +73,7 @@ rules2 = """
 
 {
     ?Order shop:item ?AnyItem .
-    (?P { ?Order shop:item ?I . ?I shop:price ?P } ?Prices) log:collectAllIn ?Order .
+    (?P { ?Order shop:item ?I . ?I shop:price ?P } ?Prices) log:collectAllIn ?Scope .
     ?Prices math:sum ?Total
 }
     => { ?Order shop:total ?Total } .
@@ -100,7 +101,7 @@ rules3 = """
 
 {
     ?Owner :hasDog ?Any .
-    (1 { ?Owner :hasDog ?Dog } ?Dogs) log:collectAllIn ?Owner .
+    (1 { ?Owner :hasDog ?Dog } ?Dogs) log:collectAllIn ?Scope .
     ?Dogs list:length ?N .
     ?N math:greaterThan 4
 }

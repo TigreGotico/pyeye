@@ -1293,13 +1293,81 @@ def _to_term(obj) -> Term:
     raise ValueError(f"Unknown rdflib term: {type(obj)}")  # pragma: no cover — rdflib only returns URIRef, Literal, BNode
 
 
+def _graph_to_triples(g) -> list[Triple]:
+    """Convert an rdflib graph to pyeye triples.
+
+    RDF collections — which rdflib parses into ``rdf:first``/``rdf:rest``
+    blank-node chains — are rebuilt as native ``ListTerm`` values, matching
+    pyeye's own N3 parser (``(a b c)`` → ``ListTerm``), so the ``list:``
+    builtins see the same representation regardless of which parser loaded
+    the data.
+    """
+    rdf_first = RDF.first
+    rdf_rest = RDF.rest
+    rdf_nil = RDF.nil
+
+    firsts: dict = {}
+    rests: dict = {}
+    malformed: set = set()
+    for s, p, o in g:
+        if isinstance(s, BNode):
+            if p == rdf_first:
+                if s in firsts:
+                    malformed.add(s)
+                firsts[s] = o
+            elif p == rdf_rest:
+                if s in rests:
+                    malformed.add(s)
+                rests[s] = o
+    chain_nodes = {n for n in firsts if n in rests and n not in malformed}
+
+    list_heads: dict = {}   # chain head -> ListTerm (memoised)
+    consumed: set = set()   # chain nodes folded into a ListTerm
+
+    def convert(obj):
+        if obj == rdf_nil:
+            return ListTerm(items=())
+        if isinstance(obj, BNode) and obj in chain_nodes:
+            lt = make_list(obj)
+            if lt is not None:
+                return lt
+        return _to_term(obj)
+
+    def make_list(head):
+        if head in list_heads:
+            return list_heads[head]
+        chain = []
+        seen: set = set()
+        cur = head
+        while cur != rdf_nil:
+            if not isinstance(cur, BNode) or cur not in chain_nodes or cur in seen:
+                return None  # broken or cyclic chain — leave as raw triples
+            seen.add(cur)
+            chain.append(cur)
+            cur = rests[cur]
+        lt = ListTerm(items=tuple(convert(firsts[n]) for n in chain))
+        list_heads[head] = lt
+        consumed.update(chain)
+        return lt
+
+    for n in list(chain_nodes):
+        make_list(n)
+
+    triples: list[Triple] = []
+    for s, p, o in g:
+        if isinstance(s, BNode) and s in consumed and p in (rdf_first, rdf_rest):
+            continue
+        triples.append(Triple(convert(s), convert(p), convert(o)))
+    return triples
+
+
 def load_data_file(path: str | Path) -> ParsedDocument:
     """Load pure data N3/Turtle via rdflib."""
     g = Graph()
     g.parse(str(path), format="turtle")
     pm = PrefixManager()
     return ParsedDocument(
-        triples=[Triple(_to_term(s), _to_term(p), _to_term(o)) for s, p, o in g],
+        triples=_graph_to_triples(g),
         prefixes=pm.prefixes,
     )
 
@@ -1328,7 +1396,7 @@ def load_data_string(text: str) -> ParsedDocument:
             return parse_n3(text)
     pm = PrefixManager()
     return ParsedDocument(
-        triples=[Triple(_to_term(s), _to_term(p), _to_term(o)) for s, p, o in g],
+        triples=_graph_to_triples(g),
         prefixes=pm.prefixes,
     )
 

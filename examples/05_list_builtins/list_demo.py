@@ -1,21 +1,21 @@
 """
 05 — List Builtins
 ==================
-RDF lists (rdf:first / rdf:rest chains) and the list: namespace.
+RDF lists and the list: namespace.
 
 Concepts:
   - RDF list syntax: (:a :b :c)
   - list:length    — count elements
   - list:in        — filter: test if a *known* item is in a list
   - list:select    — get element at 1-based index
-  - list:member    — iterate or test membership
-  - list:first     — head of list (via pattern matching)
+  - list:member    — enumerate elements (or test membership)
+  - list:first     — head of list
 
 Note on list:in — it requires both the item and the list to be bound.
-To iterate over list members, use log:collectAllIn (see example 10).
+To iterate over list members, use list:member with an unbound item.
 
-Note on RDF lists: A list literal like (:a :b :c) is stored as a linked
-rdf:first / rdf:rest chain. The list: builtins traverse this chain.
+Note on RDF lists: a list literal like (:a :b :c) is stored as a native
+list value; the list: builtins operate on it directly.
 """
 
 from pyeye import execute
@@ -115,9 +115,9 @@ result3 = execute(data_strings=[data3], rule_strings=[rules3])
 print(result3.triples)
 
 
-# Example 4: Collect list members via log:collectAllIn
-print("\n=== Collect Members & Assert Individually ===")
-# This uses collectAllIn to enumerate list items — see example 10 for full details
+# Example 4: Enumerate list members and assert them individually
+print("\n=== Enumerate Members & Assert Individually ===")
+# list:member yields one binding per list element when the item is unbound.
 
 data4 = """
 @prefix : <http://example.org/> .
@@ -127,14 +127,19 @@ data4 = """
 
 rules4 = """
 @prefix : <http://example.org/> .
-@prefix log: <http://www.w3.org/2000/10/swap/log#> .
 @prefix list: <http://www.w3.org/2000/10/swap/list#> .
 
-# Collect all tracks from all playlists into a single flat list
+# One :hasTrack fact per list element
 {
     ?PL :tracks ?L .
-    (?T { ?PL :tracks ?L2 . ?T list:in ?L2 } ?Members) log:collectAllIn ?PL .
-    ?Members list:length ?N
+    ?L list:member ?T
+}
+    => { ?PL :hasTrack ?T } .
+
+# And the total count
+{
+    ?PL :tracks ?L .
+    ?L list:length ?N
 }
     => { ?PL :trackCount ?N } .
 """

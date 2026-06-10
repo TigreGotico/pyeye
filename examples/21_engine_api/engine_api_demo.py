@@ -149,13 +149,16 @@ for r in doc3.rules:
     engine3.add_rule(r)
 engine3.run()
 
+# Engine.backward_chain bindings are keyed by Variable.id (an int);
+# keep a reference to the query variable to look answers up.
+# (execute(query=...) re-keys the same bindings by variable name.)
+dest = Variable("Dest")
 query = Triple(
     NamedNode("http://example.org/bc#a"),
     NamedNode("http://example.org/bc#reachable"),
-    Variable("Dest"),
+    dest,
 )
 answers = engine3.backward_chain(query)
 print("From :a, reachable:")
 for binding in answers:
-    dest = binding.get("Dest", binding.get(next(iter(binding))))
-    print(" ", dest)
+    print(" ", binding[dest.id])

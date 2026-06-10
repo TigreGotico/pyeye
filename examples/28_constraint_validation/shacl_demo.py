@@ -65,7 +65,7 @@ rules = """
 # --- Cardinality: exactly one :name ---
 {
     ?P a :Person .
-    (?N { ?P :name ?N } ?Names) log:collectAllIn ?P .
+    (?N { ?P :name ?N } ?Names) log:collectAllIn ?Scope .
     ?Names list:length ?Count .
     ?Count math:greaterThan 1
 }

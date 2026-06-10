@@ -167,6 +167,9 @@ _:order1 :item :widget ; :qty 3 .
 
 # Anonymous blank node with []
 [] :item :gadget ; :qty 1 .
+
+# Blank node with inline properties
+:alice :livesIn [ :city "Lisbon" ; :country "Portugal" ] .
 ```
 
 In rule bodies, blank nodes act as existential quantifiers: "there exists some _:n such that ...". In rule heads, blank nodes generate fresh anonymous nodes in the output.
@@ -184,6 +187,7 @@ N3 supports RDF lists using parentheses:
 
 :alice :scores (90 85 92) .
 :project :tags ("urgent" "Q1" "backend") .
+:bob :scores () .                # the empty list
 ```
 
 Internally this expands to a chain of `rdf:first` / `rdf:rest` triples — the same structure as a Lisp-style linked list.
@@ -295,7 +299,14 @@ GRAPH <http://example.org/graph/B> {
 :carol :age 35 .
 ```
 
-You can query specific graphs using `graph:member` or scope reasoning to named graphs. See [Builtins — graph:](builtins.md#graph) for details.
+Rules match against the default graph. To test whether a (bound) triple is in a named graph, use the `graph:member` filter builtin:
+
+```n3
+{ ?S :checked true . (?S :name "Alice") graph:member :g1 }
+    => { ?S :inTrustedGraph true } .
+```
+
+From Python, enumerate a named graph with `engine.store.match(graph=NamedNode(...))`. See [Builtins — graph:](builtins.md#graph--named-graph-operations) for the full list of graph builtins.
 
 ---
 
@@ -312,6 +323,65 @@ RDF-star allows a triple itself to appear as the subject or object of another tr
 ```
 
 The `<< S P O >>` syntax produces a `TripleTerm` in pyeye's internal representation.
+
+---
+
+## `has`, `is`, and `of` sugar
+
+N3 allows three keywords that make statements read more like English:
+
+```n3
+:Alice :parent has :Bob .     # same as  :Alice :parent :Bob .
+:Alice :name is "Alice" .     # same as  :Alice :name "Alice" .
+```
+
+`has` and `is` are simply skipped during parsing. `of` inverts the predicate — it swaps subject and object:
+
+```n3
+:Bob :child of :Alice .       # same as  :Alice :child :Bob .
+```
+
+---
+
+## Formula terms: `(| Functor Args |)`
+
+A formula term embeds a functor-with-arguments structure as a value inside a triple:
+
+```n3
+:alice :thinks (| :says :alice "hello" |) .
+```
+
+The first element is the functor; the rest are arguments. pyeye represents this as a `FormulaTerm`.
+
+---
+
+## Sets: `($ a b c $)`
+
+Sets are unordered collections:
+
+```n3
+:Alice :likes ($ :pizza :sushi $) .
+```
+
+Unlike lists, element order does not matter for equality. pyeye represents this as a `SetTerm`.
+
+---
+
+## Multi-line strings and comments
+
+Use triple quotes (`'''` or `"""`) for text spanning multiple lines:
+
+```n3
+:book :description '''This is a
+multi-line description.''' .
+```
+
+Comments start with `#` and run to the end of the line:
+
+```n3
+# This is a full-line comment
+:alice :name "Alice" .  # inline comment
+```
 
 ---
 
@@ -359,27 +429,30 @@ Use `log:dtlit` to construct a typed literal in a rule head:
 
 ## Path expressions: `!` and `^`
 
-N3 supports path shorthand for following chains of predicates.
+N3 supports path shorthand for following chains of predicates. A path expression is a *term* — it denotes the node reached by following the predicate — and can stand in any subject or object position.
 
-Forward path (`!`) — follow predicate:
+Forward path (`!`) — `:alice!:parent` denotes alice's parent (the object of `:alice :parent ?`):
 
 ```n3
-:alice :parent !:name   # alice's parent's name
+# Bind ?N to the name of alice's parent
+{ :alice!:parent :name ?N } => { :alice :parentName ?N } .
 ```
 
-Reverse path (`^`) — follow predicate in reverse:
+Reverse path (`^`) — `:bob^:parent` denotes whoever has bob as their parent (the subject of `? :parent :bob`):
 
 ```n3
-:alice ^:parent   # who has alice as their parent (i.e., alice's children)
+# Bind ?N to the name of a node whose :parent is :bob
+{ :bob^:parent :name ?N } => { :found :name ?N } .
 ```
 
 Paths can be chained:
 
 ```n3
-:alice !:parent !:parent   # alice's grandparent
+# alice's parent's parent (grandparent)
+{ :alice!:parent!:parent :name ?N } => { :alice :grandparentName ?N } .
 ```
 
-These are syntactic sugar — the engine resolves them against the store during matching.
+Paths are syntactic sugar: the parser compiles each step into a fresh variable plus an auxiliary triple pattern, so they never reach the engine as a distinct term type.
 
 ---
 
@@ -541,3 +614,38 @@ Output (order may vary):
 :widget :discount 12.0 .
 :widget :tagCount 2 .
 ```
+
+---
+
+## Quick reference card
+
+| Syntax | Meaning | Example |
+| :--- | :--- | :--- |
+| `:foo` | Prefixed name | `:alice :knows :bob .` |
+| `<http://...>` | Full IRI | `<http://x.org/a> :p <http://x.org/b> .` |
+| `?X` | Variable | `{ ?X :p ?Y } => { ... }` |
+| `"text"` | String literal | `:alice :name "Alice" .` |
+| `42` / `3.14` | Number | `:alice :age 42 .` |
+| `"text"@en` | Language-tagged | `:greeting :text "Hi"@en .` |
+| `"text"^^xsd:date` | Typed literal | `:date :value "2025-03-15"^^xsd:date .` |
+| `[]` | Anonymous blank node | `:alice :knows [] .` |
+| `[ :p :o ]` | Blank node with properties | `:alice :livesIn [ :city "Lisbon" ] .` |
+| `_:name` | Labelled blank node | `_:b1 :p :o .` |
+| `(a b c)` | Ordered list | `:favorites (:a :b :c) .` |
+| `a` | `rdf:type` shorthand | `:alice a :Person .` |
+| `;` | Same subject | `:alice :age 30 ; :name "A" .` |
+| `,` | Same subject+predicate | `:alice :knows :b, :c .` |
+| `.` | End of statement | `:a :p :b .` |
+| `# ...` | Comment | `# this is a comment` |
+| `{ ... } => { ... }` | Forward rule | `{ ?X :p ?Y } => { ?Y :q ?X } .` |
+| `{ ... } <= { ... }` | Backward rule | `{ ?Y :q ?X } <= { ?X :p ?Y } .` |
+| `@prefix p: <url> .` | Prefix shortcut | `@prefix : <http://x.org/> .` |
+| `<< S P O >>` | RDF-star triple term | `<< :a :p :b >> :saidBy :c .` |
+| `(\| Functor Args \|)` | Formula term | `:a :thinks (\| :says :a "hi" \|) .` |
+| `!` / `^` | Forward / reverse path | `{ :a!:p :name ?N } => { ... }` |
+| `has` / `is` | Readability sugar (skipped) | `:a :p has :b .` |
+| `of` | Property inversion | `:b :p of :a .` |
+| `($ a b $)` | Set | `:a :likes ($ :x :y $) .` |
+| `log:onNegativeSurface` | Negation as failure | `_:n log:onNegativeSurface { ... }` |
+| `GRAPH <g> { ... }` | TriG named graph | `GRAPH :g1 { :a :p :b . }` |
+| `[] log:table :pred .` | Memoize backward predicate | see [log:table](#logtable--memoization-for-backward-chaining) |

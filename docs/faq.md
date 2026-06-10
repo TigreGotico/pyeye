@@ -20,7 +20,7 @@ The entire pyeye data model is built on triples. Facts are triples. Derived fact
 
 ### Where do I start?
 
-Read [Getting Started](getting-started.md). Then look at `examples/01_hello_world/` in the repository and work through examples 01–08 in order.
+Read the [documentation index](index.md) — it includes a five-minute tutorial. Then look at `examples/01_hello_world/` in the repository and work through examples 01–08 in order.
 
 ### What is the difference between `data_strings` and `rule_strings`?
 
@@ -202,18 +202,18 @@ Use `log:collectAllIn`. It collects all values of a template expression for all 
 
 # Sum all salaries per department
 { ?Dept a :Department .
-  (?Sal { ?E :dept ?Dept . ?E :salary ?Sal } ?Sals) log:collectAllIn ?Dept .
+  (?Sal { ?E :dept ?Dept . ?E :salary ?Sal } ?Sals) log:collectAllIn ?Scope .
   ?Sals math:sum ?Total }
     => { ?Dept :totalSalary ?Total } .
 
 # Count members
 { ?G a :Group .
-  (1 { ?M :memberOf ?G } ?Members) log:collectAllIn ?G .
+  (1 { ?M :memberOf ?G } ?Members) log:collectAllIn ?Scope .
   ?Members list:length ?N }
     => { ?G :size ?N } .
 ```
 
-The template (`?Sal`, `1`) is evaluated for each satisfying binding of the pattern formula. All results are collected into an RDF list bound to the output variable.
+The template (`?Sal`, `1`) is evaluated for each satisfying binding of the pattern formula. All results are collected into an RDF list bound to the output variable. Grouping comes from variables shared between the outer body and the inner pattern (`?Dept`, `?G`); the scope object (`?Scope`) must be a fresh variable used nowhere else in the rule.
 
 ### What is `log:collectAllIn`?
 
@@ -226,7 +226,7 @@ It is pyeye's aggregation builtin. Analogous to SQL's `GROUP BY` + `ARRAY_AGG`. 
 - `?Template` — what to collect (evaluated per binding)
 - `{ body-pattern }` — a formula matched against the store
 - `?OutputList` — receives the resulting RDF list
-- `?Scope` — a grouping key (usually a bound variable)
+- `?Scope` — a **fresh variable** used nowhere else in the rule (grouping comes from variables the inner pattern shares with the outer body)
 
 After the list is built, pass it to `list:length`, `math:sum`, `math:max`, etc.
 

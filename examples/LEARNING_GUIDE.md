@@ -109,28 +109,30 @@ Use example 24 (config management) as a template for priority-based defaults.
 
 ### Step 3 — Aggregation (Examples 10, 19)
 
-`log:collectAllIn` is the aggregation primitive:
+`log:collectAllIn` is the aggregation primitive. The subject is a three-element
+list `(?Template { pattern } ?OutputList)`; the object must be a fresh scope
+variable used nowhere else in the rule:
 
 ```n3
-{ ?G :salaries ?L .
-  ?L log:collectAllIn { ?E :dept ?G . ?E :salary ?S } ?S .
+{ ?G a :Department .
+  (?S { ?E :dept ?G . ?E :salary ?S } ?L) log:collectAllIn ?Scope .
   ?L math:sum ?Total .
   ?L list:length ?N .
   (?Total ?N) math:quotient ?Avg }
     => { ?G :avgSalary ?Avg } .
 ```
 
-The blank node `?L` is the list that collects all `?S` values. Then standard
-`math:` and `list:` builtins operate on it.
+`?L` is the list that collects all `?S` values. Then standard `math:` and
+`list:` builtins operate on it.
 
 ### Step 4 — Proof Traces (Example 11)
 
 Use `explain=True` during development to understand why a triple was (or wasn't) derived:
 
 ```python
-result = execute(..., explain=True)
+result = execute(..., explain=True, explain_format="html")
 # Open in browser:
-with open("proof.html", "w") as f: f.write(result.proof_html)
+with open("proof.html", "w") as f: f.write(result.explains)
 ```
 
 ### Step 5 — Named Graphs (Example 12)
