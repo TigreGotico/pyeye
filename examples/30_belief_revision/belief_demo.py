@@ -50,7 +50,7 @@ rules = """
 # Collect all confidence scores for each room, find the maximum
 {
     ?S sensor:room ?Room ; sensor:confidence ?AnyConf .
-    (?C { ?Sx sensor:room ?Room . ?Sx sensor:confidence ?C } ?Confs) log:collectAllIn ?Room .
+    (?C { ?Sx sensor:room ?Room . ?Sx sensor:confidence ?C } ?Confs) log:collectAllIn ?Scope .
     ?Confs math:max ?MaxConf
 }
     => { ?Room sensor:maxConfidence ?MaxConf } .

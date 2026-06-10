@@ -45,7 +45,7 @@ cfg:staging cfg:timeout  60 .
 
 # --- Service-specific overrides ---
 svc:apiGateway    cfg:env cfg:production .
-svc:apiGateway    cfg:maxConnections 1000 .     # Service overrides env
+svc:apiGateway    cfg:maxConnections 3000 .     # Service overrides env (and breaks the limit)
 
 svc:authService   cfg:env cfg:production .
 
@@ -171,6 +171,8 @@ for svc in services:
                 print(f"  {prop:20s} = {val}")
 
 print("\n=== Config Errors ===")
-for line in result.triples.splitlines():
-    if "configError" in line:
-        print(" ", line.strip())
+errors = [l for l in result.triples.splitlines() if "configError" in l]
+for line in errors:
+    print(" ", line.strip())
+if not errors:
+    print("  (no errors)")
