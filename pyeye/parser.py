@@ -286,6 +286,23 @@ class Parser:
     def parse(self) -> ParsedDocument:
         while not self._eof():
             self._stmt()
+        # A top-level triple containing a quickvar (``?x :loves _:y.``) is an
+        # implicitly universally quantified fact; EYE represents it as a
+        # backward rule with an empty body in addition to the triple itself.
+        def _has_var(t: Term) -> bool:
+            if isinstance(t, Variable):
+                return True
+            if isinstance(t, ListTerm):
+                return any(_has_var(i) for i in t.items)
+            return False
+        for t in self._triples:
+            if _has_var(t.subject) or _has_var(t.predicate) or _has_var(t.object):
+                self._rules.append(Rule(
+                    body=Formula(()),
+                    head=Formula((t,)),
+                    source=self._src,
+                    is_backward=True,
+                ))
         return ParsedDocument(
             triples=self._triples,
             quads=list(self._quads),

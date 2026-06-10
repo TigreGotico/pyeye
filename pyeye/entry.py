@@ -430,6 +430,20 @@ def _execute_impl(
     if pass_mode or pass_all:
         # All triples in the store (input + derived)
         output_triples = list(engine.store)
+        if pass_all:
+            # --pass-all also echoes the rules, rendered with =>/<= sugar.
+            _SUGAR_IMPLIES = NamedNode(
+                "http://eulersharp.sourceforge.net/2003/03swap/log-rules#implies")
+            _SUGAR_IMPLIED_BY = NamedNode(
+                "http://eulersharp.sourceforge.net/2003/03swap/log-rules#impliedBy")
+            derived_rules = [r for r in engine._rules if r.source == "derived"]
+            for r in list(all_rules) + derived_rules:
+                if r.is_query:
+                    continue
+                if r.is_backward:
+                    output_triples.append(Triple(r.head, _SUGAR_IMPLIED_BY, r.body))
+                else:
+                    output_triples.append(Triple(r.body, _SUGAR_IMPLIES, r.head))
     elif has_query_rules:
         # Query run: output is exactly the answer set (query rule heads)
         output_triples = engine.answer_triples
