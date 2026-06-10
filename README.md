@@ -275,11 +275,12 @@ pyeye is validated against the upstream EYE `reasoning/` scenario corpus
 compared semantically: both sides are parsed with pyeye's own N3 parser and
 matched as canonical fact sets under a blank-node/skolem/variable mapping, so
 label and serialization choices don't affect the verdict. It currently passes
-**62 of 122** plain-answer EYE reasoning scenarios; every non-passing scenario
-is listed in the suite's XFAIL registry with its root-cause cluster
-(incomplete derivations, output-structure mismatches, EARL meta-suites,
-`r:Proof`-format output, deep-recursion timeouts). The unit suite (`tests/`,
-excluding the slow corpus) is green.
+**94 of 126** plain-answer EYE reasoning scenarios, including the four W3C
+EARL meta-suite reports and eight full `r:Proof` proof-trace scenarios; every
+non-passing scenario is listed in the suite's XFAIL registry with its
+root-cause cluster (Prolog-interop builtins, dateTime interval reasoning,
+output-structure mismatches, deep-recursion timeouts). The unit suite
+(`tests/`, excluding the slow corpus) is green.
 
 pyeye is an AI-assisted port: the code is written by [Claude](https://claude.ai)
 (Anthropic) under human direction, against the EYE and eyeling source.
