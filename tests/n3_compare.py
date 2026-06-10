@@ -256,6 +256,85 @@ def _match_facts(exps, buckets, all_facts, mapping, budget):
             yield from _match_facts(rest, buckets, all_facts, m1, budget)
 
 
+def _blank_signatures(facts: list) -> dict:
+    """Stable structural signature per blank label (WL-style refinement).
+
+    Each blank label's signature summarizes the facts it occurs in, with
+    other blanks abstracted to their previous-round signature.  Labels whose
+    final signature is unique within their graph can be aligned across two
+    graphs directly, without search.
+    """
+    def render(node, sigs):
+        if isinstance(node, frozenset):
+            return ("set", frozenset(render(c, sigs) for c in node))
+        if isinstance(node, tuple):
+            if node and node[0] == _BLANK:
+                return ("sig", sigs.get(node[1], 0))
+            return tuple(render(c, sigs) if isinstance(c, (tuple, frozenset))
+                         else c for c in node)
+        return node
+
+    labels: set = set()
+    for f in facts:
+        _blank_labels(f, labels)
+    occurrences: dict = {lb: [] for lb in labels}
+    for f in facts:
+        in_fact: set = set()
+        _blank_labels(f, in_fact)
+        for lb in in_fact:
+            occurrences[lb].append(f)
+    sigs: dict = {lb: 0 for lb in labels}
+    for _round in range(6):
+        new_sigs = {}
+        for lb in labels:
+            marked = [render(f, {**sigs, lb: "self"}) for f in occurrences[lb]]
+            new_sigs[lb] = hash(frozenset((m, marked.count(m)) for m in marked))
+        if new_sigs == sigs:
+            break
+        sigs = new_sigs
+    return sigs
+
+
+def _substitute(node, mapping):
+    """Replace mapped blank labels in a canonical node."""
+    if isinstance(node, frozenset):
+        return frozenset(_substitute(c, mapping) for c in node)
+    if isinstance(node, tuple):
+        if node and node[0] == _BLANK and node[1] in mapping:
+            return mapping[node[1]]
+        return tuple(_substitute(c, mapping) if isinstance(c, (tuple, frozenset))
+                     else c for c in node)
+    return node
+
+
+def _signature_alignment(expected: list, actual_set: set) -> tuple[bool, str] | None:
+    """Fast path: align blanks by unique structural signature, then verify.
+
+    Sound (the verification is exact set containment after substitution);
+    returns None when alignment is ambiguous or verification fails, so the
+    caller falls back to the backtracking search.
+    """
+    exp_sigs = _blank_signatures(expected)
+    act_sigs = _blank_signatures(list(actual_set))
+    by_sig_exp: dict = {}
+    for lb, s in exp_sigs.items():
+        by_sig_exp.setdefault(s, []).append(lb)
+    by_sig_act: dict = {}
+    for lb, s in act_sigs.items():
+        by_sig_act.setdefault(s, []).append(lb)
+    mapping = {}
+    for s, exp_lbs in by_sig_exp.items():
+        act_lbs = by_sig_act.get(s, [])
+        if len(exp_lbs) != 1 or len(act_lbs) != 1:
+            return None
+        mapping[exp_lbs[0]] = (_BLANK, act_lbs[0])
+    missing = sum(1 for f in expected if _substitute(f, mapping) not in actual_set)
+    if missing:
+        return None
+    return True, f"all {len(expected)} expected facts present " \
+                 f"({len(mapping)} blanks aligned by signature)"
+
+
 def _containment(expected: list, actual: list) -> tuple[bool, str]:
     """Every expected fact must match some actual fact consistently."""
     actual_set = set(actual)
@@ -267,6 +346,9 @@ def _containment(expected: list, actual: list) -> tuple[bool, str]:
     nonground = [f for f in expected if not _is_ground(f)]
     if not nonground:
         return True, f"all {len(expected)} expected facts present"
+    aligned = _signature_alignment(expected, actual_set)
+    if aligned is not None:
+        return aligned
     budget = _SearchBudget()
     buckets: dict = {}
     for f in actual_set:
