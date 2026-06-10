@@ -222,7 +222,8 @@ class TestReifier:
 
 
 class TestAnnotationBlocks:
-    """RDF 1.2 annotation blocks ``{| ... |}`` are skipped, base triple kept."""
+    """RDF 1.2 annotation blocks ``{| ... |}`` expand to triples about the
+    base triple's triple term; the base triple itself is kept."""
 
     def test_single_annotation(self):
         text = (
@@ -230,8 +231,12 @@ class TestAnnotationBlocks:
             ':s :p :o {| :j :k |} .'
         )
         doc = parse_n3(text)
-        assert len(doc.triples) == 1
+        assert len(doc.triples) == 2
         assert doc.triples[0].predicate == NN("http://ex.org/p")
+        annot = doc.triples[1]
+        assert isinstance(annot.subject, TripleTerm)
+        assert annot.predicate == NN("http://ex.org/j")
+        assert annot.object == NN("http://ex.org/k")
 
     def test_repeated_annotations(self):
         text = (
@@ -239,7 +244,11 @@ class TestAnnotationBlocks:
             ':liz :marriedTo :richard {| :from 1964 |} {| :from 1980 |} .'
         )
         doc = parse_n3(text)
-        assert len(doc.triples) == 1
+        assert len(doc.triples) == 3
+        # Both annotation blocks annotate the same base triple
+        subjects = {t.subject for t in doc.triples[1:]}
+        assert len(subjects) == 1
+        assert isinstance(next(iter(subjects)), TripleTerm)
 
 
 class TestPrefixedNameLexing:

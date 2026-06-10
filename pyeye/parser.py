@@ -797,15 +797,39 @@ class Parser:
             for tr in out:
                 self._quads.append(Quad(tr.subject, tr.predicate, tr.object, graph))
             out = []
-        # RDF 1.2 annotation syntax: triple {| prop val |} — skip annotation block
-        if self._peek().t == "ANNOT_OPEN":
-            self._skip_annotation()
-        # Repeated annotation blocks: ``s p o {| ... |} {| ... |}``
+        # RDF 1.2 annotation syntax: ``triple {| prop val |}`` — expand each
+        # block to triples about the annotated triple's triple term.  Repeated
+        # blocks (``s p o {| ... |} {| ... |}``) all annotate the base triple.
+        base = list(out[-1:])
         while self._peek().t == "ANNOT_OPEN":
-            self._skip_annotation()
+            out.extend(self._parse_annotation(base))
         if self._peek().t == "DOT":
             self._eat("DOT")
         return out
+
+    def _parse_annotation(self, base_triples: list[Triple]) -> list[Triple]:
+        """Parse ``{| prop val ; ... |}``, returning the expanded triples.
+
+        Each annotation pair becomes ``<< s p o >> prop val`` for every base
+        triple (the triple term stands for the annotated statement).
+        """
+        self._eat("ANNOT_OPEN")
+        pairs: list[tuple[Term, Term]] = []
+        while self._peek().t not in ("ANNOT_CLOSE", "EOF"):
+            if self._peek().t == "SC":
+                self._eat("SC")
+                continue
+            pred = self._verb()
+            for o in self._obj_list():
+                pairs.append((pred, o))
+        if self._peek().t == "ANNOT_CLOSE":
+            self._eat("ANNOT_CLOSE")
+        expanded: list[Triple] = []
+        for bt in base_triples:
+            tt = TripleTerm(bt.subject, bt.predicate, bt.object)
+            for pred, o in pairs:
+                expanded.append(Triple(tt, pred, o))
+        return expanded
 
     def _skip_annotation(self) -> None:
         """Skip an RDF 1.2 annotation block ``{| prop val ; ... |}``."""
