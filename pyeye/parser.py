@@ -55,6 +55,7 @@ class Rule:
     is_backward: bool = False       # True for ``<=`` rules (backward chaining only)
     is_contradiction: bool = False  # True for ``=> false`` rules (N3 constraint violation)
     is_query: bool = False          # True for --query rules (heads are the answer)
+    head_var: Variable | None = None  # ``{...} => ?phi`` — assert the formula bound to ?phi
 
 
 @dataclass
@@ -424,6 +425,7 @@ class Parser:
             self._eat("IMPF")
             # `=> false` is N3 contradiction syntax — marks a constraint rule
             is_contradiction = False
+            head_var: Variable | None = None
             if self._peek().t == "FALSE":
                 self._eat("FALSE")
                 head = Formula(())
@@ -433,8 +435,16 @@ class Parser:
                 head = Formula(())
             elif self._peek().t == "LBR":
                 head = self._formula()
+            elif self._peek().t == "VAR":
+                # ``{...} => ?phi`` — assert the formula bound to ?phi
+                vt = self._eat("VAR")
+                vname = vt.v[1:]
+                if vname not in self._var_scope:
+                    self._var_scope[vname] = Variable(vname)
+                head_var = self._var_scope[vname]
+                head = Formula(())
             else:
-                # Bare term (variable, literal, IRI) as rule head — skip
+                # Bare term (literal, IRI) as rule head — skip
                 self._eat_any()
                 head = Formula(())
             if self._peek().t == "ANNOT_OPEN":
@@ -445,6 +455,7 @@ class Parser:
                 for_some=tuple(self._for_some),
                 for_all=tuple(self._for_all),
                 is_contradiction=is_contradiction,
+                head_var=head_var,
             ))
         elif t.t == "IMPB":
             self._eat("IMPB")

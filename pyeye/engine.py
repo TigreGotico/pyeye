@@ -120,6 +120,7 @@ def copy_rule(rule: Rule) -> Rule:
 
     new_body = Formula(triples=tuple(copy_triple(t) for t in rule.body.triples))
     new_head = Formula(triples=tuple(copy_triple(t) for t in rule.head.triples))
+    new_head_var = copy_term(rule.head_var) if rule.head_var is not None else None
     return Rule(
         body=new_body,
         head=new_head,
@@ -128,6 +129,7 @@ def copy_rule(rule: Rule) -> Rule:
         for_all=rule.for_all,
         is_backward=rule.is_backward,
         is_contradiction=rule.is_contradiction,
+        head_var=new_head_var,
     )
 
 
@@ -175,6 +177,7 @@ def _premise_existentials_to_vars(rule: Rule) -> Rule:
         for_all=rule.for_all,
         is_backward=rule.is_backward,
         is_contradiction=rule.is_contradiction,
+        head_var=rule.head_var,
     )
 
 
@@ -419,10 +422,17 @@ class Engine:
                 )
 
             # Instantiate head
-            head_triples = self._instantiate_formula(
-                rule.head, for_some_binding,
-                rule_id=rule.source or str(rule_idx),
-            )
+            if rule.head_var is not None:
+                # ``{...} => ?phi``: assert the formula bound to ?phi — its
+                # plain triples become facts and its log:implies triples are
+                # promoted to rules by the loop below.
+                bound = for_some_binding.get(rule.head_var.id)
+                head_triples = list(bound.triples) if isinstance(bound, Formula) else []
+            else:
+                head_triples = self._instantiate_formula(
+                    rule.head, for_some_binding,
+                    rule_id=rule.source or str(rule_idx),
+                )
             for head_triple in head_triples:
                 if self._limit_answers > 0 and self._derived_count >= self._limit_answers:
                     return
