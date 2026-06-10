@@ -473,21 +473,42 @@ def log_outputString(args: list[Term], engine: EngineProto) -> Term | None:
 
 
 def log_skolem(args: list[Term], engine: EngineProto) -> Term | None:
-    """Generate a skolem constant. If args are provided, use them as a key
-    for deterministic skolem generation within a run."""
-    if args:
-        # C4 fix: Use args as key for deterministic skolem
-        key = tuple(_str_val(a) if isinstance(a, (Literal, NamedNode)) else str(a) for a in args)
-        if not hasattr(engine, "_skolem_cache"):
-            engine._skolem_cache: dict[tuple, str] = {}
-        if key not in engine._skolem_cache:
-            engine._skolem_counter += 1
-            engine._skolem_cache[key] = f"sk-{engine._skolem_counter}"
-        return Existential(engine._skolem_cache[key])
-    else:
+    """Skolem function: ``(K1 .. Kn) log:skolem ?S`` binds ?S to a constant
+    determined by the key terms; the same key always gives the same skolem.
+
+    Inverse mode: when the object is a skolem produced earlier in the run and
+    the key carries unbound variables, the original key terms are recovered
+    (skolem terms are functional, mirroring EYE).
+    """
+    if not hasattr(engine, "_skolem_cache"):
+        engine._skolem_cache: dict[tuple, str] = {}
+        engine._skolem_reverse: dict[str, tuple] = {}
+    inputs = list(args[:-1]) if len(args) >= 2 else list(args)
+    out = args[-1] if len(args) >= 2 else None
+    if not inputs:
         # No key — generate fresh skolem
         engine._skolem_counter += 1
         return Existential(f"sk-{engine._skolem_counter}")
+    if not _unground(inputs):
+        key = tuple(_str_val(a) if isinstance(a, (Literal, NamedNode)) else str(a)
+                    for a in inputs)
+        if key not in engine._skolem_cache:
+            engine._skolem_counter += 1
+            engine._skolem_cache[key] = f"sk-{engine._skolem_counter}"
+            engine._skolem_reverse[engine._skolem_cache[key]] = tuple(inputs)
+        return Existential(engine._skolem_cache[key])
+    # Inverse mode: recover the key terms from a known skolem.
+    if isinstance(out, Existential):
+        orig = engine._skolem_reverse.get(out.name)
+        if orig is not None and len(orig) == len(inputs):
+            from pyeye.unify import unify_terms
+            binding = dict(getattr(engine, "_current_binding", {}) or {})
+            for inp, val in zip(inputs, orig):
+                binding = unify_terms(inp, val, binding)
+                if binding is None:
+                    return None
+            return BindingsList([binding])
+    return None
 
 
 def log_content(args: list[Term], engine: EngineProto) -> list[Triple]:
