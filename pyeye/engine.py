@@ -42,6 +42,7 @@ from pyeye.proof import ProofStep, ProofTree
 # ---------------------------------------------------------------------------
 
 _LOG_IMPLIES = "http://www.w3.org/2000/10/swap/log#implies"
+_LOG_IMPLIED_BY = "http://www.w3.org/2000/10/swap/log#impliedBy"
 _LOG_TABLE = "http://www.w3.org/2000/10/swap/log#table"
 _LOG_CALL_WITH_CUT = "http://www.w3.org/2000/10/swap/log#callWithCut"
 _NEG_SURFACE_IRIS = frozenset({
@@ -567,6 +568,33 @@ class Engine:
                             ub = unify(resolved, st, b)
                             if ub is not None:
                                 new_results.append(ub)
+                    continue
+
+                # The rule set is queryable: a ``{...} log:implies {...}``
+                # pattern matches the engine's rules (EYE keeps rules as
+                # statements, so meta-rules can derive rules from rules) as
+                # well as quoted implication triples in the store.
+                if (isinstance(resolved.predicate, NamedNode)
+                        and resolved.predicate.value in (_LOG_IMPLIES,
+                                                         _LOG_IMPLIED_BY)
+                        and isinstance(resolved.subject, (Formula, Variable))
+                        and isinstance(resolved.object, (Formula, Variable))):
+                    for st in self._store_matches(resolved):
+                        ub = unify(resolved, st, b)
+                        if ub is not None:
+                            new_results.append(ub)
+                    fwd = resolved.predicate.value == _LOG_IMPLIES
+                    for r in self._rules:
+                        if r.is_query or r.head_var is not None:
+                            continue
+                        if r.is_backward == fwd:
+                            continue
+                        cand = (Triple(r.body, resolved.predicate, r.head)
+                                if fwd else
+                                Triple(r.head, resolved.predicate, r.body))
+                        ub = unify(resolved, cand, b)
+                        if ub is not None:
+                            new_results.append(ub)
                     continue
 
                 # Builtin predicate
