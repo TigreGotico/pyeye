@@ -805,8 +805,11 @@ class Engine:
                         input_vars = pvars
                 unbound_inputs = input_vars - bound_ids
                 # Blocked iff an unbound input is produced by another remaining
-                # builtin (exclude this pattern's own outputs from the set).
-                own_outputs = pvars - input_vars
+                # pattern.  Own outputs come from the input/output slot split
+                # (not the widened input_vars above): a deferred rule goal is
+                # the producer of its non-subject variables and must not block
+                # on them, or its consumers win the tie-break and run first.
+                own_outputs = pvars - self._pattern_input_var_ids(pattern)
                 blocked = 1 if (unbound_inputs & (pending_outputs - own_outputs)) else 0
                 key = (blocked, len(unbound_inputs), unbound, orig_idx)
                 if key < best_key:

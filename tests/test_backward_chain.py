@@ -245,3 +245,28 @@ class TestSelectAndSearch:
                  self._lst(self._lit(1)))
         sols = engine._solve([goal], {})
         assert len(sols) == 1
+
+
+def test_rule_goal_schedules_before_consumer_builtins():
+    """A backward-rule goal producing variables runs before the builtins
+    that consume them: it must not block on its own outputs."""
+    rules = """
+@prefix math: <http://www.w3.org/2000/10/swap/math#> .
+@prefix c: <http://example.org/complex#> .
+@prefix : <http://example.org/t#> .
+
+{ ((2.718281828459045 0) (0 ?T)) c:exponentiation (?C ?S) . }
+<=
+{ ?T math:cos ?C . ?T math:sin ?S . } .
+
+{
+  ((2.718281828459045 0) (0 3.141592653589793)) c:exponentiation (?Re ?Im) .
+  (?Re -1) math:difference ?dRe .
+}
+=>
+{ :t :got ?dRe . } .
+"""
+    from pyeye import execute
+    result = execute(rule_strings=[rules], nope=True, pass_only_new=True,
+                     timeout_seconds=20)
+    assert ":got 0.0" in result.triples or ":got 0 " in result.triples
