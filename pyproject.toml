@@ -1,5 +1,5 @@
 [project]
-name = "pyeye"
+name = "pyeye-reasoner"
 dynamic = ["version"]
 description = "Pure-Python forward-chaining N3 reasoner (Euler Abstract Machine)"
 readme = "README.md"
