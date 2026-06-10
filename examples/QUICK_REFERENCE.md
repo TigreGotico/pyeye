@@ -23,26 +23,25 @@ from pyeye.output import N3Writer
 ```python
 result = execute(
     data_strings=["@prefix : <http://example.org/> . :x :y :z ."],  # inline N3 facts
-    data_files=["facts.n3"],                                          # N3 files
-    rule_strings=["{ ?A :y ?B } => { ?A :z ?B } ."],                 # inline rules
-    rule_files=["rules.n3"],                                          # rule files
+    data_paths=["facts.n3"],                                          # N3 files
+    rule_strings=["@prefix : <http://example.org/> . { ?A :y ?B } => { ?A :z ?B } ."],
+    rule_paths=["rules.n3"],                                          # rule files
     query=Triple(Variable("S"), NamedNode("http://..."), Variable("O")),  # BC query
-    entail=False,          # include RDFS-derived triples in output
-    entail_owl=False,      # include OWL 2 RL derived triples
+    entail=False,          # apply RDFS entailment before user rules
+    entail_owl=False,      # apply OWL 2 RL entailment (includes RDFS)
     pass_mode=False,       # include original facts in output
     explain=False,         # generate proof traces
+    explain_format="n3",   # "n3" | "dot" | "html"
     builtins={},           # dict of extra builtin functions
-    max_steps=10_000,      # max forward-chaining iterations
+    max_steps=10_000,      # hard cap on rule firings (-1 = unlimited)
     timeout_seconds=30.0,  # wall-clock timeout (None = unlimited)
 )
 
 # Result attributes
 result.triples        # str: N3 serialization of derived triples
-result.query_answers  # list[dict[str, Term]]: BC query bindings
-result.stats          # dict: steps, derived, time_ms
-result.proof_html     # str: HTML proof tree (explain=True only)
-result.proof_dot      # str: Graphviz DOT (explain=True only)
-result.proof_n3       # str: N3 proof (explain=True only)
+result.query_answers  # list[dict[str, Term]]: BC query bindings keyed by variable name
+result.stats          # dict: steps, derived, time_ms, not_entail_failed
+result.explains       # proof traces: list (explain_format="n3") or str ("dot"/"html")
 ```
 
 ---
@@ -74,9 +73,9 @@ result.proof_n3       # str: N3 proof (explain=True only)
 { _:neg log:onNegativeSurface { ?S :hasOverride ?V } . ?S :default ?V }
     => { ?S :effective ?V } .
 
-# Collect all matching values into a list
-{ ?G :items ?L .
-  ?L log:collectAllIn { ?X :group ?G . ?X :value ?V } ?V .
+# Collect all matching values into a list (scope must be a fresh variable)
+{ ?G a :Group .
+  (?V { ?X :group ?G . ?X :value ?V } ?L) log:collectAllIn ?Scope .
   ?L list:length ?N } => { ?G :count ?N } .
 ```
 
@@ -88,7 +87,8 @@ result.proof_n3       # str: N3 proof (explain=True only)
 # Comparisons (filter — no result variable)
 ?V math:greaterThan 0
 ?V math:lessThan 100
-?V math:greaterThanOrEqualTo 18
+?V math:notLessThan 18      # >=
+?V math:notGreaterThan 99   # <=
 ?V math:equalTo 42
 
 # Arithmetic (list syntax — result variable at end)
@@ -120,22 +120,20 @@ result.proof_n3       # str: N3 proof (explain=True only)
 ?S string:lowerCase   ?L
 ?S string:capitalize  ?C
 
-# Pattern matching (result is "true" literal on match)
-?S string:matches "^http" ?Bool
+# Pattern matching (filter — passes or fails)
+?S string:matches "^http"
 
-# Replace
-(?S "old" "new") string:replace    ?Result  # first occurrence
-(?S "old" "new") string:replaceAll ?Result  # all occurrences
+# Replace (regex, all occurrences)
+(?S "old" "new") string:replace ?Result
 
-# Substring (1-based)
-(?S 1 5) string:substring ?Sub
+# Substring (0-based start, length)
+(?S 0 5) string:substring ?Sub
 
 # Length
 ?S string:length ?N
 
-# Split / join
-(?S " ") string:split  ?List
-(?L " ") string:join   ?Result
+# Join (separator first, then the list)
+(" " ?L) string:join ?Result
 ```
 
 ---
@@ -148,6 +146,9 @@ result.proof_n3       # str: N3 proof (explain=True only)
 
 # Membership filter (both args must be bound)
 ?Item list:in ?L
+
+# Enumerate elements (one binding per element)
+?L list:member ?Item
 
 # Element at 1-based index
 (?L 1) list:select ?First
@@ -341,7 +342,7 @@ _:t time:now ?Timestamp
     => { ?Employment a :Employment ; :employee ?Person ; :employer ?Company } .
 ```
 
-Same inputs → same blank node, across runs and reasoning sessions.
+Same inputs → same blank node within a reasoning run, so re-derivation reaches fixpoint.
 
 ---
 
@@ -354,8 +355,8 @@ try:
     result = execute(
         data_strings=[data],
         rule_strings=[rules],
-        timeout_seconds=10.0,   # raise after 10 seconds
-        max_steps=50_000,       # raise after 50k steps
+        timeout_seconds=10.0,   # ReasoningTimeoutError after 10 seconds
+        max_steps=50_000,       # stop (without error) after 50k rule firings
     )
 except ReasoningTimeoutError as e:
     print(f"Reasoning timed out: {e}")
@@ -406,7 +407,7 @@ var = lambda name: Variable(name)
 ### Cardinality constraint via collectAllIn (28)
 ```n3
 { ?P a :Person .
-  (?N { ?P :name ?N } ?Names) log:collectAllIn ?P .
+  (?N { ?P :name ?N } ?Names) log:collectAllIn ?Scope .
   ?Names list:length ?Count . ?Count math:greaterThan 1 }
     => { ?P :violation "Cardinality violation: :name must have exactly one value" } .
 ```
@@ -453,7 +454,7 @@ var = lambda name: Variable(name)
 { ?P :unitCost ?C } => { ?P :totalCost ?C } .
 # Assembly: sum direct parts' totals
 { ?Asm :directPart ?Any .
-  (?C { ?Asm :directPart ?P . ?P :totalCost ?C } ?Cs) log:collectAllIn ?Asm .
+  (?C { ?Asm :directPart ?P . ?P :totalCost ?C } ?Cs) log:collectAllIn ?Scope .
   ?Cs math:sum ?TC }
     => { ?Asm :totalCost ?TC } .
 ```
@@ -468,7 +469,7 @@ var = lambda name: Variable(name)
     => { ?E2 :inBurstWith ?E1 } .
 # Count burst events; threshold ≥ 3 triggers alert
 { ?AnyE :user ?U ; :type :loginFail ; :inBurst true .
-  (1 { ?E :user ?U ; :type :loginFail ; :inBurst true } ?Burst) log:collectAllIn ?U .
+  (1 { ?E :user ?U ; :type :loginFail ; :inBurst true } ?Burst) log:collectAllIn ?Scope .
   ?Burst list:length ?N . ?N math:greaterThan 2 }
     => { ?U :alert "brute_force_detected" } .
 ```

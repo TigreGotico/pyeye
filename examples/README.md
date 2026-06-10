@@ -13,7 +13,7 @@ pip install -e .
 python examples/01_hello_world/hello.py
 ```
 
-Run the whole suite (requires `uv` or plain `python`):
+Run the whole suite:
 
 ```bash
 for f in examples/*/; do echo "=== $f ==="; python "$f"/*.py; done
@@ -132,18 +132,19 @@ Filter comparisons bind nothing: `?V math:greaterThan 99`.
 ```
 
 `string:concatenation` takes a **list** of strings and joins them.
-Pattern matching: `?S string:matches "^python" true`.
+Pattern matching: `?S string:matches "^python"` (a filter — passes or fails).
 
 ---
 
 ### 05 — List Builtins
 
-`list:in` is a **filter** — both item and list must be bound:
+`list:in` is a **filter** — both item and list must be bound (`?item list:in ?list`):
 
 ```n3
-{ :roles list:in :allowedRoles }  # checks membership
+{ ?U :role ?R . ?R list:in (:admin :editor) } => { ?U :hasAccess true } .
 ```
 
+`list:member` enumerates: `?list list:member ?item` yields one binding per element.
 `list:select` is **1-based**: `(?list 1) list:select ?first`.
 `list:length` counts elements: `?list list:length ?n`.
 
@@ -151,11 +152,12 @@ Pattern matching: `?S string:matches "^python" true`.
 
 ### 06 — RDFS Entailment
 
-Pass `entail=True` to include both the original facts **and** all RDFS-derived triples
-in the output. Without `entail=True`, only the new derived triples are shown.
+Pass `entail=True` to apply the RDFS entailment rules before user rules. The
+entailed triples land in the store (available to your rules); add
+`pass_mode=True` to see them in the output alongside the input facts.
 
 ```python
-result = execute(data_strings=[rdfs_data], entail=True)
+result = execute(data_strings=[rdfs_data], entail=True, pass_mode=True)
 ```
 
 Built-in RDFS rules handle `rdfs:subClassOf`, `rdfs:subPropertyOf`, `rdfs:domain`,
@@ -210,12 +212,12 @@ individually.
 
 ### 10 — Aggregation
 
-`log:collectAllIn` gathers all values matching a pattern into an RDF list:
+`log:collectAllIn` gathers all values matching a pattern into an RDF list. The subject is `(?Template { pattern } ?OutputList)`; the object must be a fresh scope variable:
 
 ```n3
-{ ?Dept :hasSalary ?SalList .
-  ?SalList log:collectAllIn { ?E :dept ?Dept . ?E :salary ?S } ?S .
-  ?SalList math:sum ?Total }
+{ ?Dept a :Department .
+  (?S { ?E :dept ?Dept . ?E :salary ?S } ?Sals) log:collectAllIn ?Scope .
+  ?Sals math:sum ?Total }
     => { ?Dept :totalSalary ?Total } .
 ```
 
@@ -224,10 +226,8 @@ individually.
 ### 11 — Proof Traces
 
 ```python
-result = execute(..., explain=True)
-print(result.proof_html)   # browser-viewable proof tree
-print(result.proof_dot)    # Graphviz DOT
-print(result.proof_n3)     # machine-readable N3
+result = execute(..., explain=True, explain_format="html")
+print(result.explains)     # browser-viewable proof tree (or "dot" / "n3")
 ```
 
 ---
@@ -259,15 +259,16 @@ Check that **input** args are ground; return the output value.
 
 ### 14 — Routing Problem
 
-Multi-hop graph traversal with cost accumulation:
+Multi-hop graph traversal:
 
 ```n3
-{ ?A :link ?B . ?A :link ?C . ?A :bestRoute ?B . ?B :bestRoute ?C }
-    => { ?A :route ?C } .
+{ ?X flight:directTo ?Y } => { ?X flight:canReach ?Y } .
+{ ?X flight:canReach ?Y . ?Y flight:canReach ?Z } => { ?X flight:canReach ?Z } .
 ```
 
 Demonstrates how forward chaining naturally computes transitive closure over
-weighted graphs without explicit iteration.
+route graphs without explicit iteration, plus a backward-chaining query and a
+not-entail check.
 
 ---
 
@@ -308,7 +309,7 @@ duplicate detection:
 
 `time:now` generates the current timestamp:
 ```n3
-{ ?Event :receivedAt ?T . _:t time:now ?T } => { ?Event :processed true } .
+{ ?Event :action ?A . _:t time:now ?Now } => { ?Event :processedAt ?Now } .
 ```
 
 Component extraction: `?DT time:year ?Y`, `time:month`, `time:day`, `time:hour`,
@@ -343,8 +344,8 @@ Combine `log:collectAllIn` with `math:sum`, `math:min`, `math:max`, and division
 for aggregate statistics:
 
 ```n3
-{ ?Dept :salaries ?L .
-  ?L log:collectAllIn { ?E :dept ?Dept . ?E :salary ?S } ?S .
+{ ?Dept a :Department .
+  (?S { ?E :dept ?Dept . ?E :salary ?S } ?L) log:collectAllIn ?Scope .
   ?L math:sum ?Total . ?L list:length ?N .
   (?Total ?N) math:quotient ?Avg }
     => { ?Dept :avgSalary ?Avg } .
@@ -460,7 +461,8 @@ Full role-based access control policy engine:
 
 ### Aggregation
 ```n3
-{ ?G :items ?L . ?L log:collectAllIn { ?X :group ?G . ?X :value ?V } ?V .
+{ ?G a :Group .
+  (?V { ?X :group ?G . ?X :value ?V } ?L) log:collectAllIn ?Scope .
   ?L list:length ?N } => { ?G :count ?N } .
 ```
 

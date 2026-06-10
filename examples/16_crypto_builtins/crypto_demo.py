@@ -6,7 +6,7 @@ fingerprinting, deduplication, and integrity verification.
 
 Builtins:
   - ?S crypto:md5    ?Hash  — MD5 hex digest (128-bit)
-  - ?S crypto:sha    ?Hash  — SHA-1 hex digest (deprecated, kept for compat)
+  - ?S crypto:sha    ?Hash  — SHA-1 hex digest (weak; for legacy interop only)
   - ?S crypto:sha256 ?Hash  — SHA-256 hex digest (recommended)
   - ?S crypto:sha512 ?Hash  — SHA-512 hex digest
 
