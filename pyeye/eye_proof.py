@@ -11,24 +11,29 @@ links to one ``r:Inference`` lemma per answer (the query rule firing).  Each
 * ``r:rule`` — the ``r:Extraction`` lemma for the rule that fired.
 
 Leaf facts are ``r:Extraction`` lemmas justified by ``r:because [ a r:Parsing;
-r:source <file> ]``.  Builtin-produced facts are inline ``[ a r:Fact; ... ]``.
+r:source <file> ]``.  Body atoms resolved by a builtin or through a backward
+(``<=``) rule are inline ``[ a r:Fact; r:gives {...} ]`` — EYE collapses
+Prolog-level resolution into a fact, with no sub-derivation.
 
-The lemmas are numbered ``skolem:lemma1, lemma2, …`` in breadth-first order,
-assigning ids to each inference's evidence children first and then its rule
-child, matching EYE's traversal.  Identical extraction lemmas are shared.
+Rule variables are numbered ``var#x_N`` in predicate-subject-object
+first-appearance order (EYE stores triples predicate-first), walking into
+nested formulas and lists.  Head variables left unbound by the body are
+skolemised: the conclusion shows a fresh ``?U_N`` universal and the binding
+shows ``[ a r:Existential; n3:nodeId "_:sk_N"]``, exactly as EYE does.
 
-This module runs an independent SLD backward proof over the source facts and
-rules (each tagged with the file it was parsed from), so it does not depend on
-the forward-chaining engine's optimised solver.
+Goal solving is delegated to the forward-chaining engine (which evaluates
+builtins and backward rules); this module only reconstructs and serializes
+the derivation structure of each solution.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from pyeye.term import (
     NamedNode, Literal, Variable, Existential, Formula, Triple, Term,
-    ListTerm, TripleTerm, FormulaTerm, Binding, _next_var_id,
+    ListTerm, TripleTerm, FormulaTerm, Binding,
 )
 from pyeye.unify import unify_terms, apply_binding
 from pyeye.parser import Rule
@@ -37,7 +42,13 @@ from pyeye.parser import Rule
 # Well-known IRIs
 SKOLEM_GENID = "8b98b360-9a70-4845-b52c-c675af60ad01"
 _VAR_NS = "http://www.w3.org/2000/10/swap/var#"
-_LIST_IN = "http://www.w3.org/2000/10/swap/list#in"
+PASS_SOURCE = "http://eulersharp.sourceforge.net/2003/03swap/pass"
+_E_FINDALL = "http://eulersharp.sourceforge.net/2003/03swap/log-rules#findall"
+_XSD_INTEGER = "http://www.w3.org/2001/XMLSchema#integer"
+
+# Existentials introduced for unbound head variables (rendered ?U_N in
+# conclusions and [ a r:Existential; n3:nodeId "_:sk_N"] in bindings).
+_SKOLEM_NAME_RE = re.compile(r"^sk_(\d+)$")
 
 
 # ---------------------------------------------------------------------------
@@ -46,11 +57,16 @@ _LIST_IN = "http://www.w3.org/2000/10/swap/list#in"
 
 @dataclass
 class Inference:
-    """A rule firing: conclusion derived from evidence under bindings."""
-    conclusion: Triple
+    """A rule firing: head conclusions derived from evidence under bindings."""
+    gives: list[Triple]                # instantiated head triples
     evidence: list["Node"]
-    bindings: list[tuple[str, Term]]   # (var#x_N, boundValue) in var order
+    bindings: list[tuple[str, Term]]   # (x_N, boundValue) in var order
     rule: "Extraction"
+
+    @property
+    def conclusion(self) -> Triple:
+        """The first (often only) conclusion triple."""
+        return self.gives[0]
 
 
 @dataclass
@@ -62,7 +78,7 @@ class Extraction:
 
 @dataclass
 class Fact:
-    """A builtin-produced fact (inline ``[ a r:Fact; r:gives {...} ]``)."""
+    """A builtin- or backward-rule-produced fact (inline ``[ a r:Fact ]``)."""
     conclusion: Triple
 
 
@@ -81,25 +97,79 @@ class ProofKB:
 
 
 # ---------------------------------------------------------------------------
-# Variable renaming for proof search (fresh ids per rule application)
+# Rule variable ordering (predicate-subject-object, deep)
 # ---------------------------------------------------------------------------
 
-def _rename_rule_terms(rule: Rule) -> tuple[Formula, Formula, list[Variable]]:
-    """Return (body, head, vars) with fresh variable ids.
+def _walk_vars(t: Term, order: list[Variable], seen: set[int]) -> None:
+    if isinstance(t, Variable):
+        if t.id not in seen:
+            seen.add(t.id)
+            order.append(t)
+        return
+    if isinstance(t, ListTerm):
+        for i in t.items:
+            _walk_vars(i, order, seen)
+        return
+    if isinstance(t, Formula):
+        for tr in t.triples:
+            _walk_triple_vars(tr, order, seen)
+        return
+    if isinstance(t, TripleTerm):
+        _walk_vars(t.predicate, order, seen)
+        _walk_vars(t.subject, order, seen)
+        _walk_vars(t.object, order, seen)
+        return
+    if isinstance(t, FormulaTerm):
+        _walk_vars(t.functor, order, seen)
+        for a in t.args:
+            _walk_vars(a, order, seen)
 
-    ``vars`` lists the distinct variables in first-appearance order (body then
-    head), so they can be numbered ``var#x_0, x_1, …`` deterministically.
-    """
-    var_map: dict[int, Variable] = {}
+
+def _walk_triple_vars(tr: Triple, order: list[Variable], seen: set[int]) -> None:
+    # EYE stores triples predicate-first: P(S, O).
+    _walk_vars(tr.predicate, order, seen)
+    _walk_vars(tr.subject, order, seen)
+    _walk_vars(tr.object, order, seen)
+
+
+def _rule_var_order(rule: Rule) -> list[Variable]:
+    """Distinct rule variables in EYE's first-appearance order (body, head)."""
     order: list[Variable] = []
+    seen: set[int] = set()
+    for part in (rule.body, rule.head):
+        if isinstance(part, Formula):
+            for tr in part.triples:
+                _walk_triple_vars(tr, order, seen)
+    if rule.head_var is not None:
+        _walk_vars(rule.head_var, order, seen)
+    return order
+
+
+def _formula_var_ids(f: Formula) -> set[int]:
+    order: list[Variable] = []
+    seen: set[int] = set()
+    for tr in f.triples:
+        _walk_triple_vars(tr, order, seen)
+    return seen
+
+
+def _rename_rule_terms(rule: Rule) -> tuple[Formula, Formula, list[Variable]]:
+    """Return (body, head, vars) with fresh variable ids (standardize apart).
+
+    ``vars`` lists the distinct variables in EYE's first-appearance order
+    (predicate-subject-object, body then head), so they can be numbered
+    ``var#x_0, x_1, …`` deterministically.
+    """
+    from pyeye.term import _next_var_id
+    var_map: dict[int, Variable] = {}
 
     def cp(t: Term) -> Term:
         if isinstance(t, Variable):
-            if t.id not in var_map:
+            nv = var_map.get(t.id)
+            if nv is None:
                 nv = Variable(name=t.name, id=_next_var_id())
                 var_map[t.id] = nv
-                order.append(nv)
-            return var_map[t.id]
+            return nv
         if isinstance(t, ListTerm):
             return ListTerm(items=tuple(cp(i) for i in t.items))
         if isinstance(t, Formula):
@@ -115,6 +185,11 @@ def _rename_rule_terms(rule: Rule) -> tuple[Formula, Formula, list[Variable]]:
 
     body = Formula(triples=tuple(cpt(t) for t in rule.body.triples))
     head = Formula(triples=tuple(cpt(t) for t in rule.head.triples))
+    order: list[Variable] = []
+    seen: set[int] = set()
+    for part in (body, head):
+        for tr in part.triples:
+            _walk_triple_vars(tr, order, seen)
     return body, head, order
 
 
@@ -143,20 +218,71 @@ def _ground_triple(tr: Triple, b: Binding) -> Triple:
 
 
 # ---------------------------------------------------------------------------
-# Proof search
+# Proof construction (engine-backed)
 # ---------------------------------------------------------------------------
 
-class ProofSearch:
-    """Backward SLD proof search that records the derivation DAG."""
+class ProofBuilder:
+    """Reconstructs EYE-shaped derivations of query solutions.
 
-    def __init__(self, kb: ProofKB, max_depth: int = 60) -> None:
+    The engine solves goals (with full builtin/backward-chaining support);
+    this class classifies each body atom's justification:
+
+    * matches a source fact            → shared ``Extraction`` lemma
+    * predicate is a builtin           → inline ``Fact``
+    * derived by a forward (=>) rule   → recursive ``Inference`` lemma
+    * anything else (backward rules)   → inline ``Fact``
+    """
+
+    MAX_DEPTH = 80
+
+    def __init__(self, kb: ProofKB, engine,
+                 sources: list[str] | None = None) -> None:
         self.kb = kb
-        self.max_depth = max_depth
-        # Cache: identical Extraction(fact|rule, source) is shared
+        self.engine = engine
         self._fact_extractions: dict[tuple, Extraction] = {}
         self._rule_extractions: dict[int, Extraction] = {}
-        # Global skolem counter for head-introduced existentials (_:sk_N).
+        self._node_cache: dict[str, Node] = {}
+        self._fact_sources: dict[str, tuple[Triple, str]] = {}
+        for t, src in kb.facts:
+            self._fact_sources.setdefault(str(t), (t, src))
         self._sk_counter = 0
+        self._steps = 2_000_000
+        # Replayed forward-chaining provenance (str(triple) -> firing); lazy.
+        self._prov: dict[str, tuple] | None = None
+        self._replay_derived: list[Triple] = []
+        self._replaying = False
+        if sources is None:
+            sources = []
+            for _t, src in kb.facts:
+                if src not in sources:
+                    sources.append(src)
+            for _r, src in kb.rules:
+                if src not in sources:
+                    sources.append(src)
+        # EYE's e:findall scope term: ((<data docs…>) recursion-level).
+        self._scope_term = ListTerm(items=(
+            ListTerm(items=tuple(NamedNode(s) for s in sources)),
+            Literal("1", datatype=NamedNode(_XSD_INTEGER)),
+        ))
+        # Data blank nodes are skolemised by EYE into genid#e_<label>_<doc#>.
+        self._bnode_docs: dict[str, int] = {}
+        doc_no = {s: i + 1 for i, s in enumerate(sources)}
+        for t, src in kb.facts:
+            n = doc_no.get(src)
+            if n is not None:
+                for term in (t.subject, t.predicate, t.object):
+                    self._collect_bnodes(term, n)
+
+    def _collect_bnodes(self, t: Term, doc: int) -> None:
+        if isinstance(t, Existential):
+            self._bnode_docs.setdefault(t.name, doc)
+        elif isinstance(t, ListTerm):
+            for i in t.items:
+                self._collect_bnodes(i, doc)
+        elif isinstance(t, Formula):
+            for tr in t.triples:
+                for x in (tr.subject, tr.predicate, tr.object):
+                    self._collect_bnodes(x, doc)
 
     # -- extraction lemma sharing -------------------------------------------
 
@@ -176,113 +302,292 @@ class ProofSearch:
             self._rule_extractions[rid] = ex
         return ex
 
-    # -- proving (generator-based, with backtracking) -----------------------
+    # -- query components -----------------------------------------------------
 
-    def prove_body(self, rule: Rule, source: str, body: Formula,
-                   head: Formula, order: list[Variable], b: Binding,
-                   head_idx: int, depth: int, anc: frozenset = frozenset()):
-        """Yield Inference nodes proving the rule's *head_idx* conclusion.
+    def build(self, query_rules: list[tuple[Rule, str]]) -> "Proof":
+        # The engine's run() deadline may already be near; proof reconstruction
+        # is bounded by its own step budget (and the caller's wall clock).
+        self.engine._deadline = None
+        self._ensure_replay()
+        components: list[Inference] = []
+        for rule, source in query_rules:
+            seen: set[str] = set()
+            if not isinstance(rule.head, Formula) or rule.head_var is not None:
+                continue
+            body, head, order = _rename_rule_terms(rule)
+            for descs, b in self._solve_atoms(tuple(body.triples), {}, 0,
+                                              frozenset()):
+                # Dedup answers by head instantiation before materializing,
+                # so alternate derivations of the same answer are dropped
+                # (EYE emits one component per distinct answer).
+                key = "|".join(str(_ground_triple(t, b)) for t in head.triples)
+                if key in seen:
+                    continue
+                seen.add(key)
+                desc = ("infer", rule, source, order, body, head, descs)
+                components.append(self._materialize(desc, dict(b)))
+        return Proof(components=components, bnode_docs=dict(self._bnode_docs))
 
-        Proves every body atom in order with full backtracking, so a
-        conjunction can choose a body solution that lets later atoms succeed.
-        """
-        if depth > self.max_depth:
-            return
-        rule_ex = self._rule_extraction(rule, source)
-        for ev, cur in self._prove_atoms(list(body.triples), b, depth, anc):
-            # Bind any head variable not constrained by the body to a fresh
-            # existential (_:sk_N), as EYE skolemises free head variables.
-            cur = self._skolemise_free_head_vars(head.triples[head_idx],
-                                                 order, cur)
-            conclusion = _ground_triple(head.triples[head_idx], cur)
-            bindings = self._var_bindings(order, cur)
-            yield Inference(conclusion=conclusion, evidence=ev,
-                            bindings=bindings, rule=rule_ex)
+    # -- SLD search (EYE clause order: facts, then rules, in load order) ------
 
-    def _skolemise_free_head_vars(self, head_t: Triple,
-                                  order: list[Variable],
-                                  b: Binding) -> Binding:
-        """Bind unresolved head variables to fresh _:sk_N existentials."""
-        free: list[Variable] = []
-        for t in (head_t.subject, head_t.predicate, head_t.object):
-            for v in self._term_vars(t):
-                if isinstance(apply_binding(v, b), Variable) and v not in free:
-                    free.append(v)
-        if not free:
-            return b
-        nb = dict(b)
-        for v in free:
-            nb[v.id] = Existential(f"sk_{self._sk_counter}")
-            self._sk_counter += 1
-        return nb
+    def _budget_ok(self) -> bool:
+        self._steps -= 1
+        return self._steps > 0
 
-    @staticmethod
-    def _term_vars(t: Term) -> list[Variable]:
-        if isinstance(t, Variable):
-            return [t]
-        if isinstance(t, ListTerm):
-            out: list[Variable] = []
-            for i in t.items:
-                out.extend(ProofSearch._term_vars(i))
-            return out
-        return []
-
-    def _prove_atoms(self, atoms: list[Triple], b: Binding, depth: int,
-                     anc: frozenset):
-        """Yield (evidence_list, binding) for proving the conjunction *atoms*."""
+    def _solve_atoms(self, atoms: tuple, b: Binding, depth: int,
+                     path: frozenset):
+        """Yield (descriptors, binding) proving the conjunction left-to-right."""
         if not atoms:
             yield [], b
             return
         first, rest = atoms[0], atoms[1:]
-        for node, nb in self._prove_atom(first, b, depth, anc):
-            for ev_rest, fb in self._prove_atoms(rest, nb, depth, anc):
-                ev = ([node] + ev_rest) if node is not None else ev_rest
-                yield ev, fb
+        for desc, nb in self._solve_atom(first, b, depth, path):
+            for descs, fb in self._solve_atoms(rest, nb, depth, path):
+                yield [desc] + descs, fb
 
-    def _prove_atom(self, atom: Triple, b: Binding, depth: int,
-                    anc: frozenset):
-        """Yield (evidence_node | None, binding) solutions for one atom."""
+    def _solve_atom(self, atom: Triple, b: Binding, depth: int,
+                    path: frozenset):
+        """Yield (descriptor, binding) justifications for one body atom.
+
+        Order mirrors EYE's clause order: builtins evaluate in place, then
+        source facts in load order, then forward-derived facts in (replayed)
+        assertion order, then backward rules via the engine.
+        """
+        if depth > self.MAX_DEPTH or not self._budget_ok():
+            return
         resolved = _ground_triple(atom, b)
+        pred = (resolved.predicate.value
+                if isinstance(resolved.predicate, NamedNode) else None)
 
-        # list:in builtin membership → inline r:Fact, no extraction lemma.
-        if (isinstance(resolved.predicate, NamedNode)
-                and resolved.predicate.value == _LIST_IN):
-            if isinstance(resolved.object, ListTerm):
-                if isinstance(resolved.subject, Variable):
-                    for item in resolved.object.items:
-                        nb = unify_terms(resolved.subject, item, b)
-                        if nb is not None:
-                            yield (Fact(conclusion=Triple(
-                                item, resolved.predicate, resolved.object)), nb)
-                elif resolved.subject in resolved.object.items:
-                    yield Fact(conclusion=resolved), b
+        # Builtin predicate → engine evaluation, inline r:Fact.
+        if (pred is not None and pred in self.engine._builtins
+                and self.engine._builtin_applies(resolved)):
+            try:
+                solutions = self.engine._match_patterns_sequential(
+                    [atom], dict(b))
+            except Exception:
+                return
+            for nb in solutions:
+                yield ("builtin", atom), nb
             return
 
-        # Ordinary atom: prove via a source fact or a rule, with backtracking.
+        # Source facts, in load order.
         for fact, source in self.kb.facts:
             nb = self._unify3(fact, resolved, dict(b))
-            if nb is None:
-                continue
-            grounded = _ground_triple(fact, nb)
-            merged = self._bind_goal_vars(resolved, grounded, b)
-            yield self._fact_extraction(grounded, source), merged
+            if nb is not None:
+                yield ("fact", fact, source), nb
 
-        # Cycle guard: do not re-expand a goal already on this proof path.
-        gk = _goal_key(resolved)
-        if gk in anc:
-            return
-        child_anc = anc | {gk}
-        for rule, source in self.kb.rules:
-            for hi, _ in enumerate(rule.head.triples):
-                body, head, order = _rename_rule_terms(rule)
-                head_t = head.triples[hi]
-                nb = self._unify3(head_t, resolved, dict(b))
-                if nb is None:
+        # Forward-rule conclusions, in replayed assertion order.  After the
+        # replay, engine-derived stragglers it missed also qualify (their
+        # justification falls back to the engine's recorded firing); during
+        # the replay only the partial state so far is visible.
+        prov = self._prov or {}
+        derivations = {} if self._replaying else getattr(
+            self.engine, "_derivations", {})
+        if resolved.is_ground():
+            if str(resolved) in prov or resolved in derivations:
+                yield ("derived", resolved), b
+        else:
+            seen_keys: set[str] = set()
+            for dt in self._replay_derived:
+                seen_keys.add(str(dt))
+                nb = self._unify3(dt, resolved, dict(b))
+                if nb is not None:
+                    yield ("derived", dt), nb
+            for dt in self.engine._derived_triples:
+                if dt not in derivations or str(dt) in seen_keys:
                     continue
-                for node in self.prove_body(rule, source, body, head, order,
-                                            nb, hi, depth + 1, child_anc):
-                    merged = self._bind_goal_vars(resolved, node.conclusion, b)
-                    yield node, merged
+                nb = self._unify3(dt, resolved, dict(b))
+                if nb is not None:
+                    yield ("derived", dt), nb
+
+        # Backward (<=) rules resolve through the engine, shown as r:Fact.
+        for rule, _src in self.kb.rules:
+            if not rule.is_backward or not isinstance(rule.head, Formula):
+                continue
+            if any(self._unify3(h, resolved, dict(b)) is not None
+                   for h in rule.head.triples):
+                try:
+                    solutions = self.engine._match_patterns_sequential(
+                        [atom], dict(b))
+                except Exception:
+                    return
+                for nb in solutions:
+                    yield ("engine", atom), nb
+                return
+
+    # -- forward-chaining replay (EYE's triple-driven semi-naive order) -------
+
+    def _ensure_replay(self) -> None:
+        """Replay forward chaining the way EYE asserts conclusions.
+
+        Triple-driven semi-naive: a FIFO queue seeded with the source facts in
+        load order; each dequeued trigger joins into every body position of
+        every forward rule, the remaining atoms resolving facts-first then
+        derived-in-assertion-order against the state so far.  New conclusions
+        assert immediately and queue.  Each conclusion records the firing
+        (rule, evidence descriptors, binding) that first produced it — the
+        same firing EYE's proof cites.
+        """
+        if self._prov is not None:
+            return
+        self._prov = {}
+        self._replaying = True
+        known: set[str] = {str(f) for f, _ in self.kb.facts}
+        rules = []
+        for rule, source in self.kb.rules:
+            if (rule.is_backward or rule.is_query
+                    or rule.head_var is not None
+                    or not isinstance(rule.head, Formula)):
+                continue
+            rules.append((rule, source))
+        queue: list[tuple[tuple, Triple]] = [
+            (("fact", f, src), f) for f, src in self.kb.facts
+        ]
+        qi = 0
+        while qi < len(queue):
+            if not self._budget_ok():
+                break
+            tdesc, t = queue[qi]
+            qi += 1
+            for rule, source in rules:
+                body, head, order = _rename_rule_terms(rule)
+                for i, atom in enumerate(body.triples):
+                    ub = self._unify3(atom, t, {})
+                    if ub is None:
+                        continue
+                    for descs, fb in self._replay_conj(body.triples, 0, i,
+                                                       tdesc, ub):
+                        new_heads = []
+                        for ht in head.triples:
+                            g = _ground_triple(ht, fb)
+                            if g.is_ground() and str(g) not in known:
+                                new_heads.append(g)
+                        if not new_heads:
+                            continue
+                        firing = ("infer", rule, source, order, body, head,
+                                  descs, dict(fb))
+                        for g in new_heads:
+                            known.add(str(g))
+                            self._replay_derived.append(g)
+                            self._prov[str(g)] = firing
+                            queue.append((("derived", g), g))
+        self._replaying = False
+
+    def _replay_conj(self, atoms: tuple, j: int, skip: int, tdesc: tuple,
+                     b: Binding):
+        """Solve remaining body atoms around the trigger at *skip*."""
+        if j == len(atoms):
+            yield [], b
+            return
+        if j == skip:
+            for descs, fb in self._replay_conj(atoms, j + 1, skip, tdesc, b):
+                yield [tdesc] + descs, fb
+            return
+        for desc, nb in self._solve_atom(atoms[j], b, 0, frozenset()):
+            for descs, fb in self._replay_conj(atoms, j + 1, skip, tdesc, nb):
+                yield [desc] + descs, fb
+
+    # -- materialization (descriptor tree → proof nodes) ----------------------
+
+    def _materialize(self, desc: tuple, nb: Binding) -> Node:
+        """Instantiate a justification descriptor under the final binding.
+
+        Mutates *nb* in place: e:findall scopes and unbound rule variables
+        are bound here (pre-order), so skolem numbering follows EYE's
+        derivation order.
+        """
+        kind = desc[0]
+        if kind == "node":
+            return desc[1]
+        if kind == "fact":
+            return self._fact_extraction(desc[1], desc[2])
+        if kind in ("builtin", "engine"):
+            return Fact(conclusion=_ground_triple(desc[1], nb))
+        if kind == "derived":
+            return self._materialize_derived(desc[1])
+        _, rule, source, order, body, head, subdescs = desc
+        # EYE presents an unbound e:findall scope as ((<data docs…>) 1).
+        for t in body.triples:
+            if (isinstance(t.predicate, NamedNode)
+                    and t.predicate.value == _E_FINDALL):
+                subj = _ground(t.subject, nb)
+                if isinstance(subj, Variable):
+                    nb[subj.id] = self._scope_term
+        # Skolemise variables the firing left unbound (in var order), as EYE
+        # does for findall-local and head-only variables.
+        for v in order:
+            if isinstance(_ground(v, nb), Variable):
+                nb[v.id] = Existential(f"sk_{self._sk_counter}")
+                self._sk_counter += 1
+        gives = [_ground_triple(t, nb) for t in head.triples]
+        evidence = [self._materialize(d, nb) for d in subdescs]
+        bindings = [(f"x_{i}", _ground(v, nb)) for i, v in enumerate(order)]
+        node = Inference(gives=gives, evidence=evidence, bindings=bindings,
+                         rule=self._rule_extraction(rule, source))
+        if len(gives) == 1 and gives[0].is_ground():
+            self._node_cache.setdefault(str(gives[0]), node)
+        return node
+
+    def _materialize_derived(self, triple: Triple) -> Node:
+        """Inference lemma for a forward-derived triple.
+
+        The justifying firing comes from the triple-driven replay (the firing
+        that first produced the conclusion, in EYE's assertion order); when
+        the replay missed it (timing-sensitive builtins), the engine's
+        recorded firing is used instead.
+        """
+        key = str(triple)
+        cached = self._node_cache.get(key)
+        if cached is not None:
+            return cached
+        firing = (self._prov or {}).get(key)
+        if firing is not None:
+            _, rule, source, order, body, head, descs, fb = firing
+            desc = ("infer", rule, source, order, body, head, descs)
+            node = self._materialize(desc, dict(fb))
+            self._node_cache[key] = node
+            return node
+        # Fallback: the engine's recorded firing.
+        rec = self.engine._derivations.get(triple)
+        if rec is None:
+            return Fact(conclusion=triple)
+        rule, rb = rec
+        nb = dict(rb)
+        order = _rule_var_order(rule)
+        node = Inference(gives=[], evidence=[], bindings=[],
+                         rule=self._rule_extraction(rule, rule.source))
+        # Pre-cache so a (pathological) self-referential premise terminates.
+        self._node_cache[key] = node
+        for t in rule.body.triples:
+            if (isinstance(t.predicate, NamedNode)
+                    and t.predicate.value == _E_FINDALL):
+                subj = _ground(t.subject, nb)
+                if isinstance(subj, Variable):
+                    nb[subj.id] = self._scope_term
+        for v in order:
+            if isinstance(_ground(v, nb), Variable):
+                nb[v.id] = Existential(f"sk_{self._sk_counter}")
+                self._sk_counter += 1
+        node.gives = [_ground_triple(t, nb) for t in rule.head.triples]
+        node.bindings = [(f"x_{i}", _ground(v, nb))
+                         for i, v in enumerate(order)]
+        node.evidence = [self._evidence_for(_ground_triple(t, nb))
+                         for t in rule.body.triples]
+        return node
+
+    def _evidence_for(self, grounded: Triple) -> Node:
+        """Classify one grounded body atom of a recorded rule firing."""
+        pred = (grounded.predicate.value
+                if isinstance(grounded.predicate, NamedNode) else None)
+        if pred is not None and pred in self.engine._builtins:
+            return Fact(conclusion=grounded)
+        hit = self._fact_sources.get(str(grounded))
+        if hit is not None:
+            return self._fact_extraction(hit[0], hit[1])
+        if grounded in getattr(self.engine, "_derivations", {}):
+            return self._materialize_derived(grounded)
+        return Fact(conclusion=grounded)
 
     @staticmethod
     def _unify3(pat: Triple, goal: Triple, b: Binding) -> Binding | None:
@@ -294,70 +599,51 @@ class ProofSearch:
             return None
         return unify_terms(pat.object, goal.object, b)
 
-    def _bind_goal_vars(self, goal: Triple, concl: Triple,
-                        b: Binding) -> Binding:
-        """Extend *b* with bindings recovered by matching goal against concl."""
-        nb = self._unify3(goal, concl, dict(b))
-        return nb if nb is not None else b
-
-    @staticmethod
-    def _goal_vars(goal: Triple) -> list[Variable]:
-        out: list[Variable] = []
-        for t in (goal.subject, goal.predicate, goal.object):
-            if isinstance(t, Variable):
-                out.append(t)
-        return out
-
-    @staticmethod
-    def _var_bindings(order: list[Variable],
-                      b: Binding) -> list[tuple[str, Term]]:
-        """Produce (var#x_N, value) pairs for the rule's variables in order."""
-        out: list[tuple[str, Term]] = []
-        for i, v in enumerate(order):
-            val = apply_binding(v, b)
-            out.append((f"x_{i}", val))
-        return out
-
 
 # ---------------------------------------------------------------------------
 # Top-level proof construction (query rules → proof DAG)
 # ---------------------------------------------------------------------------
 
 def build_proof(kb: ProofKB,
-                query_rules: list[tuple[Rule, str]]) -> "Proof":
+                query_rules: list[tuple[Rule, str]],
+                engine=None,
+                sources: list[str] | None = None) -> "Proof":
     """Build the proof DAG for *query_rules* against *kb*.
 
     Each query rule ``{P} => {C}`` fires once per binding of P; the firing is
-    an Inference whose evidence is the proof of P and whose rule is the query
-    extraction.  Returns a Proof holding the component inferences (one per
-    answer).
+    an Inference whose evidence justifies the body atoms and whose rule is the
+    query extraction.  *engine* is a populated, already-run Engine; when None
+    a fresh engine is built from *kb* (facts + rules) and run to closure.
     """
-    search = ProofSearch(kb)
-    components: list[Inference] = []
-    for rule, source in query_rules:
-        # rename, then prove the body, collecting every solution
-        for sol in _solve_query(search, rule, source):
-            components.append(sol)
-    return Proof(components=components)
+    if engine is None:
+        from pyeye.engine import Engine
+        engine = Engine(timeout_seconds=30.0)
+        engine._record_derivations = True
+        for rule, _src in kb.rules:
+            engine.add_rule(rule)
+        for t, _src in kb.facts:
+            engine.add_triple(t)
+        engine.snapshot_initial()
+        engine.run()
+    return ProofBuilder(kb, engine, sources=sources).build(query_rules)
 
 
-def _solve_query(search: ProofSearch, rule: Rule,
-                 source: str):
-    """Yield one Inference per distinct answer of the query rule."""
-    seen: set[str] = set()
-    body, head, order = _rename_rule_terms(rule)
-    for hi in range(len(head.triples)):
-        for node in search.prove_body(rule, source, body, head, order, {},
-                                      hi, 0):
-            key = str(node.conclusion)
-            if key not in seen:
-                seen.add(key)
-                yield node
+def make_pass_query_rule() -> Rule:
+    """The synthetic ``{?S ?P ?O} => {?S ?P ?O}`` rule EYE uses for --pass."""
+    from pyeye.term import _next_var_id
+    s = Variable(name="S", id=_next_var_id())
+    p = Variable(name="P", id=_next_var_id())
+    o = Variable(name="O", id=_next_var_id())
+    f = Formula(triples=(Triple(s, p, o),))
+    return Rule(body=f, head=f, is_query=True, source=PASS_SOURCE)
 
 
 @dataclass
 class Proof:
     components: list[Inference]
+    # data blank-node label -> 1-based source-document number (EYE renders
+    # such nodes as skolem genid IRIs ``e_<label>_<doc#>``)
+    bnode_docs: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +664,7 @@ class _Serializer:
         self.skolem_ns = (
             f"https://eyereasoner.github.io/.well-known/genid/{genid}#"
         )
+        self._bnode_docs = proof.bnode_docs
         # node -> lemma name (assigned in BFS order)
         self._names: dict[int, str] = {}
         self._counter = 0
@@ -405,10 +692,12 @@ class _Serializer:
             if isinstance(node, Inference):
                 for ev in node.evidence:
                     if isinstance(ev, (Inference, Extraction)):
-                        self._name(ev)
-                        queue.append(ev)
-                self._name(node.rule)
-                queue.append(node.rule)
+                        if id(ev) not in self._names:
+                            self._name(ev)
+                            queue.append(ev)
+                if id(node.rule) not in self._names:
+                    self._name(node.rule)
+                    queue.append(node.rule)
 
         lines: list[str] = []
         lines.extend(self._prefix_block())
@@ -444,7 +733,8 @@ class _Serializer:
             out.append(f"    r:component skolem:{self._names[id(comp)]};")
         out.append("    r:gives {")
         for comp in self.proof.components:
-            out.extend(self._formula_lines(comp.conclusion, 8))
+            for tr in comp.gives:
+                out.extend(self._triple_lines(tr, 8))
         out.append("    }.")
         return out
 
@@ -454,7 +744,8 @@ class _Serializer:
         name = self._names[id(node)]
         out = [f"skolem:{name} a r:Inference;"]
         out.append("    r:gives {")
-        out.extend(self._formula_lines(node.conclusion, 8))
+        for tr in node.gives:
+            out.extend(self._triple_lines(tr, 8))
         out.append("    };")
         out.append("    r:evidence (")
         for ev in node.evidence:
@@ -478,7 +769,7 @@ class _Serializer:
         if isinstance(node.gives, Rule):
             out.extend(self._rule_lines(node.gives, 8))
         else:
-            out.extend(self._formula_lines(node.gives, 8))
+            out.extend(self._triple_lines(node.gives, 8))
         out.append("    };")
         out.append(
             f"    r:because [ a r:Parsing; r:source <{node.source}>]."
@@ -492,42 +783,49 @@ class _Serializer:
     def _bound_to(self, val: Term) -> str:
         if isinstance(val, NamedNode):
             return f'[ n3:uri "{val.value}"]'
-        if isinstance(val, ListTerm):
-            return self._term(val)
         if isinstance(val, Existential):
+            m = _SKOLEM_NAME_RE.match(val.name)
+            if m:
+                return f'[ a r:Existential; n3:nodeId "_:sk_{m.group(1)}"]'
+            doc = self._bnode_docs.get(val.name)
+            if doc is not None:
+                return (f'[ a r:Existential; n3:nodeId '
+                        f'"{self.skolem_ns}e_{val.name}_{doc}"]')
             return f'[ a r:Existential; n3:nodeId "_:{val.name}"]'
         return self._term(val)
 
     # -- formula / term serialization ---------------------------------------
 
-    def _formula_lines(self, conclusion, indent: int) -> list[str]:
-        """Render a conclusion (Triple) as indented N3 triple lines."""
-        return self._triple_lines(conclusion, indent)
-
     def _triple_lines(self, tr: Triple, indent: int) -> list[str]:
         pad = " " * indent
-        s = self._term_multiline(tr.subject, indent)
+        s = self._term(tr.subject)
         p = self._term(tr.predicate)
-        o = self._term_multiline(tr.object, indent)
-        # When subject/object are multi-line formulas, splice them.
-        return [f"{pad}{s} {p} {o}."]
+        o = self._term(tr.object)
+        # A trailing digit would lex into the final dot (e.g. "0.5.").
+        sep = " ." if o and (o[-1].isdigit() or o[-1] == ".") else "."
+        return [f"{pad}{s} {p} {o}{sep}"]
 
     def _rule_lines(self, rule: Rule, indent: int) -> list[str]:
         """Render a rule with @forAll/@forSome quantifier prefix."""
         pad = " " * indent
-        # Collect variables of the rule (for @forAll) in first-appearance order
-        body, head, order = _rename_rule_terms(rule)
-        # Map fresh var ids -> var:x_N names
+        order = _rule_var_order(rule)
         var_names: dict[int, str] = {v.id: f"x_{i}"
                                      for i, v in enumerate(order)}
-        forall = ", ".join(f"var:{var_names[v.id]}" for v in order)
-        out: list[str] = []
-        prefix = f"@forAll {forall}. {{" if forall else "{"
-        out.append(f"{pad}{prefix}")
-        for tr in body.triples:
+        body_ids = _formula_var_ids(rule.body)
+        forall = ", ".join(f"var:{var_names[v.id]}" for v in order
+                           if v.id in body_ids)
+        forsome = ", ".join(f"var:{var_names[v.id]}" for v in order
+                            if v.id not in body_ids)
+        quant = ""
+        if forall:
+            quant += f"@forAll {forall}. "
+        if forsome:
+            quant += f"@forSome {forsome}. "
+        out: list[str] = [f"{pad}{quant}{{"]
+        for tr in rule.body.triples:
             out.append(self._var_triple_line(tr, indent + 4, var_names))
         out.append(f"{pad}}} => {{")
-        for tr in head.triples:
+        for tr in rule.head.triples:
             out.append(self._var_triple_line(tr, indent + 4, var_names))
         out.append(f"{pad}}}.")
         return out
@@ -538,18 +836,23 @@ class _Serializer:
         s = self._var_term(tr.subject, var_names)
         p = self._var_term(tr.predicate, var_names)
         o = self._var_term(tr.object, var_names)
-        return f"{pad}{s} {p} {o}."
+        sep = " ." if o and (o[-1].isdigit() or o[-1] == ".") else "."
+        return f"{pad}{s} {p} {o}{sep}"
 
     def _var_term(self, t: Term, var_names: dict[int, str]) -> str:
         if isinstance(t, Variable):
-            return f"var:{var_names.get(t.id, t.name)}"
+            name = var_names.get(t.id)
+            return f"var:{name}" if name else f"?{t.name}"
         if isinstance(t, ListTerm):
             return "(" + " ".join(
                 self._var_term(i, var_names) for i in t.items) + ")"
-        return self._term(t)
-
-    def _term_multiline(self, t: Term, indent: int) -> str:
-        # For the targeted scenarios subjects/objects are atomic or lists.
+        if isinstance(t, Formula):
+            inner = ". ".join(
+                f"{self._var_term(x.subject, var_names)} "
+                f"{self._var_term(x.predicate, var_names)} "
+                f"{self._var_term(x.object, var_names)}"
+                for x in t.triples)
+            return "{" + inner + "}"
         return self._term(t)
 
     def _inline_formula(self, tr: Triple) -> str:
@@ -564,6 +867,14 @@ class _Serializer:
         if isinstance(t, Variable):
             return f"?{t.name}"
         if isinstance(t, Existential):
+            # Skolemised head variables print as fresh universals (?U_N),
+            # mirroring EYE; the r:binding shows the _:sk_N existential.
+            m = _SKOLEM_NAME_RE.match(t.name)
+            if m:
+                return f"?U_{m.group(1)}"
+            doc = self._bnode_docs.get(t.name)
+            if doc is not None:
+                return f"skolem:e_{t.name}_{doc}"
             return f"_:{t.name}"
         if isinstance(t, ListTerm):
             if not t.items:
@@ -587,7 +898,9 @@ class _Serializer:
             if uri.startswith(ns) and (best is None or len(ns) > len(best[1])):
                 best = (pfx, ns)
         if best is not None:
-            return f"{best[0]}:{uri[len(best[1]):]}"
+            local = uri[len(best[1]):]
+            if local and not any(c in local for c in "/#?@(){}[]"):
+                return f"{best[0]}:{local}"
         return f"<{uri}>"
 
     def _literal(self, lit: Literal) -> str:
@@ -603,8 +916,10 @@ class _Serializer:
                 if v.endswith("."):
                     v += "0"
                 return v
+        value = (lit.value.replace("\\", "\\\\").replace('"', '\\"')
+                 .replace("\n", "\\n").replace("\r", "\\r"))
         if lit.language:
-            return f'"{lit.value}"@{lit.language}'
+            return f'"{value}"@{lit.language.lower()}'
         if lit.datatype:
-            return f'"{lit.value}"^^{self._abbrev(lit.datatype.value)}'
-        return f'"{lit.value}"'
+            return f'"{value}"^^{self._abbrev(lit.datatype.value)}'
+        return f'"{value}"'

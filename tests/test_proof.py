@@ -225,6 +225,109 @@ class TestEyeProofVocabulary:
         assert "} => {" in out
 
 
+class TestEyeProofStructure:
+    """Structural invariants of the emitted reason: graph (EYE parity)."""
+
+    def _run(self, tmp_path, rules: str, goal: str, **kw):
+        rf = tmp_path / "rules.n3"
+        qf = tmp_path / "goal.n3"
+        rf.write_text(rules)
+        qf.write_text(goal)
+        return execute(
+            rule_paths=[str(rf)], query_paths=[str(qf)], proof=True,
+            source_urls={str(rf): "http://src/rules.n3",
+                         str(qf): "http://src/goal.n3"},
+            **kw,
+        )
+
+    def test_var_numbering_predicate_first(self, tmp_path):
+        # EYE stores triples predicate-first, so an all-variable pattern
+        # numbers the predicate x_0, subject x_1, object x_2.
+        out = execute(
+            rule_paths=[str(self._write(tmp_path, "d.n3",
+                "@prefix : <http://e#>.\n:s :p :o."))],
+            pass_mode=True, proof=True,
+            source_urls={str(tmp_path / "d.n3"): "http://src/d.n3"},
+        ).triples
+        i_p = out.index('var#x_0"]; r:boundTo [ n3:uri "http://e#p"]')
+        i_s = out.index('var#x_1"]; r:boundTo [ n3:uri "http://e#s"]')
+        i_o = out.index('var#x_2"]; r:boundTo [ n3:uri "http://e#o"]')
+        assert i_p < i_s < i_o
+
+    @staticmethod
+    def _write(tmp_path, name, text):
+        f = tmp_path / name
+        f.write_text(text)
+        return f
+
+    def test_pass_mode_synthetic_rule_source(self, tmp_path):
+        out = execute(
+            rule_paths=[str(self._write(tmp_path, "d.n3",
+                "@prefix : <http://e#>.\n:s :p :o."))],
+            pass_mode=True, proof=True,
+        ).triples
+        assert ("r:source <http://eulersharp.sourceforge.net/2003/03swap/"
+                "pass>" in out)
+        assert "var:x_1 var:x_0 var:x_2 ." in out.replace("\n", " ")
+
+    def test_unbound_head_var_skolemised(self, tmp_path):
+        # {?S :p :o} => {{?S :p ?O} => {?S :q ?O}} leaves ?O unbound: the
+        # binding shows an r:Existential _:sk_0 and the rule quotes @forSome.
+        out = self._run(
+            tmp_path,
+            "@prefix : <http://e#>.\n:s :p :o.",
+            "@prefix : <http://e#>.\n"
+            "{?S :p :o} => {{?S :p ?O} => {?S :q ?O}}.",
+        ).triples
+        assert 'r:boundTo [ a r:Existential; n3:nodeId "_:sk_0"]' in out
+        assert "@forAll var:x_0. @forSome var:x_1." in out
+        # the conclusion renders the skolem as a fresh universal
+        assert "?U_0" in out
+
+    def test_builtin_atom_is_inline_fact(self, tmp_path):
+        out = self._run(
+            tmp_path,
+            "@prefix : <http://e#>.\n:n :val 5.",
+            "@prefix : <http://e#>.\n"
+            "@prefix math: <http://www.w3.org/2000/10/swap/math#>.\n"
+            "{?N :val ?V. ?V math:greaterThan 3} => {?N a :Big}.",
+        ).triples
+        assert "[ a r:Fact; r:gives {5 math:greaterThan 3}]" in out
+
+    def test_forward_chain_nested_inference(self, tmp_path):
+        # query ← derived ← source fact: nested Inference with an Extraction
+        # for both the fact and each rule.
+        out = self._run(
+            tmp_path,
+            "@prefix : <http://e#>.\n:a :p :b.\n{?x :p ?y} => {?x :q ?y}.",
+            "@prefix : <http://e#>.\n{?x :q ?y} => {?x :q ?y}.",
+        ).triples
+        assert out.count("a r:Inference;") == 2
+        assert out.count("a r:Extraction;") == 3  # fact + 2 rules
+        assert "r:because [ a r:Parsing; r:source <http://src/rules.n3>]." in out
+
+    def test_findall_scope_presented(self, tmp_path):
+        out = self._run(
+            tmp_path,
+            "@prefix : <http://e#>.\n:a :p :b.\n:a :p :c.",
+            "@prefix : <http://e#>.\n"
+            "@prefix e: <http://eulersharp.sourceforge.net/2003/03swap/"
+            "log-rules#>.\n"
+            "{?S e:findall (?X {:a :p ?X} ?L)} => {:res :is ?L}.",
+        ).triples
+        assert "r:boundTo ((<http://src/rules.n3>) 1)" in out
+        assert ":res :is (:b :c)" in out.replace("\n", " ")
+
+    def test_language_tag_lowercased(self, tmp_path):
+        out = self._run(
+            tmp_path,
+            '@prefix : <http://e#>.\n:s :p "x"@en-US.',
+            "@prefix : <http://e#>.\n{?s :p ?o} => {?s :p ?o}.",
+        ).triples
+        assert '"x"@en-us' in out
+        assert "@en-US" not in out
+
+
 class TestEyeProofSearch:
     """Unit-level checks of the proof DAG builder."""
 

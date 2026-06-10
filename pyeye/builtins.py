@@ -1158,10 +1158,17 @@ def e_calculate(args: list[Term], engine: EngineProto) -> Term | None:
 
 
 def e_findall(args: list[Term], engine: EngineProto) -> list[Triple] | None:
-    """Collect all store triples matching a pattern.
+    """e:findall — Prolog-style findall over the store.
 
-    Simplified: returns all triples in the store.
+    Calling convention:
+        ?SCOPE e:findall (Template {Pattern} OutputList)
+
+    The subject is an opaque scope term; the work is delegated to
+    log:collectAllIn with the (Template Pattern OutputList) argument list.
     """
+    if (len(args) == 2 and isinstance(args[1], ListTerm)
+            and len(args[1].items) == 3):
+        return log_collectAllIn(list(args[1].items), engine)
     return list(engine.store)
 
 
@@ -1509,7 +1516,9 @@ def log_collectAllIn(args: list[Term], engine: EngineProto) -> Term | None:
         engine._current_binding = nb
         return _bool_result(True)
     else:
-        # Verify existing binding matches
+        # Verify existing binding matches; the caller's binding must not pick
+        # up the pattern's internal solutions.
+        engine._current_binding = saved
         return _bool_result(result_list == output_slot)
 
 

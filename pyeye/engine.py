@@ -227,6 +227,10 @@ class Engine:
         self._proof_steps: list[ProofStep] = []
         self._proof_trees: list[ProofTree] = []
         self._proof_index: dict[Triple, ProofTree] = {}
+        # First-derivation provenance for EYE proof reconstruction:
+        # derived triple -> (rule, binding at firing time).
+        self._record_derivations = False
+        self._derivations: dict[Triple, tuple[Rule, Binding]] = {}
         # Tabling cache for backward chaining
         self._tabling_cache: dict[str, list[Binding]] | None = None
         # Answer table for SLG-style tabling, scoped to one top-level _solve.
@@ -293,6 +297,9 @@ class Engine:
                                         self._derived_count += 1
                                         self._step_count += 1
                                         self._derived_triples.append(ht)
+                                        if self._record_derivations:
+                                            self._derivations.setdefault(
+                                                ht, (rule, dict(binding)))
                                         if self._explain:
                                             step = ProofStep(
                                                 conclusion=ht,
@@ -461,6 +468,9 @@ class Engine:
                     self._derived_count += 1
                     self._step_count += 1
                     self._derived_triples.append(head_triple)
+                    if self._record_derivations:
+                        self._derivations.setdefault(
+                            head_triple, (rule, dict(for_some_binding)))
 
                     if self._explain:
                         premise = list(rule.body.triples) if rule.body.triples else None

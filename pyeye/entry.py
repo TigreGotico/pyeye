@@ -322,20 +322,6 @@ def _execute_impl(
     ):
         has_query_rules = True
 
-    # -- proof mode ----------------------------------------------------------
-    # Emit an EYE-compatible proof trace (reason: vocabulary) of the query.
-    if proof:
-        from pyeye.eye_proof import ProofKB, build_proof, serialize_proof
-        kb = ProofKB(facts=list(src_facts), rules=list(src_rules))
-        proof_dag = build_proof(kb, src_query_rules)
-        _sys.setrecursionlimit(_prev_reclimit)
-        text = serialize_proof(proof_dag, all_prefixes)
-        return Result(
-            triples=text,
-            stats={"steps": 0, "derived": len(proof_dag.components),
-                   "time_ms": (time.monotonic() - start) * 1000},
-        )
-
     # -- nope mode -----------------------------------------------------------
     # ``--nope`` only suppresses proof output; with a query it still runs and
     # returns the query answers.  Only short-circuit when there is nothing to
@@ -359,6 +345,8 @@ def _execute_impl(
         explain=explain,
         timeout_seconds=timeout_seconds,
     )
+    if proof:
+        engine._record_derivations = True
 
     # Convert log:implies triples to rules AND keep them in the store
     # (keeping them queryable lets meta-builtins like log:forAllIn inspect rules)
@@ -410,9 +398,39 @@ def _execute_impl(
     # --pass-only-new).
     run_forward = forward and (
         not nope or has_query_rules or pass_only_new or pass_mode or pass_all
+        or proof
     )
     if run_forward:
         engine.run()
+
+    # -- proof mode ----------------------------------------------------------
+    # Emit an EYE-compatible proof trace (reason: vocabulary) of the query,
+    # reconstructed over the engine's closure (so builtins and backward rules
+    # resolve exactly as in a normal run).
+    if proof:
+        from pyeye.eye_proof import (
+            ProofKB, build_proof, make_pass_query_rule, serialize_proof,
+        )
+        kb = ProofKB(facts=list(src_facts), rules=list(src_rules))
+        proof_query_rules = list(src_query_rules)
+        if not proof_query_rules and (pass_mode or pass_all):
+            synth = make_pass_query_rule()
+            proof_query_rules = [(synth, synth.source)]
+        proof_sources: list[str] = []
+        for p in list(data_paths or []) + list(rule_paths or []):
+            url = _src_url(p)
+            if url not in proof_sources:
+                proof_sources.append(url)
+        proof_dag = build_proof(kb, proof_query_rules, engine=engine,
+                                sources=proof_sources)
+        _sys.setrecursionlimit(_prev_reclimit)
+        text = serialize_proof(proof_dag, all_prefixes)
+        return Result(
+            triples=text,
+            stats={"steps": engine.step_count,
+                   "derived": len(proof_dag.components),
+                   "time_ms": (time.monotonic() - start) * 1000},
+        )
 
     # Run backward chaining (if query Triple is set)
     query_answers: list = []
