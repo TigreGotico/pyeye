@@ -651,7 +651,13 @@ def math_ceiling(args: list[Term], engine: EngineProto) -> Term | None:
 
 def math_exponentiation(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args):
-        return None
+        # Inverse modes: (?B E) exponentiation R → B = R^(1/E);
+        # (B ?E) exponentiation R → E = log(R)/log(B).
+        def solve(out, known, idx):
+            if idx == 0:
+                return _math.pow(out, 1.0 / known[0])
+            return _math.log(out) / _math.log(known[0])
+        return _solve_single_unknown(args, engine, solve)
     inp = _input_args(args, 2)
     base, exp = _num_exact(inp[0]), _num_exact(inp[1])
     if isinstance(base, int) and isinstance(exp, int) and exp >= 0:
