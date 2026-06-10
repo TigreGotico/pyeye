@@ -262,6 +262,40 @@ class TestLoadDataString:
 """)
         assert len(doc.triples) == 2
 
+    def test_collection_becomes_listterm(self):
+        """rdflib rdf:first/rdf:rest chains are rebuilt as native ListTerm."""
+        from pyeye.term import ListTerm
+        doc = load_data_string(
+            "@prefix : <http://ex.org/> .\n:a :items (10 20 30) .")
+        assert len(doc.triples) == 1
+        obj = doc.triples[0].object
+        assert isinstance(obj, ListTerm)
+        assert [t.value for t in obj.items] == ["10", "20", "30"]
+
+    def test_nested_collection(self):
+        from pyeye.term import ListTerm
+        doc = load_data_string(
+            "@prefix : <http://ex.org/> .\n:a :items (10 (20 21) 30) .")
+        obj = doc.triples[0].object
+        assert isinstance(obj, ListTerm)
+        assert isinstance(obj.items[1], ListTerm)
+        assert [t.value for t in obj.items[1].items] == ["20", "21"]
+
+    def test_empty_collection_is_empty_listterm(self):
+        from pyeye.term import ListTerm
+        doc = load_data_string(
+            "@prefix : <http://ex.org/> .\n:a :items () .")
+        assert doc.triples[0].object == ListTerm(items=())
+
+    def test_collection_in_file(self, tmp_path):
+        from pyeye.parser import load_data_file
+        from pyeye.term import ListTerm
+        f = tmp_path / "data.ttl"
+        f.write_text("@prefix : <http://ex.org/> .\n:a :items (:x :y) .")
+        doc = load_data_file(str(f))
+        assert len(doc.triples) == 1
+        assert isinstance(doc.triples[0].object, ListTerm)
+
 
 # -- error handling ----------------------------------------------------------
 
