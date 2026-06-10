@@ -169,7 +169,10 @@ def tokenize(text: str) -> list[Tok]:
         ("TRUE",    r"\btrue\b"),   # Boolean literal
         ("FALSE",   r"\bfalse\b"),  # Boolean literal
         ("VAR",     r"\?[^\W\d]\w*"),  # C9 fix: Unicode variable names
-        ("BLANK",   r"_:[^\W\d]\w*"),  # C9 fix: Unicode blank node names
+        # Blank node label per Turtle BLANK_NODE_LABEL: leading word char
+        # (Unicode, incl. digit), interior chars may include '-' and '.',
+        # but no trailing '.' (so ``_:b1.`` still ends the statement).
+        ("BLANK",   r"_:\w(?:[\w.\-]*[\w\-])?"),
         ("LANG",    r"@[A-Za-z]+(-[A-Za-z0-9]+)*"),
         # Prefixed name (Turtle PNAME): optional prefix, ':', rich local part
         # (digits anywhere, percent-escapes %XX, internal dots, ':').  Matched

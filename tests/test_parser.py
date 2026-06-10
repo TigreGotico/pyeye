@@ -303,3 +303,27 @@ class TestRelativeIriResolution:
         doc = parse_n3("<https://x.org/a> <https://x.org/p> <https://x.org/b> .",
                        source="https://example.org/doc.n3")
         assert doc.triples[0].subject == NN("https://x.org/a")
+
+
+class TestBlankNodeLabels:
+    def test_hyphen_in_label(self):
+        doc = parse_n3("_:sk-20192690 <http://x/p> <http://x/o> .")
+        assert doc.triples[0].subject.name == "sk-20192690"
+
+    def test_hyphen_label_before_semicolon(self):
+        doc = parse_n3(
+            "<http://x/s> <http://x/p> _:sk-1; <http://x/q> _:sk-2 .")
+        assert doc.triples[0].object.name == "sk-1"
+        assert doc.triples[1].object.name == "sk-2"
+
+    def test_interior_dot_in_label(self):
+        doc = parse_n3("_:b1.2 <http://x/p> <http://x/o> .")
+        assert doc.triples[0].subject.name == "b1.2"
+
+    def test_trailing_dot_ends_statement(self):
+        doc = parse_n3("<http://x/s> <http://x/p> _:b1.")
+        assert doc.triples[0].object.name == "b1"
+
+    def test_digit_leading_label(self):
+        doc = parse_n3("_:0b <http://x/p> <http://x/o> .")
+        assert doc.triples[0].subject.name == "0b"
