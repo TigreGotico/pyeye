@@ -615,13 +615,20 @@ class Parser:
                     self._var_scope[vname] = Variable(vname)
                 var_term = self._var_scope[vname]
                 imp_dir = self._eat_any().t  # IMPF or IMPB
+                head_formula: Term
                 if self._peek().t == "LBR":
                     head_formula = self._formula()
                 elif self._peek().t in ("FALSE", "TRUE"):
                     self._eat_any()
                     head_formula = Formula(())
+                elif self._peek().t == "VAR":
+                    # ``?P => ?C`` — keep the conclusion variable
+                    hname = self._eat("VAR").v[1:]
+                    if hname not in self._var_scope:
+                        self._var_scope[hname] = Variable(hname)
+                    head_formula = self._var_scope[hname]
                 else:
-                    # Bare term (variable, literal) — eat and treat as empty
+                    # Bare term (literal) — eat and treat as empty
                     if self._peek().t not in ("DOT", "RBR"):
                         self._eat_any()
                     head_formula = Formula(())

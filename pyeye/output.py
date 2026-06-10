@@ -40,12 +40,21 @@ class N3Writer:
         # Separate regular triples from rule triples (log:implies/log:impliedBy)
         IMPLIES = "http://eulersharp.sourceforge.net/2003/03swap/log-rules#implies"
         IMPLIED_BY = "http://eulersharp.sourceforge.net/2003/03swap/log-rules#impliedBy"
+        LOG_IMPLIES = "http://www.w3.org/2000/10/swap/log#implies"
+        LOG_IMPLIED_BY = "http://www.w3.org/2000/10/swap/log#impliedBy"
 
         regular_triples: list[Triple] = []
         rule_triples: list[Triple] = []
 
         for t in triples:
             if isinstance(t.predicate, NamedNode) and t.predicate.value in (IMPLIES, IMPLIED_BY):
+                rule_triples.append(t)
+            elif (isinstance(t.predicate, NamedNode)
+                    and t.predicate.value in (LOG_IMPLIES, LOG_IMPLIED_BY)
+                    and isinstance(t.subject, Formula)
+                    and isinstance(t.object, Formula)):
+                # log:implies between formulas is a rule statement — render
+                # with =>/<= sugar so it re-parses as a rule.
                 rule_triples.append(t)
             else:
                 regular_triples.append(t)
@@ -61,7 +70,8 @@ class N3Writer:
             for t in rule_triples:
                 body_str = self._formula_to_n3(t.subject)
                 head_str = self._formula_to_n3(t.object)
-                op = "=>" if isinstance(t.predicate, NamedNode) and t.predicate.value == IMPLIES else "<="
+                op = ("=>" if isinstance(t.predicate, NamedNode)
+                      and t.predicate.value in (IMPLIES, LOG_IMPLIES) else "<=")
                 result += f"{body_str} {op} {head_str} .\n"
 
         return result

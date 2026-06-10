@@ -196,3 +196,26 @@ var:X :is :constantHere .
 """)
         subj = doc.triples[0].subject
         assert isinstance(subj, NamedNode)
+
+
+class TestContrapositive:
+    def test_var_implies_var_keeps_conclusion(self):
+        doc = parse_n3("""@prefix : <https://eyereasoner.github.io/ns#>.
+{ ?P => ?C . ?C => false } => { ?P => false } .
+""")
+        body = doc.rules[0].body
+        first = body.triples[0]
+        assert isinstance(first.subject, Variable)
+        assert isinstance(first.object, Variable)
+
+    def test_log_implies_triples_render_with_sugar(self):
+        from pyeye.output import N3Writer
+        from pyeye.term import Formula
+        log_implies = NamedNode("http://www.w3.org/2000/10/swap/log#implies")
+        body = Formula((Triple(NamedNode("http://x/a"), NamedNode("http://x/p"),
+                               NamedNode("http://x/b")),))
+        t = Triple(body, log_implies, Formula(()))
+        out = N3Writer().write_triples([t])
+        assert "=>" in out
+        doc = parse_n3(out)
+        assert len(doc.rules) == 1
