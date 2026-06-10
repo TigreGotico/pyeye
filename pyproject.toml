@@ -19,6 +19,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
+[project.urls]
+Homepage = "https://github.com/TigreGotico/pyeye"
+Source = "https://github.com/TigreGotico/pyeye"
+Issues = "https://github.com/TigreGotico/pyeye/issues"
+
 [project.optional-dependencies]
 test = [
     "pytest>=8.0",

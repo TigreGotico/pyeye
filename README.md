@@ -24,6 +24,13 @@ It implements the Euler Abstract Machine with forward chaining, backward chainin
 ## Install
 
 ```bash
+pip install pyeye-reasoner
+```
+
+The distribution name is `pyeye-reasoner`; the import package is `pyeye`.
+From source:
+
+```bash
 git clone https://github.com/TigreGotico/pyeye
 cd pyeye
 pip install -e .

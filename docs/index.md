@@ -58,6 +58,13 @@ It runs locally — no cloud, no API calls, no data leaving your machine.
 ## Install
 
 ```bash
+pip install pyeye-reasoner
+```
+
+The distribution name is `pyeye-reasoner`; the import package is `pyeye`.
+From source:
+
+```bash
 git clone https://github.com/TigreGotico/pyeye
 cd pyeye
 pip install -e .
