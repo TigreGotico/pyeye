@@ -241,6 +241,9 @@ class Parser:
         self._bn = 0
         self._for_some: list[str] = []
         self._for_all: list[str] = []
+        # IRIs declared ``@forAll <iri>`` — universally quantified, rewritten
+        # to Variables inside rule formulas (document scope).
+        self._forall_iris: set[str] = set()
         # Variable scope: maps name → Variable within the current rule.
         # Ensures ?X in body and ?X in head share the same Variable.id.
         # Reset for each top-level statement, inherited into nested formulas.
@@ -348,16 +351,30 @@ class Parser:
         self._eat("DOT")
 
     def _do_quantifier(self) -> None:
-        """Consume @forSome/@forAll <var>, <var> . and store variable names."""
+        """Consume @forSome/@forAll <var>, <var> . and store variable names.
+
+        ``@forAll`` accepts IRIs as well as ``?var`` quickvars; a declared IRI
+        is universally quantified, so its occurrences inside rule formulas are
+        rewritten to Variables (see :meth:`_universalize`).
+        """
         is_forsome = self._peek().t == "FSOME"
         self._eat_any()
         vars_list = []
         while self._peek().t not in ("DOT", "EOF"):
-            if self._peek().t == "VAR":
+            t = self._peek()
+            if t.t == "VAR":
                 var_name = self._eat("VAR").v[1:]  # strip ?
                 vars_list.append(var_name)
-            elif self._peek().t == "CM":
+            elif t.t == "CM":
                 self._eat("CM")
+            elif not is_forsome and t.t == "IRI":
+                self._eat("IRI")
+                self._forall_iris.add(self._resolve_iri(t.v[1:-1]))
+            elif not is_forsome and t.t == "PNAME":
+                self._eat("PNAME")
+                node = self._pm.expand(t.v)
+                if isinstance(node, NamedNode):
+                    self._forall_iris.add(node.value)
             else:
                 self._eat_any()
         if self._peek().t == "DOT":
@@ -396,6 +413,61 @@ class Parser:
 
     # -- rules / formulas ----------------------------------------------------
 
+    _VAR_NS = "http://www.w3.org/2000/10/swap/var#"
+
+    def _universalize(self, body: Formula, head: Formula) -> tuple[Formula, Formula]:
+        """Rewrite universally quantified IRIs in a rule to Variables.
+
+        Covers EYE quickvars (the ``var:`` namespace) and IRIs declared with
+        ``@forAll <iri>``.  Only rule bodies/heads are rewritten — the same
+        IRIs in plain data triples stay constants (e.g. ``log:allPossibleCases``
+        declarations).  Occurrences across body and head share one Variable.
+        """
+        var_map: dict[str, Variable] = {}
+
+        def conv(t: Term) -> Term:
+            if isinstance(t, NamedNode):
+                uri = t.value
+                if uri.startswith(self._VAR_NS) or uri in self._forall_iris:
+                    if uri not in var_map:
+                        local = uri.rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+                        var_map[uri] = Variable(local)
+                    return var_map[uri]
+                return t
+            if isinstance(t, ListTerm):
+                return ListTerm(items=tuple(conv(i) for i in t.items))
+            if isinstance(t, Formula):
+                return Formula(triples=tuple(conv_triple(tr) for tr in t.triples))
+            if isinstance(t, NegativeSurface):
+                return NegativeSurface(formula=Formula(triples=tuple(
+                    conv_triple(tr) for tr in t.formula.triples)))
+            return t
+
+        def conv_triple(tr: Triple) -> Triple:
+            # Predicates are left alone: var:* predicates are builtins.
+            return Triple(conv(tr.subject), tr.predicate, conv(tr.object))
+
+        def has_candidate(f: Formula) -> bool:
+            def scan(t: Term) -> bool:
+                if isinstance(t, NamedNode):
+                    return (t.value.startswith(self._VAR_NS)
+                            or t.value in self._forall_iris)
+                if isinstance(t, ListTerm):
+                    return any(scan(i) for i in t.items)
+                if isinstance(t, Formula):
+                    return any(scan(tr.subject) or scan(tr.object)
+                               for tr in t.triples)
+                if isinstance(t, NegativeSurface):
+                    return any(scan(tr.subject) or scan(tr.object)
+                               for tr in t.formula.triples)
+                return False
+            return any(scan(tr.subject) or scan(tr.object) for tr in f.triples)
+
+        if not (has_candidate(body) or has_candidate(head)):
+            return body, head
+        return (Formula(triples=tuple(conv_triple(tr) for tr in body.triples)),
+                Formula(triples=tuple(conv_triple(tr) for tr in head.triples)))
+
     def _do_formula_top(self) -> None:
         body = self._formula()
         t = self._peek()
@@ -414,6 +486,7 @@ class Parser:
             if self._peek().t == "ANNOT_OPEN":
                 self._skip_annotation()
             self._eat("DOT")
+            body, head = self._universalize(body, head)
             self._rules.append(Rule(
                 body, head, self._src,
                 for_some=tuple(self._for_some),
@@ -450,6 +523,7 @@ class Parser:
             if self._peek().t == "ANNOT_OPEN":
                 self._skip_annotation()
             self._eat("DOT")
+            body, head = self._universalize(body, head)
             self._rules.append(Rule(
                 body, head, self._src,
                 for_some=tuple(self._for_some),
@@ -472,6 +546,7 @@ class Parser:
             if self._peek().t == "ANNOT_OPEN":
                 self._skip_annotation()
             self._eat("DOT")
+            head, body = self._universalize(head, body)
             self._rules.append(Rule(
                 head, body, self._src,
                 for_some=tuple(self._for_some),
