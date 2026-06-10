@@ -88,6 +88,15 @@ pyeye --n3 data.ttl --nope
 
 Useful for validating that a file parses correctly.
 
+### Summary
+
+```
+No flag:     only new facts the engine derived
+--pass:      everything (input + derived)
+--pass-all:  input + rules + derived
+--nope:      only input (no reasoning)
+```
+
 ---
 
 ## Reasoning control
@@ -138,13 +147,13 @@ pyeye --n3 data.ttl --query rules.n3 --tactic limited-answer 100
 
 ### `--query-goal TRIPLE`
 
-Backward-chain from a specific goal triple. The triple is specified as a comma-separated `S,P,O` string. Use `?X` for variable positions.
+Backward-chain from a specific goal triple. The triple is specified as a comma-separated `S,P,O` string of full IRIs. Use `?Name` for variable positions.
 
 ```bash
 pyeye --n3 data.ttl --query rules.n3 --query-goal "http://ex.org/bob,http://ex.org/child,?X"
 ```
 
-Results are printed as N3 triples.
+One ground triple is printed per answer (the goal with the variables substituted). When `--query-goal` is set, the answer triples replace the normal derived-triple output.
 
 ---
 
@@ -182,11 +191,11 @@ pyeye --n3 data.ttl --query rules.n3 --explain --explain-format dot | dot -Tpng 
 
 ### `--not-entail`
 
-Check that no entailment occurred at all. If any triple was derived, `not_entail_failed` is set (currently informational only — the CLI does not change its exit code based on this).
+Check that no entailment occurred at all. If any triple was derived, a `# not-entail check failed` line is printed to stderr (suppressed by `--quiet`). The exit code is unchanged.
 
 ### `--not-entail-triple S,P,O`
 
-Check that a specific triple was NOT derived. The triple is specified as a comma-separated `S,P,O` string of full IRIs.
+Check that a specific triple was NOT derived. The triple is specified as a comma-separated `S,P,O` string of full IRIs. A failed check (the triple WAS derived) is reported on stderr; the exit code is unchanged.
 
 ```bash
 pyeye --n3 data.ttl --query rules.n3 --not-entail-triple \
@@ -199,12 +208,12 @@ pyeye --n3 data.ttl --query rules.n3 --not-entail-triple \
 
 ### `--prefix P=URL`
 
-Register a prefix for output serialization. Repeatable.
+Register a prefix for output serialization. Repeatable. Use `=URL` (no name) for the default prefix.
 
 ```bash
 pyeye --n3 data.ttl --query rules.n3 \
-    --prefix ":=http://example.org/" \
-    --prefix "xsd:=http://www.w3.org/2001/XMLSchema#"
+    --prefix "=http://example.org/" \
+    --prefix "xsd=http://www.w3.org/2001/XMLSchema#"
 ```
 
 The prefixes are used to abbreviate IRIs in the output N3.
@@ -250,9 +259,25 @@ pyeye --n3 data.ttl --query rules.n3 --statistics --quiet
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | Error (parse error, file not found, etc.) |
+| `1` | Error (parse error, file not found, blocked URL, malformed `--query-goal`, etc.) |
 
 Errors are printed to stderr in the form `pyeye: error: <message>`.
+
+---
+
+## Stdout vs stderr
+
+| Stream | Content |
+|--------|---------|
+| **stdout** | N3 output (the facts) |
+| **stderr** | Error messages, statistics, not-entail reports |
+
+The separation makes the N3 output pipeable:
+
+```bash
+pyeye --n3 data.ttl --query rules.n3 --pass | grep ":child"
+pyeye --n3 data.ttl --query rules.n3 --statistics 2> stats.log
+```
 
 ---
 

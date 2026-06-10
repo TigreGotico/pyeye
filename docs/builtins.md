@@ -204,8 +204,8 @@ Namespace: `http://www.w3.org/2000/10/swap/string#`
 | Builtin | Syntax | Description |
 |---------|--------|-------------|
 | `string:concatenation` | `(?A ?B ?C ...) string:concatenation ?R` | Concatenate all strings |
-| `string:replace` | `(?S ?Pattern ?Repl) string:replace ?R` | Replace first regex match |
-| `string:replaceAll` | `(?S ?Pattern ?Repl) string:replaceAll ?R` | Replace all regex matches |
+| `string:replace` | `(?S ?Pattern ?Repl) string:replace ?R` | Replace all regex matches |
+| `string:replaceAll` | `(?S ?Pattern ?Repl) string:replaceAll ?R` | Alias for replace |
 | `string:substring` | `(?S ?Start ?Length) string:substring ?Sub` | Substring (0-based start, optional length) |
 | `string:length` | `?S string:length ?N` | String length |
 | `string:upperCase` | `?S string:upperCase ?U` | Convert to uppercase |
@@ -251,7 +251,7 @@ RDF lists are linked structures (like Python linked lists). The builtins work on
 | Builtin | Syntax | Description |
 |---------|--------|-------------|
 | `list:in` | `?Item list:in ?List` | True if Item is in the list. **Both args must be bound.** |
-| `list:member` | `?List list:member ?Item` | Alias with args reversed |
+| `list:member` | `?List list:member ?Item` | Enumerates: yields one binding per list element when `?Item` is unbound; tests membership when bound |
 | `list:notMember` | `(?List ?Item) list:notMember true` | True if Item is NOT in the list |
 | `list:isList` | `?L list:isList true` | True if ?L is a valid RDF list |
 
@@ -299,39 +299,45 @@ RDF lists are linked structures (like Python linked lists). The builtins work on
 |---------|--------|-------------|
 | `list:iterate` | `?L list:iterate ?Pair` | Yields `(index item)` pairs for each element. Returns `MultiResult` — the engine expands one binding per element. |
 
-`list:iterate` example:
+`list:iterate` example — each answer binds `?Pair` to a two-element `(index item)` list:
 
 ```n3
-{ :colors :items ?L . ?L list:iterate ?Pair .
-  ?Pair list:car ?Idx . ?Pair list:cdr ?ItemList .
-  ?ItemList list:car ?Item }
-    => { :colors :item ?Item . :colors :at ?Idx :item ?Item } .
+{ :colors :items ?L . ?L list:iterate ?Pair }
+    => { :colors :indexedItem ?Pair } .
+# Derives: :colors :indexedItem (0 "red") .  :colors :indexedItem (1 "green") .
+```
+
+To enumerate just the elements, `list:member` is simpler:
+
+```n3
+{ :colors :items ?L . ?L list:member ?Item }
+    => { :colors :item ?Item } .
 ```
 
 ### Important: `list:in` is a filter, not a generator
 
-Both the item and the list must be bound before calling `list:in`. It checks membership, it does not enumerate elements:
+Both the item and the list must be bound before calling `list:in`. It checks membership, it does not enumerate elements. The argument order is `item list:in list`:
 
 ```n3
 # Wrong — ?Item is unbound, so list:in cannot enumerate
 { :myList list:in ?Item } => { :result :has ?Item } .
 
-# Right — use list:iterate to enumerate
-{ :myList a :Container . :myList :elements ?L .
-  ?L list:iterate ?Pair .
-  ?Pair list:car ?Idx . ?Pair list:cdr ?Rest . ?Rest list:car ?Item }
+# Right — enumerate with list:member
+{ ?C :elements ?L . ?L list:member ?Item }
     => { :result :has ?Item } .
 
-# Or: check membership when item is already bound
-{ ?P :hobbies ?L . :reading list:in ?L }
-    => { ?P :isReader true } .
+# Right — check membership when the item is already bound
+{ ?U :role ?R . ?R list:in (:admin :superuser) }
+    => { ?U :hasAccess true } .
 ```
 
 ### `list:select` is 1-based
 
 ```n3
-{ ?L list:select 1 ?First }   # first element
-{ ?L list:select 2 ?Second }  # second element
+{ ?B :directors ?L . (?L 1) list:select ?Chair }
+    => { ?B :chair ?Chair } .
+{ ?B :directors ?L . (?L 2) list:select ?ViceChair }
+    => { ?B :viceChair ?ViceChair } .
 ```
 
 ### Examples
@@ -344,17 +350,6 @@ Both the item and the list must be bound before calling `list:in`. It checks mem
 # Get first element
 { :queue :items ?L . ?L list:first ?Head }
     => { :queue :nextItem ?Head } .
-
-# Membership check (both args bound)
-{ ?U :role ?R . (:admin :superuser) list:in ?R }  # Wrong! list is bound, R is bound, but this is backward
-```
-
-Wait — `list:in` takes `(item list)` syntax: `item list:in list`. So:
-
-```n3
-# Check if user's role is in the allowed set
-{ ?U :role ?R . ?R list:in (:admin :superuser) }
-    => { ?U :hasAccess true } .
 
 # Append two lists
 { :A :items ?L1 . :B :items ?L2 . (?L1 ?L2) list:append ?Combined }
@@ -392,7 +387,7 @@ Unlike `math:equalTo`, `log:equalTo` compares terms structurally — it works on
     => { ?Svc :timeout :defaultTimeout } .
 ```
 
-The rule fires only when `?Svc :timeout ?Any` cannot be matched. Each negative surface blank node must be unique within the rule. See [N3 Syntax — Negation](n3-syntax.md#negation) for details.
+The rule fires only when `?Svc :timeout ?Any` cannot be matched. Each negative surface blank node must be unique within the rule. See [N3 Syntax — Negation](n3-syntax.md#negation-logonnegativesurface) for details.
 
 ### `log:collectAllIn` — aggregate all matching values into a list
 
@@ -407,14 +402,14 @@ This is pyeye's primary aggregation builtin. It collects all values of a templat
 - `?Template` — the term to collect (evaluated for each binding)
 - `{ body pattern }` — a formula whose variables are matched against the store
 - `?OutputList` — the resulting RDF list (output variable)
-- `?Scope` — usually a variable or placeholder
+- `?Scope` — a **fresh variable** that appears nowhere else in the rule. Grouping comes from variables the inner pattern shares with the outer body, not from the scope.
 
 Example — collect all salaries for a department:
 
 ```n3
 { ?Dept a :Department .
   (?Salary { ?E :dept ?Dept . ?E :salary ?Salary } ?SalList)
-      log:collectAllIn ?Dept .
+      log:collectAllIn ?Scope .
   ?SalList math:sum ?Total }
     => { ?Dept :totalSalary ?Total } .
 ```
@@ -423,7 +418,7 @@ Example — count members:
 
 ```n3
 { ?G a :Group .
-  (1 { ?M :member ?G } ?Members) log:collectAllIn ?G .
+  (1 { ?M :member ?G } ?Members) log:collectAllIn ?Scope .
   ?Members list:length ?N }
     => { ?G :memberCount ?N } .
 ```
@@ -686,7 +681,7 @@ The `e:` namespace contains extensions specific to the EYE reasoner that have no
 |---------|--------|-------------|
 | `e:calculate` | `?Expr e:calculate ?Result` | Evaluate a safe Python expression (ast.literal_eval) |
 | `e:derive` | `(?FnName ?A ?B ...) e:derive ?Result` | Call a registered Python function by name |
-| `e:shell` | `?Cmd e:shell ?Output` | Run allowlisted shell command, return stdout |
+| `log:shell` | `?Cmd log:shell ?Output` | Run allowlisted shell command, return stdout |
 | `e:exec` | `?Cmd e:exec ?ExitCode` | Run allowlisted shell command, return exit code |
 | `e:fileString` | `?Path e:fileString ?Content` | Read file content as string |
 | `e:closure` | `?GraphID e:closure ?GraphID` | Compute deductive closure of a named graph |
@@ -825,28 +820,28 @@ The enclosed formula must not be provable for the rule to fire. Each blank node 
 
 ### `log:collectAllIn` — aggregation
 
-Collects all values of a template for all bindings of a pattern. The result is an RDF list that can be passed to `list:length`, `math:sum`, etc.
+Collects all values of a template for all bindings of a pattern. The result is an RDF list that can be passed to `list:length`, `math:sum`, etc. The scope (the builtin's object) must be a fresh variable used nowhere else in the rule.
 
 ```n3
 # Count employees per department
 { ?Dept a :Department .
-  (1 { ?E :dept ?Dept } ?Members) log:collectAllIn ?Dept .
+  (1 { ?E :dept ?Dept } ?Members) log:collectAllIn ?Scope .
   ?Members list:length ?N }
     => { ?Dept :headcount ?N } .
 
 # Sum salaries
 { ?Dept a :Department .
-  (?Sal { ?E :dept ?Dept . ?E :salary ?Sal } ?Sals) log:collectAllIn ?Dept .
+  (?Sal { ?E :dept ?Dept . ?E :salary ?Sal } ?Sals) log:collectAllIn ?Scope .
   ?Sals math:sum ?Total }
     => { ?Dept :totalSalary ?Total } .
 ```
 
-The pattern can reference variables bound earlier in the rule body:
+The pattern groups on variables bound earlier in the rule body:
 
 ```n3
 # Group by company, count employees
 { ?Co a :Company .
-  (1 { ?P :worksFor ?Co } ?Staff) log:collectAllIn ?Co .
+  (1 { ?P :worksFor ?Co } ?Staff) log:collectAllIn ?Scope .
   ?Staff list:length ?N }
     => { ?Co :staffSize ?N } .
 ```
@@ -916,6 +911,9 @@ result = execute(
 A builtin is a callable with signature:
 
 ```python
+from pyeye.builtins import EngineProto, MultiResult
+from pyeye.term import Term, Triple
+
 def my_builtin(args: list[Term], engine: EngineProto) -> Term | list[Triple] | MultiResult | None:
     ...
 ```

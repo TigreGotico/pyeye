@@ -245,17 +245,17 @@ resolved term model; paths never reach the engine.
 
 ## 8. Proof output
 
-| | EYE | eyeling | pyeye (`proof.py`) |
+| | EYE | eyeling | pyeye (`proof.py`, `eye_proof.py`) |
 | --- | --- | --- | --- |
-| Form | RDF `reason:`/`r:Proof` graph with skolem genids | human-readable stdout comments | `ProofStep` / `ProofTree`, internal |
+| Form | RDF `reason:`/`r:Proof` graph with skolem genids | human-readable stdout comments | `ProofStep` / `ProofTree` (explain) + `reason:` graph (proof mode) |
 
 pyeye builds an internal proof tree (premises, rule, chaining direction, child
 trees) when run with `explain=True`, structurally close to EYE's `prfstep`
-records. It does not yet serialize that tree into EYE's `reason:`-vocabulary RDF
-proof graph. The corpus scenarios whose reference output is a full proof trace
-(24 of them — `bmi`, `crypto`, `graph`, `zebra`, …) are tracked as a separate
-cluster precisely because matching them needs this serializer, not because the
-underlying reasoning differs.
+records, with N3/DOT/HTML serializers in `proof.py`. Separately, `proof=True`
+(`eye_proof.py`) reconstructs and serializes an EYE-compatible `r:Proof` graph
+of a query — `r:Inference` lemmas with `r:gives`/`r:evidence`/`r:binding`/
+`r:rule`, `r:Extraction` leaves justified by `r:Parsing` sources, and EYE's
+skolemisation of unbound head variables.
 
 ---
 
@@ -277,6 +277,5 @@ underlying reasoning differs.
 | Binding threaded into sub-goals at full size | O(depth²) on linear recursion | resolve body in fresh scope, merge goal-relevant answers |
 | On-stack cut loop detection | can under-derive on legitimate re-entry | eyeling visited multiset with controlled re-entry |
 | Inline (non-phased) scoped builtins | `collectAllIn`/`forAllIn` read incomplete closure | EYE/eyeling two-phase scoped fixpoint |
-| No `reason:` proof serializer | 24 proof-format scenarios unmatched | EYE `r:Proof` graph output |
 
 See the corpus harness for the current per-scenario status.
