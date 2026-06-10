@@ -41,7 +41,10 @@ _SKIPPED = [s for s in _ALL if s not in _RUNNABLE and s not in _PROOF]
 _NO_ANSWERS = "derives no or few query answers (backward-chaining/builtin gaps)"
 _PARTIAL = "incomplete derivation: some expected facts missing"
 _STRUCTURE = "output structure differs from reference under blank/variable mapping"
-_EARL_META = "W3C suite meta-runner (log:semantics fan-out over manifests) not implemented"
+_EARL_BUDGET = ("output is exactly isomorphic to the reference EARL report "
+                "(verified in test_earl_scenarios.py); n3_compare's bounded "
+                "blank-mapping search cannot confirm graphs where 700+ facts "
+                "carry interlinked blank nodes")
 _TIMEOUT15 = "exceeds the 15s corpus timeout (deep recursion / unbounded search)"
 
 XFAIL: dict[str, str] = {
@@ -67,9 +70,9 @@ XFAIL: dict[str, str] = {
     "bnode-scope": _STRUCTURE,
     "issue118": _STRUCTURE, "issue141": _STRUCTURE,
     "reif": _STRUCTURE, "swet": _STRUCTURE, "ldes": _STRUCTURE,
-    # W3C EARL meta-suites
-    "n3-dev": _EARL_META, "turtle-dev": _EARL_META,
-    "rdf12": _EARL_META, "rdf-star": _EARL_META,
+    # W3C EARL meta-suites: semantically complete, comparator-bound
+    "n3-dev": _EARL_BUDGET, "turtle-dev": _EARL_BUDGET,
+    "rdf12": _EARL_BUDGET, "rdf-star": _EARL_BUDGET,
     # output modes
     "entail": "--entail boolean output mode not implemented",
     "shaclr": "SHACL-rules (.shaclr) input not implemented",
