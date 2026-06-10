@@ -1940,7 +1940,8 @@ class TestEBuiltins:
     def test_e_sha(self):
         r = e_sha([L("hello")], None)
         assert r is not None
-        assert len(r.value) == 40  # SHA-1
+        # EYE encoding: base64 SHA-1 with '+'/'/' mapped to '_', unpadded
+        assert r.value == "qvTGHdzF6KLavt4PO0gs2a6pQ00"
 
     def test_e_rms(self):
         r = e_rms([L("3"), L("4")], None)

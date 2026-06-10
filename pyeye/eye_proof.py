@@ -525,8 +525,11 @@ class ProofBuilder:
         bindings = [(f"x_{i}", _ground(v, nb)) for i, v in enumerate(order)]
         node = Inference(gives=gives, evidence=evidence, bindings=bindings,
                          rule=self._rule_extraction(rule, source))
-        if len(gives) == 1 and gives[0].is_ground():
-            self._node_cache.setdefault(str(gives[0]), node)
+        # Every conclusion of the firing shares this lemma (a multi-head rule
+        # firing is cited once per body atom it justifies, as in EYE).
+        for g in gives:
+            if g.is_ground():
+                self._node_cache.setdefault(str(g), node)
         return node
 
     def _materialize_derived(self, triple: Triple) -> Node:

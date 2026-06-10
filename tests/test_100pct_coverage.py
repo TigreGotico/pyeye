@@ -1998,7 +1998,8 @@ class TestBuiltinsMassiveMissing:
         from pyeye.builtins import e_sha
         result = e_sha([L("hello")], None)
         assert result is not None
-        assert len(result.value) == 40
+        # EYE encoding: base64 SHA-1 with '+'/'/' mapped to '_', unpadded
+        assert result.value == "qvTGHdzF6KLavt4PO0gs2a6pQ00"
 
     def test_e_sigmoid(self):
         # line 2268

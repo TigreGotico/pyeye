@@ -3208,8 +3208,13 @@ def e_roc(args: list[Term], engine: EngineProto) -> Term | None:
     return _num_result(0.0)
 
 def e_sha(args: list[Term], engine: EngineProto) -> Term | None:
+    """e:sha — base64 SHA-1 digest with '+' and '/' mapped to '_', unpadded
+    (EYE's filename-safe encoding, unlike crypto:sha's hex)."""
     if _unground(args): return None
-    return Literal(_hashlib.sha1(_str_val(args[0]).encode()).hexdigest())
+    import base64 as _b64
+    digest = _hashlib.sha1(_str_val(args[0]).encode()).digest()
+    text = _b64.b64encode(digest).decode().replace("+", "_")
+    return Literal(text.replace("/", "_").rstrip("="))
 
 def e_sigmoid(args: list[Term], engine: EngineProto) -> Term | None:
     if _unground(args): return None
