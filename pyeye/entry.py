@@ -432,10 +432,18 @@ def _execute_impl(
                    "time_ms": (time.monotonic() - start) * 1000},
         )
 
-    # Run backward chaining (if query Triple is set)
+    # Run backward chaining (if query Triple is set).  Engine bindings are
+    # keyed by Variable id; re-key them by variable name for the public API.
     query_answers: list = []
     if query is not None and not nope:
-        query_answers = engine.backward_chain(query)
+        from pyeye.term import Variable as _Variable
+        _var_names = {t.id: t.name
+                      for t in (query.subject, query.predicate, query.object)
+                      if isinstance(t, _Variable)}
+        query_answers = [
+            {_var_names.get(k, k): v for k, v in b.items()}
+            for b in engine.backward_chain(query)
+        ]
 
     # Collect query answers (head instantiations of --query rules)
     if has_query_rules:

@@ -1107,7 +1107,11 @@ class Engine:
     # -- backward chaining ---------------------------------------------------
 
     def backward_chain(self, query: Triple) -> list[Binding]:
-        """Goal-directed reasoning: find all bindings that satisfy *query*."""
+        """Goal-directed reasoning: find all bindings that satisfy *query*.
+
+        Returns one binding dict per solution, keyed by the query variable's
+        ``id`` (``execute()`` re-keys these by variable name for its callers).
+        """
         raw = self._solve([query], {})
 
         # Resolve Variable chains in results

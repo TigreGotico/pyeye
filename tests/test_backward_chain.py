@@ -89,6 +89,17 @@ class TestBackwardChaining:
         )
         assert len(r.query_answers) >= 1
 
+    def test_execute_query_answers_keyed_by_variable_name(self):
+        """execute() bindings are dict[str, Term] keyed by variable name."""
+        r = execute(
+            data_strings=["@prefix : <http://ex.org/> .\n:alice :age 30 ."],
+            query=T(V("Who"), NN("http://ex.org/age"), V("Age")),
+        )
+        assert len(r.query_answers) == 1
+        binding = r.query_answers[0]
+        assert set(binding) == {"Who", "Age"}
+        assert binding["Who"] == NN("http://ex.org/alice")
+
 
 class TestForwardBackwardCombination:
     """FR 2f.32: Forward + backward chaining combined."""
