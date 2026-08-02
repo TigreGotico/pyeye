@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1a2](https://github.com/TigreGotico/pyeye/tree/0.2.1a2) (2026-08-02)
+
+[Full Changelog](https://github.com/TigreGotico/pyeye/compare/0.2.1a1...0.2.1a2)
+
+**Merged pull requests:**
+
+- docs: add the MIT license file [\#4](https://github.com/TigreGotico/pyeye/pull/4) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.1a1](https://github.com/TigreGotico/pyeye/tree/0.2.1a1) (2026-06-10)
 
 [Full Changelog](https://github.com/TigreGotico/pyeye/compare/6f314d7eab9e1d7663f1fc6ce0fa857a493f4ff2...0.2.1a1)
